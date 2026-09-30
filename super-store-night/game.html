@@ -535,125 +535,218 @@ function buildCreature() {
 const creature = buildCreature();
 
 // ---------- audio ----------
+// Everything is synthesized. Sounds run through HRTF 3D panners (headphones help),
+// a distance filter, and a shared convolution reverb shaped like a big concrete store.
 const sfx = (() => {
-  let AC = null, master, noiseBuf, humG, rainG, muzakG, motor = null, dread = 0;
+  let AC = null, master, dryBus, verb, verbIn, noiseBuf, brownBuf, humG, hvacG, rainG, muzakBus, motor = null, dread = 0;
   const S = {};
+  const VOWELS = { a: [800, 1150, 2900], o: [450, 800, 2830], u: [325, 700, 2530], e: [400, 1700, 2600], i: [300, 2100, 2900], ae: [660, 1720, 2410] };
+  const FGAIN = [1, 0.5, 0.25];
+  function makeIR(sec, decay) {
+    const len = Math.floor(AC.sampleRate * sec), ir = AC.createBuffer(2, len, AC.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch); let lp = 0;
+      for (let i = 0; i < len; i++) {
+        const t = i / len, k = 0.25 + 0.7 * t; // tail gets darker
+        lp = lp + (1 - k) * ((Math.random() * 2 - 1) - lp);
+        d[i] = lp * Math.pow(1 - t, decay) * (i < AC.sampleRate * 0.012 ? i / (AC.sampleRate * 0.012) : 1);
+      }
+      // early reflections off shelving and the floor
+      for (const [ms, g] of [[11, 0.5], [23, 0.35], [37, 0.3], [53, 0.22], [71, 0.18], [97, 0.12]]) { const j = Math.floor(AC.sampleRate * (ms + ch * 3) / 1000); if (j < len) d[j] += g * (Math.random() < 0.5 ? -1 : 1); }
+    }
+    return ir;
+  }
   S.init = () => {
     if (AC) return; const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
-    AC = new C(); const comp = AC.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 6;
-    master = AC.createGain(); master.gain.value = 0.9; master.connect(comp); comp.connect(AC.destination);
-    noiseBuf = AC.createBuffer(1, AC.sampleRate * 2, AC.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    // hum
-    humG = AC.createGain(); humG.gain.value = 0; humG.connect(master);
-    for (const [f, t, v] of [[120, 'sine', 0.5], [240, 'triangle', 0.18], [360, 'sine', 0.06]]) { const o = AC.createOscillator(); o.type = t; o.frequency.value = f; const g = AC.createGain(); g.gain.value = v; o.connect(g); g.connect(humG); o.start(); }
-    // rain
-    rainG = AC.createGain(); rainG.gain.value = 0; const rs = AC.createBufferSource(); rs.buffer = noiseBuf; rs.loop = true;
-    const rf = AC.createBiquadFilter(); rf.type = 'highpass'; rf.frequency.value = 900; rs.connect(rf); rf.connect(rainG); rainG.connect(master); rs.start();
-    // muzak bus
-    const mf = AC.createBiquadFilter(); mf.type = 'lowpass'; mf.frequency.value = 1800; muzakG = AC.createGain(); muzakG.gain.value = 0.06; muzakG.connect(mf); mf.connect(master);
+    AC = new C();
+    const comp = AC.createDynamicsCompressor(); comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 5; comp.attack.value = 0.004; comp.release.value = 0.25;
+    master = AC.createGain(); master.gain.value = 0.95; master.connect(comp); comp.connect(AC.destination); S.meter = AC.createAnalyser(); S.meter.fftSize = 2048; comp.connect(S.meter);
+    dryBus = AC.createGain(); dryBus.connect(master);
+    verb = AC.createConvolver(); verb.buffer = makeIR(3.4, 2.6);
+    verbIn = AC.createGain(); verbIn.gain.value = 1; const verbOut = AC.createGain(); verbOut.gain.value = 0.55;
+    const vhp = AC.createBiquadFilter(); vhp.type = 'highpass'; vhp.frequency.value = 120;
+    verbIn.connect(vhp); vhp.connect(verb); verb.connect(verbOut); verbOut.connect(master);
+    noiseBuf = AC.createBuffer(1, AC.sampleRate * 2, AC.sampleRate); const nd = noiseBuf.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    brownBuf = AC.createBuffer(1, AC.sampleRate * 4, AC.sampleRate); const bd = brownBuf.getChannelData(0); let b = 0; for (let i = 0; i < bd.length; i++) { b = (b + 0.02 * (Math.random() * 2 - 1)) / 1.02; bd[i] = b * 3.5; }
+    // fluorescent buzz: 120 Hz mains hum with buzzy harmonics
+    humG = AC.createGain(); humG.gain.value = 0; humG.connect(dryBus);
+    const hs = AC.createOscillator(); hs.type = 'sawtooth'; hs.frequency.value = 120;
+    for (const [f, q, g] of [[120, 2, 0.5], [360, 6, 0.25], [1450, 10, 0.08]]) { const bp = AC.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q; const gg = AC.createGain(); gg.gain.value = g; hs.connect(bp); bp.connect(gg); gg.connect(humG); }
+    hs.start();
+    // HVAC room tone
+    hvacG = AC.createGain(); hvacG.gain.value = 0; const hv = AC.createBufferSource(); hv.buffer = brownBuf; hv.loop = true;
+    const hvf = AC.createBiquadFilter(); hvf.frequency.value = 260; hv.connect(hvf); hvf.connect(hvacG); hvacG.connect(dryBus); hv.start();
+    // rain on the lot: hiss plus droplets
+    rainG = AC.createGain(); rainG.gain.value = 0; rainG.connect(dryBus);
+    const rs = AC.createBufferSource(); rs.buffer = noiseBuf; rs.loop = true; const rf = AC.createBiquadFilter(); rf.type = 'bandpass'; rf.frequency.value = 2600; rf.Q.value = 0.4;
+    rs.connect(rf); rf.connect(rainG); rs.start(); rainDrops();
+    // store radio: ceiling speakers, band-limited, drenched in the room
+    muzakBus = AC.createGain(); muzakBus.gain.value = 0.07;
+    const mhp = AC.createBiquadFilter(); mhp.type = 'highpass'; mhp.frequency.value = 280; const mlp = AC.createBiquadFilter(); mlp.frequency.value = 3200;
+    muzakBus.connect(mhp); mhp.connect(mlp); mlp.connect(dryBus); const ms = AC.createGain(); ms.gain.value = 1.6; mlp.connect(ms); ms.connect(verbIn);
     muzakLoop();
   };
   S.resume = () => { if (AC && AC.state === 'suspended') AC.resume(); };
-  S.ok = () => !!AC;
-  S.set = (k, v) => { if (!AC) return; const n = { hum: humG, rain: rainG, muzak: muzakG }[k]; if (n) n.gain.setTargetAtTime(v, AC.currentTime, 0.25); };
+  S.set = (k, v) => { if (!AC) return; const n = { hum: humG, rain: rainG, muzak: muzakBus, hvac: hvacG }[k]; if (n) n.gain.setTargetAtTime(v, AC.currentTime, 0.3); };
   S.dread = v => { dread = v; };
-  function out(x, z, vol) {
+  S.listen = (x, z, yaw) => {
+    if (!AC) return; const L = AC.listener, fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    if (L.positionX) { const t = AC.currentTime; L.positionX.setTargetAtTime(x, t, 0.02); L.positionY.setTargetAtTime(1.65, t, 0.02); L.positionZ.setTargetAtTime(z, t, 0.02); L.forwardX.setTargetAtTime(fx, t, 0.02); L.forwardY.setTargetAtTime(0, t, 0.02); L.forwardZ.setTargetAtTime(fz, t, 0.02); L.upX.value = 0; L.upY.value = 1; L.upZ.value = 0; }
+    else { L.setPosition(x, 1.65, z); L.setOrientation(fx, 0, fz, 0, 1, 0); }
+  };
+  // a sound's entry point: at a place in the store (3D + distance muffling + reverb), or in your head (x == null)
+  function out(x, z, vol, wet) {
     const g = AC.createGain(); g.gain.value = vol == null ? 1 : vol;
-    if (x == null) { g.connect(master); return g; }
-    const p = AC.createStereoPanner(); const dx = x - P.x, dz = z - P.z, d = Math.hypot(dx, dz);
-    const right = dx * Math.cos(P.yaw) - dz * Math.sin(P.yaw);
-    p.pan.value = clamp(right / Math.max(d, 1), -1, 1) * 0.85; g.gain.value *= 1 / (1 + d * 0.13);
-    g.connect(p); p.connect(master); return g;
+    if (x == null) { g.connect(dryBus); const s = AC.createGain(); s.gain.value = wet == null ? 0.12 : wet; g.connect(s); s.connect(verbIn); return g; }
+    const d = Math.hypot(x - P.x, z - P.z);
+    const lp = AC.createBiquadFilter(); lp.frequency.value = clamp(18000 / (1 + d * 0.22), 700, 18000);
+    const pn = AC.createPanner(); pn.panningModel = 'HRTF'; pn.distanceModel = 'inverse'; pn.refDistance = 2.5; pn.rolloffFactor = 1.1; pn.maxDistance = 80;
+    if (pn.positionX) { pn.positionX.value = x; pn.positionY.value = 1.6; pn.positionZ.value = z; } else pn.setPosition(x, 1.6, z);
+    const send = AC.createGain(); send.gain.value = (wet == null ? 0.45 : wet) / (1 + d * 0.035);
+    g.connect(lp); lp.connect(pn); pn.connect(dryBus); lp.connect(send); send.connect(verbIn);
+    return g;
   }
   function noise(dest, t, dur, o) {
-    const s = AC.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+    const s = AC.createBufferSource(); s.buffer = o.brown ? brownBuf : noiseBuf; s.loop = true;
     const f = AC.createBiquadFilter(); f.type = o.type || 'lowpass'; f.frequency.setValueAtTime(o.f || 1000, t); if (o.f1) f.frequency.exponentialRampToValueAtTime(o.f1, t + dur); f.Q.value = o.q || 0.7;
     const g = AC.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(o.v || 0.5, t + (o.a || 0.005)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    s.connect(f); f.connect(g); g.connect(dest); s.start(t, Math.random()); s.stop(t + dur + 0.05);
+    s.connect(f); f.connect(g); g.connect(dest); s.start(t, Math.random()); s.stop(t + dur + 0.05); return g;
   }
   function tone(dest, t, dur, o) {
     const s = AC.createOscillator(); s.type = o.type || 'sine'; s.frequency.setValueAtTime(o.f, t); if (o.f1) s.frequency.exponentialRampToValueAtTime(o.f1, t + dur);
     const g = AC.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(o.v || 0.3, t + (o.a || 0.005)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     s.connect(g); g.connect(dest); s.start(t); s.stop(t + dur + 0.05); return s;
   }
-  // muzak: a soft store-radio loop that detunes and drags as dread rises
-  const NOTES = [[60, 64, 67, 72], [57, 60, 64, 69], [53, 57, 60, 65], [55, 59, 62, 67]];
+  // wandering pitch: smoothed noise into a frequency param
+  function jitter(param, amount, rate, t, dur) {
+    const s = AC.createBufferSource(); s.buffer = noiseBuf; s.loop = true; const f = AC.createBiquadFilter(); f.frequency.value = rate; f.Q.value = 0.3;
+    const g = AC.createGain(); g.gain.value = amount * 4; s.connect(f); f.connect(g); g.connect(param); s.start(t, Math.random()); s.stop(t + dur + 0.1);
+  }
+  // a throat: pitched source + breath through three vowel formants that can glide
+  function voice(dest, t, dur, o) {
+    const src = AC.createGain(); src.gain.value = 1;
+    const oscs = [];
+    for (const det of o.voices || [0]) {
+      const s = AC.createOscillator(); s.type = 'sawtooth'; s.detune.value = det;
+      const pts = o.pitch; s.frequency.setValueAtTime(pts[0][1], t);
+      for (const [tt, f] of pts.slice(1)) s.frequency.exponentialRampToValueAtTime(f, t + tt * dur);
+      jitter(s.frequency, pts[0][1] * (o.jit || 0.03), o.jitRate || 14, t, dur);
+      if (o.vib) { const l = AC.createOscillator(); l.frequency.value = o.vib[0]; const lg = AC.createGain(); lg.gain.value = pts[0][1] * o.vib[1]; l.connect(lg); lg.connect(s.frequency); l.start(t); l.stop(t + dur + 0.05); }
+      s.connect(src); s.start(t); s.stop(t + dur + 0.05); oscs.push(s);
+    }
+    // roughness: amplitude wobble in the vocal folds
+    let rough = src;
+    if (o.rough) { const r = AC.createGain(); r.gain.value = 1 - o.rough[1]; const l = AC.createOscillator(); l.type = 'square'; l.frequency.value = o.rough[0]; const lg = AC.createGain(); lg.gain.value = o.rough[1]; l.connect(lg); lg.connect(r.gain); src.connect(r); l.start(t); l.stop(t + dur + 0.05); rough = r; }
+    let shaped = rough;
+    if (o.drive) { const ws = AC.createWaveShaper(); const c = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; c[i] = Math.tanh(x * o.drive); } ws.curve = c; rough.connect(ws); shaped = ws; }
+    const env = AC.createGain(); env.gain.setValueAtTime(0.0001, t);
+    env.gain.exponentialRampToValueAtTime(o.v || 0.6, t + (o.a || 0.05)); env.gain.setValueAtTime(o.v || 0.6, t + dur * (o.hold || 0.6)); env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    const vs = o.vowels, sc = o.fscale || 1;
+    for (let k = 0; k < 3; k++) {
+      const bp = AC.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = (o.q || 6) + k * 2;
+      bp.frequency.setValueAtTime(VOWELS[vs[0][1]][k] * sc, t);
+      for (const [tt, v] of vs.slice(1)) bp.frequency.linearRampToValueAtTime(VOWELS[v][k] * sc, t + tt * dur);
+      const g = AC.createGain(); g.gain.value = FGAIN[k] * (o.bright ? 1 + k * 0.6 : 1) * 3;
+      shaped.connect(bp); bp.connect(g); g.connect(env);
+    }
+    if (o.breath) { const bn = noise(env, t, dur, { type: 'bandpass', f: VOWELS[vs[0][1]][1] * sc, q: 1.2, v: o.breath, a: 0.04 }); }
+    env.connect(dest);
+    return oscs;
+  }
+  // store radio, slowly going wrong
+  const PROG = [[60, 64, 67, 71], [57, 60, 64, 67], [53, 57, 60, 64], [55, 59, 62, 65]];
   let step = 0;
+  function epiano(dest, t, f, v) {
+    const car = AC.createOscillator(), mod = AC.createOscillator(), mg = AC.createGain(); car.frequency.value = f; mod.frequency.value = f * 1.002;
+    mg.gain.setValueAtTime(f * 1.4, t); mg.gain.exponentialRampToValueAtTime(f * 0.05, t + 0.6); mod.connect(mg); mg.connect(car.frequency);
+    if (dread > 0.05) { const l = AC.createOscillator(); l.frequency.value = 0.7 + dread; const lg = AC.createGain(); lg.gain.value = f * 0.012 * dread; l.connect(lg); lg.connect(car.frequency); l.start(t); l.stop(t + 1.3); }
+    const g = AC.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
+    car.connect(g); g.connect(dest); car.start(t); mod.start(t); car.stop(t + 1.25); mod.stop(t + 1.25);
+  }
   function muzakLoop() {
     if (!AC) return;
-    const t = AC.currentTime + 0.02, chord = NOTES[((step / 8) | 0) % 4], n = chord[step % 4] + (step % 8 >= 4 ? 12 : 0);
-    const det = -dread * 1.8 + (Math.random() - 0.5) * dread * 0.8;
-    const f = 440 * Math.pow(2, (n - 69 + det) / 12);
-    tone(muzakG, t, 0.5, { type: 'triangle', f, v: 0.5, a: 0.02 });
-    if (step % 4 === 0) tone(muzakG, t, 1.2, { type: 'sine', f: 440 * Math.pow(2, (chord[0] - 81 + det) / 12), v: 0.6, a: 0.03 });
+    const t = AC.currentTime + 0.03, bar = ((step / 8) | 0) % 4, chord = PROG[bar], beat = step % 8;
+    const det = -dread * 1.4 + (Math.random() - 0.5) * dread * 0.9;
+    const hz = n => 440 * Math.pow(2, (n - 69 + det) / 12);
+    if (!(dread > 0.6 && Math.random() < dread * 0.25)) { // dropouts when it gets bad
+      if (beat === 0 || beat === 3 || beat === 6) chord.slice(1).forEach(n => epiano(muzakBus, t, hz(n), 0.18));
+      const mel = [72, 71, 69, 67, 69, 71, 72, 74][(step + bar * 3) % 8]; if (beat % 2 === 0) epiano(muzakBus, t, hz(mel), 0.26);
+      if (beat === 0 || beat === 4) tone(muzakBus, t, 0.7, { f: hz(chord[0] - 24), v: 0.5, a: 0.01 });
+      if (beat === 2 || beat === 6) noise(muzakBus, t, 0.08, { type: 'highpass', f: 6000, v: 0.12 });
+    }
     step++;
-    setTimeout(muzakLoop, 300 * (1 + dread * 0.7));
+    setTimeout(muzakLoop, 260 * (1 + dread * 0.8));
+  }
+  function rainDrops() {
+    if (!AC) return;
+    if (rainG.gain.value > 0.005) for (let i = 0; i < 6; i++) tone(rainG, AC.currentTime + Math.random() * 0.2, 0.03, { f: rand(1800, 4200), f1: rand(900, 1500), v: rand(0.2, 0.6) });
+    setTimeout(rainDrops, 200);
   }
   S.crash = (x, z) => {
-    if (!AC) return; const t = AC.currentTime, o = out(x, z, 3.2);
-    noise(o, t, 2.2, { f: 900, f1: 120, v: 1, a: 0.01 }); tone(o, t, 1.4, { f: 70, f1: 28, v: 1 });
-    for (let i = 0; i < 9; i++) { const tt = t + rand(0, 1.1); noise(o, tt, rand(0.3, 0.8), { type: 'bandpass', f: rand(1200, 4200), q: 18, v: 0.8 }); tone(o, tt, 0.5, { type: 'square', f: rand(300, 900), v: 0.05 }); }
-    for (let i = 0; i < 4; i++) tone(o, t + 0.3 + i * 0.28, 0.35, { f: 90, f1: 40, v: 0.8 });
+    if (!AC) return; const t = AC.currentTime, o = out(x, z, 6, 1.2);
+    // pallet rack coming down: boom, steel ringing, product raining, glass
+    noise(o, t, 2.6, { brown: true, f: 500, f1: 60, v: 1, a: 0.01 }); tone(o, t, 1.8, { f: 62, f1: 24, v: 1 });
+    for (let i = 0; i < 6; i++) { const tt = t + rand(0, 1.3), base = rand(180, 700); for (const r of [1, 2.76, 5.4, 8.93]) tone(o, tt, rand(0.8, 1.8), { f: base * r, v: 0.12 / r, a: 0.002 }); noise(o, tt, 0.12, { type: 'highpass', f: 2000, v: 0.5 }); }
+    for (let i = 0; i < 22; i++) noise(o, t + 0.2 + rand(0, 1.6), rand(0.04, 0.14), { type: 'bandpass', f: rand(300, 1400), q: 3, v: rand(0.2, 0.6) });
+    for (let i = 0; i < 12; i++) noise(o, t + 0.35 + rand(0, 0.5), rand(0.1, 0.4), { type: 'bandpass', f: rand(4000, 9000), q: 8, v: 0.35 });
+    for (let i = 0; i < 4; i++) tone(o, t + 0.4 + i * 0.3, 0.4, { f: 85, f1: 38, v: 0.8 });
   };
   S.scream = (x, z, f, dur, vol) => {
-    if (!AC) return; const t = AC.currentTime, o = out(x, z, vol || 0.6);
-    const s = AC.createOscillator(); s.type = 'sawtooth'; s.frequency.setValueAtTime(f * 0.8, t); s.frequency.linearRampToValueAtTime(f * 1.25, t + 0.18); s.frequency.exponentialRampToValueAtTime(f * 0.65, t + dur);
-    const lfo = AC.createOscillator(); lfo.frequency.value = rand(5, 8); const lg = AC.createGain(); lg.gain.value = f * 0.04; lfo.connect(lg); lg.connect(s.frequency);
-    const bp = AC.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * 1.6; bp.Q.value = 1.1;
-    const g = AC.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.7, t + 0.06); g.gain.setValueAtTime(0.7, t + dur * 0.7); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    s.connect(bp); bp.connect(g); g.connect(o); s.start(t); lfo.start(t); s.stop(t + dur + 0.05); lfo.stop(t + dur + 0.05);
-    noise(o, t, dur, { type: 'bandpass', f: f * 2.5, q: 2, v: 0.15, a: 0.05 });
+    if (!AC) return; const t = AC.currentTime, o = out(x, z, (vol || 0.6) * 1.2, 0.7);
+    const top = f * rand(1.15, 1.4);
+    voice(o, t, dur, { pitch: [[0, f * 0.85], [0.12, top], [0.7, f * 1.05], [1, f * 0.6]], voices: [0, 18], jit: 0.04, jitRate: 18, vib: [rand(5, 7), 0.03], rough: [rand(55, 80), 0.25], drive: 2.5, vowels: [[0, 'ae'], [0.3, 'a'], [1, 'a']], q: 5, v: 0.55, a: 0.04, hold: 0.55, breath: 0.08, bright: true });
   };
   S.creatureScream = (dur) => {
-    if (!AC) return; const t = AC.currentTime, o = out(null, null, 1.6);
-    const ws = AC.createWaveShaper(); const curve = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; curve[i] = Math.tanh(x * 6); } ws.curve = curve;
-    const g = AC.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.9, t + 0.12); g.gain.setValueAtTime(0.9, t + dur * 0.75); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    ws.connect(g); g.connect(o);
-    for (const f of [78, 117, 163, 231, 310]) {
-      const s = AC.createOscillator(); s.type = 'sawtooth'; s.frequency.setValueAtTime(f * 0.7, t); s.frequency.exponentialRampToValueAtTime(f * 1.5, t + 0.35); s.frequency.exponentialRampToValueAtTime(f * 0.9, t + dur);
-      s.detune.value = rand(-30, 30); const sg = AC.createGain(); sg.gain.value = 0.18; s.connect(sg); sg.connect(ws); s.start(t); s.stop(t + dur + 0.05);
-    }
-    noise(o, t, dur, { type: 'bandpass', f: 700, f1: 1800, q: 0.8, v: 0.8, a: 0.1 });
-    tone(o, t, dur, { f: 44, f1: 30, v: 0.9, a: 0.1 });
+    if (!AC) return; const t = AC.currentTime, o = out(null, null, 1.15, 0.9);
+    // the inhale
+    noise(o, t, 0.55, { type: 'bandpass', f: 600, f1: 2400, q: 1, v: 0.35, a: 0.5 });
+    const t2 = t + 0.5;
+    const ring = AC.createGain(); ring.gain.value = 0.4; const rm = AC.createOscillator(); rm.frequency.value = 37; const rmg = AC.createGain(); rmg.gain.value = 0.6; rm.connect(rmg); rmg.connect(ring.gain); ring.connect(o); rm.start(t2); rm.stop(t2 + dur + 0.1);
+    voice(ring, t2, dur, { pitch: [[0, 160], [0.1, 340], [0.5, 300], [1, 180]], voices: [-40, 0, 25, 1180], jit: 0.08, jitRate: 22, vib: [9, 0.04], rough: [43, 0.5], drive: 7, vowels: [[0, 'o'], [0.12, 'a'], [0.7, 'ae'], [1, 'a']], fscale: 0.72, q: 4, v: 1, a: 0.08, hold: 0.7, breath: 0.35 });
+    voice(o, t2, dur, { pitch: [[0, 900], [0.15, 1500], [1, 1000]], voices: [0, 30], jit: 0.06, jitRate: 25, rough: [90, 0.4], drive: 3, vowels: [[0, 'i'], [1, 'e']], q: 8, v: 0.35, a: 0.15, hold: 0.6, bright: true });
+    voice(o, t2, dur, { pitch: [[0, 55], [0.2, 70], [1, 40]], voices: [0], jit: 0.1, rough: [21, 0.7], drive: 4, vowels: [[0, 'u'], [1, 'o']], fscale: 0.5, q: 3, v: 0.7, a: 0.1, hold: 0.7 });
+    tone(o, t2, dur, { f: 38, f1: 28, v: 0.8, a: 0.2 });
   };
   S.growl = (x, z, vol) => {
-    if (!AC) return; const t = AC.currentTime, dur = rand(1.2, 2.4), o = out(x, z, vol || 0.9);
-    const s = AC.createOscillator(); s.type = 'sawtooth'; s.frequency.setValueAtTime(rand(52, 70), t); s.frequency.linearRampToValueAtTime(rand(40, 60), t + dur);
-    const am = AC.createOscillator(); am.frequency.value = rand(14, 24); const amg = AC.createGain(); amg.gain.value = 0.5; am.connect(amg);
-    const g = AC.createGain(); g.gain.value = 0.5; amg.connect(g.gain);
-    const lp = AC.createBiquadFilter(); lp.frequency.value = 380;
-    const env = AC.createGain(); env.gain.setValueAtTime(0.0001, t); env.gain.exponentialRampToValueAtTime(0.9, t + 0.3); env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    s.connect(g); g.connect(lp); lp.connect(env); env.connect(o); s.start(t); am.start(t); s.stop(t + dur + 0.05); am.stop(t + dur + 0.05);
+    if (!AC) return; const t = AC.currentTime, dur = rand(1.3, 2.6), o = out(x, z, (vol || 0.9) * 0.8, 0.8);
+    voice(o, t, dur, { pitch: [[0, rand(38, 52)], [0.5, rand(46, 60)], [1, rand(32, 42)]], voices: [0, 7], jit: 0.12, jitRate: 9, rough: [rand(18, 28), 0.75], drive: 5, vowels: [[0, 'u'], [0.5, 'o'], [1, 'u']], fscale: 0.55, q: 3, v: 0.9, a: 0.3, hold: 0.5, breath: 0.25 });
   };
   S.groan = (x, z) => {
-    if (!AC) return; const t = AC.currentTime, dur = rand(0.8, 1.5), o = out(x, z, 0.8);
-    const s = AC.createOscillator(); s.type = 'sawtooth'; const f = rand(95, 140); s.frequency.setValueAtTime(f, t); s.frequency.linearRampToValueAtTime(f * 0.75, t + dur);
-    const bp = AC.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = rand(450, 650); bp.Q.value = 3;
-    const env = AC.createGain(); env.gain.setValueAtTime(0.0001, t); env.gain.exponentialRampToValueAtTime(0.8, t + 0.15); env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    s.connect(bp); bp.connect(env); env.connect(o); s.start(t); s.stop(t + dur + 0.05);
+    if (!AC) return; const t = AC.currentTime, dur = rand(0.9, 1.8), o = out(x, z, 0.9, 0.5), f = rand(80, 125);
+    voice(o, t, dur, { pitch: [[0, f], [0.4, f * 1.12], [1, f * 0.72]], voices: [0], jit: 0.06, jitRate: 8, rough: [rand(28, 40), 0.55], drive: 2, vowels: [[0, 'u'], [0.4, 'o'], [1, 'a']], q: 6, v: 0.7, a: 0.12, hold: 0.5, breath: 0.12 });
   };
-  S.clunk = (x, z) => { if (!AC) return; const t = AC.currentTime, o = out(x, z, 1.4); tone(o, t, 0.3, { f: 95, f1: 40, v: 0.9 }); noise(o, t, 0.06, { type: 'highpass', f: 2500, v: 0.4 }); };
-  S.crackle = (x, z) => { if (!AC) return; const o = out(x, z, 1); for (let i = 0; i < 10; i++) noise(o, AC.currentTime + rand(0, 0.45), 0.03, { type: 'highpass', f: 3500, v: 0.5 }); };
-  S.beep = (x, z) => { if (!AC) return; const t = AC.currentTime, o = out(x, z, 0.9); tone(o, t, 0.09, { type: 'square', f: 1850, v: 0.15 }); tone(o, t + 0.13, 0.09, { type: 'square', f: 1850, v: 0.15 }); };
-  S.swoosh = (heavy) => { if (!AC) return; noise(out(null, null, 0.5), AC.currentTime, heavy ? 0.3 : 0.18, { type: 'bandpass', f: heavy ? 300 : 500, f1: heavy ? 1100 : 1800, q: 1.2, v: 0.5, a: 0.03 }); };
-  S.hit = (x, z, heavy) => { if (!AC) return; const t = AC.currentTime, o = out(x, z, 1.4); noise(o, t, 0.16, { type: 'bandpass', f: heavy ? 500 : 900, q: 1, v: 0.9 }); tone(o, t, 0.2, { f: heavy ? 90 : 130, f1: 45, v: 0.8 }); };
-  S.hurt = () => { if (!AC) return; const t = AC.currentTime, o = out(null, null, 1); tone(o, t, 0.3, { f: 70, f1: 35, v: 1 }); noise(o, t, 0.2, { f: 700, v: 0.6 }); };
-  S.step = (run) => { if (!AC) return; noise(out(null, null, run ? 0.2 : 0.12), AC.currentTime, 0.07, { f: 420, v: 0.6 }); };
-  S.heart = () => { if (!AC) return; const t = AC.currentTime, o = out(null, null, 0.9); tone(o, t, 0.16, { f: 58, f1: 40, v: 0.9 }); tone(o, t + 0.2, 0.16, { f: 52, f1: 38, v: 0.7 }); };
-  S.door = (dur) => { if (!AC) return; const t = AC.currentTime, o = out(null, null, 0.4); tone(o, t, dur, { type: 'triangle', f: 180, f1: 210, v: 0.2, a: 0.05 }); noise(o, t, dur, { type: 'bandpass', f: 1200, q: 4, v: 0.08, a: 0.05 }); };
-  S.cartCrash = (x, z) => { if (!AC) return; const t = AC.currentTime, o = out(x, z, 1.6); for (let i = 0; i < 5; i++) noise(o, t + i * 0.04, 0.3, { type: 'bandpass', f: rand(1500, 3500), q: 12, v: 0.6 }); tone(o, t, 0.25, { f: 110, f1: 50, v: 0.7 }); };
+  S.clunk = (x, z) => { if (!AC) return; const t = AC.currentTime, o = out(x, z, 1.5, 0.9); tone(o, t, 0.35, { f: 110, f1: 45, v: 0.9 }); noise(o, t, 0.05, { type: 'highpass', f: 2500, v: 0.4 }); tone(o, t, 0.6, { type: 'triangle', f: 1210, v: 0.03 }); };
+  S.crackle = (x, z) => { if (!AC) return; const o = out(x, z, 1.1, 0.4); for (let i = 0; i < 14; i++) noise(o, AC.currentTime + rand(0, 0.5), rand(0.01, 0.04), { type: 'highpass', f: 3000, v: rand(0.3, 0.8) }); tone(o, AC.currentTime, 0.3, { type: 'sawtooth', f: 120, v: 0.08 }); };
+  S.beep = (x, z) => { if (!AC) return; const t = AC.currentTime, o = out(x, z, 0.8, 0.6); tone(o, t, 0.09, { type: 'square', f: 1850, v: 0.12 }); tone(o, t + 0.13, 0.09, { type: 'square', f: 1850, v: 0.12 }); };
+  S.swoosh = (heavy) => { if (!AC) return; noise(out(null, null, 0.55, 0.05), AC.currentTime, heavy ? 0.32 : 0.2, { type: 'bandpass', f: heavy ? 250 : 450, f1: heavy ? 1100 : 2000, q: 1.5, v: 0.5, a: 0.06 }); };
+  S.hit = (x, z, heavy) => {
+    if (!AC) return; const t = AC.currentTime, o = out(x, z, 2.6, 0.3);
+    tone(o, t, 0.18, { f: heavy ? 75 : 95, f1: 38, v: 1 });
+    noise(o, t, heavy ? 0.22 : 0.14, { type: 'bandpass', f: 380, q: 1.2, v: 0.9 });
+    for (let i = 0; i < (heavy ? 5 : 3); i++) noise(o, t + i * 0.015 + rand(0, 0.01), 0.03, { type: 'highpass', f: 1600, v: 0.5 });
+    noise(o, t + 0.03, 0.25, { type: 'bandpass', f: 700, f1: 300, q: 2, v: 0.25 });
+  };
+  S.hurt = () => { if (!AC) return; const t = AC.currentTime, o = out(null, null, 1, 0.1); tone(o, t, 0.3, { f: 70, f1: 35, v: 1 }); noise(o, t, 0.2, { f: 600, v: 0.6 }); voice(o, t + 0.03, 0.35, { pitch: [[0, 190], [1, 140]], jit: 0.04, rough: [60, 0.3], vowels: [[0, 'u'], [1, 'a']], q: 6, v: 0.25, a: 0.02, hold: 0.3, breath: 0.2 }); };
+  let foot = 0;
+  S.step = (run) => { if (!AC) return; const t = AC.currentTime, o = out(null, null, run ? 0.35 : 0.22, 0.25); noise(o, t, 0.06, { f: 380, v: 0.6 }); noise(o, t, 0.02, { type: 'highpass', f: 2500, v: 0.12 }); if (++foot % 9 === 0) tone(o, t + 0.02, 0.06, { f: 2400, f1: 3100, v: 0.03 }); };
+  S.heart = () => { if (!AC) return; const t = AC.currentTime, o = out(null, null, 1, 0); tone(o, t, 0.16, { f: 58, f1: 38, v: 0.9 }); tone(o, t + 0.2, 0.16, { f: 52, f1: 36, v: 0.7 }); };
+  S.door = (dur) => { if (!AC) return; const t = AC.currentTime, o = out(0, 10.3, 0.7, 0.3); for (let i = 0; i < 3; i++) { tone(o, t + i * 0.55, 0.45, { type: 'sawtooth', f: 95, f1: 120, v: 0.06, a: 0.05 }); noise(o, t + i * 0.55 + 0.45, 0.08, { type: 'bandpass', f: 900, q: 3, v: 0.4 }); } };
+  S.cartCrash = (x, z) => { if (!AC) return; const t = AC.currentTime, o = out(x, z, 1.8, 0.8); for (let i = 0; i < 6; i++) { const b = rand(900, 2600); for (const r of [1, 2.4, 4.1]) tone(o, t + i * 0.03, 0.5, { f: b * r, v: 0.06 / r }); } noise(o, t, 0.3, { type: 'bandpass', f: 1800, q: 2, v: 0.6 }); tone(o, t, 0.25, { f: 110, f1: 50, v: 0.7 }); };
   S.motor = (on) => {
     if (!AC) return;
     if (on && !motor) {
-      const a = AC.createOscillator(); a.type = 'sawtooth'; a.frequency.value = 55; const b = AC.createOscillator(); b.type = 'square'; b.frequency.value = 110;
-      const lfo = AC.createOscillator(); lfo.frequency.value = 9; const lg = AC.createGain(); lg.gain.value = 6; lfo.connect(lg); lg.connect(a.frequency); lg.connect(b.frequency);
-      const lp = AC.createBiquadFilter(); lp.frequency.value = 900; const g = AC.createGain(); g.gain.value = 0.05; const bg = AC.createGain(); bg.gain.value = 0.3;
-      a.connect(lp); b.connect(bg); bg.connect(lp); lp.connect(g); g.connect(master); a.start(); b.start(); lfo.start();
-      motor = { a, b, lfo, g, lp };
-    } else if (!on && motor) { const m = motor; motor = null; m.g.gain.setTargetAtTime(0, AC.currentTime, 0.05); setTimeout(() => { m.a.stop(); m.b.stop(); m.lfo.stop(); }, 300); }
+      const a = AC.createOscillator(); a.type = 'sawtooth'; a.frequency.value = 48; const b = AC.createOscillator(); b.type = 'square'; b.frequency.value = 96;
+      const put = AC.createOscillator(); put.type = 'square'; put.frequency.value = 12; const pg = AC.createGain(); pg.gain.value = 0.5; put.connect(pg);
+      const am = AC.createGain(); am.gain.value = 0.5; pg.connect(am.gain);
+      const ws = AC.createWaveShaper(); const c = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; c[i] = Math.tanh(x * 4); } ws.curve = c;
+      const lp = AC.createBiquadFilter(); lp.frequency.value = 700; const g = AC.createGain(); g.gain.value = 0.05; const bg = AC.createGain(); bg.gain.value = 0.35;
+      a.connect(am); b.connect(bg); bg.connect(am); am.connect(ws); ws.connect(lp); lp.connect(g);
+      const oo = out(null, null, 1, 0.2); g.connect(oo);
+      a.start(); b.start(); put.start(); motor = { a, b, put, pg, g, lp };
+    } else if (!on && motor) { const m = motor; motor = null; m.g.gain.setTargetAtTime(0, AC.currentTime, 0.05); setTimeout(() => { m.a.stop(); m.b.stop(); m.put.stop(); }, 300); }
   };
-  S.rev = (r) => { if (!AC || !motor) return; const t = AC.currentTime; motor.a.frequency.setTargetAtTime(55 + r * 45, t, 0.06); motor.b.frequency.setTargetAtTime(110 + r * 90, t, 0.06); motor.g.gain.setTargetAtTime(0.05 + r * 0.14, t, 0.06); motor.lp.frequency.setTargetAtTime(900 + r * 1500, t, 0.06); };
-  S.stopAll = () => { if (!AC) return; master.gain.setTargetAtTime(0, AC.currentTime, 0.3); };
+  S.rev = (r) => { if (!AC || !motor) return; const t = AC.currentTime; motor.a.frequency.setTargetAtTime(48 + r * 70, t, 0.08); motor.b.frequency.setTargetAtTime(96 + r * 140, t, 0.08); motor.put.frequency.setTargetAtTime(12 + r * 50, t, 0.08); motor.pg.gain.setTargetAtTime(0.5 - r * 0.4, t, 0.08); motor.g.gain.setTargetAtTime(0.05 + r * 0.13, t, 0.06); motor.lp.frequency.setTargetAtTime(700 + r * 2200, t, 0.08); };
+  S.stopAll = () => { if (!AC) return; master.gain.setTargetAtTime(0, AC.currentTime, 0.6); };
   S.duck = (v) => { if (!AC) return; master.gain.setTargetAtTime(v, AC.currentTime, 0.2); };
   return S;
 })();
@@ -714,7 +807,7 @@ function director(dt) {
   D.t += dt;
   switch (D.phase) {
     case 'outside':
-      if (P.z < 10) { setPhase('inside'); intercom('Good evening, MegaMart shoppers. We are open all night for you.'); sfx.set('rain', 0.01); }
+      if (P.z < 10) { setPhase('inside'); sfx.set('hvac', 0.07); intercom('Good evening, MegaMart shoppers. We are open all night for you.'); sfx.set('rain', 0.01); }
       break;
     case 'inside':
       if (inHardware() && P.z < -13) { setPhase('quiet'); objective('Wood screws, 1-1/4 in. Keep looking'); }
@@ -1131,6 +1224,7 @@ function step(dt) {
   if (D.phase !== 'ending') sfx.dread(dread);
   heartT -= dt; if (nearest < 9 && heartT <= 0 && P.alive) { heartT = 0.45 + nearest * 0.07; sfx.heart(); }
   if (subT > 0) { subT -= dt; if (subT <= 0) hud.sub.innerHTML = ''; }
+  sfx.listen(P.x, P.z, P.yaw);
   // camera
   const bobY = Math.sin(P.bob) * 0.045, bobX = Math.cos(P.bob * 0.5) * 0.03;
   const sh = P.shake; P.shake = Math.max(0, P.shake - dt * 1.6);
@@ -1197,6 +1291,6 @@ requestAnimationFrame(frame);
 setWeaponHUD();
 
 // dev hook for automated checks
-window.__ssn = { P, D, zombies, FX, equip, skipTo: (x, z) => { P.x = x; P.z = z; } };
+window.__ssn = { P, D, zombies, FX, equip, sfx, skipTo: (x, z) => { P.x = x; P.z = z; } };
 })();
 </script>

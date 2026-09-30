@@ -2,7 +2,7 @@
 
 A first-person horror prototype set in a 24-hour big-box store. This is the opening scene: walk in from the parking lot, find Aisle 14 (Hardware), survive the blackout, pick a weapon off the pegboard, fight your way to the front doors, and don't look back. You will anyway.
 
-Open `index.html` in a browser. No build step. Three.js r128 loads from cdnjs; all sound is synthesized with the Web Audio API.
+Open `index.html` in a browser. No build step. Three.js r128 loads from cdnjs; all sound is synthesized with the Web Audio API: HRTF 3D panning, a convolution reverb shaped like a big store, and formant-filtered voices for the screams, groans and growls. Headphones recommended.
 
 - `index.html` is the full page.
 - `game.html` is the same page without the document wrapper, used when publishing it as a Claude artifact.
