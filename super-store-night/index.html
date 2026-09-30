@@ -1034,7 +1034,7 @@ function taskList() {
 function takeCard() {
   TASK.card = true; scene.remove(card); taskList(); sfx.pickup();
   say('Got the key card.', 1.6);
-  if (!ST.on) setTimeout(() => stalkerIntro(-15.5, -44), 900);
+  checkStalker();
 }
 function flipBreaker() {
   TASK.power = true; taskList(); sfx.breaker(); panelLed.material.color.setHex(0x2aff5a); readerLed.material.color.setHex(0xffb020);
@@ -1042,7 +1042,20 @@ function flipBreaker() {
   for (const f of FX) { f.prev = f.state; f.state = 'on'; }
   hemi.intensity = 0.25; D.surge = 2.6; P.shake = 0.4;
   intercom('Power restored to front entrance. Thank you for your patience.');
-  if (!ST.on) setTimeout(() => { sfx.creatureScream(2.2, -20, -46); say('<span class="sfx">[something at the back of the store heard that]</span>', 3); ST.on = true; placeStalker(-20, -44); ST.mode = 'roam'; ST.goal = nearestWP(30, -27); }, 2200);
+  setTimeout(() => { sfx.growl(-20, -46, 1.4); say('<span class="sfx">[something at the back of the store heard that]</span>', 3); }, 2200);
+  checkStalker();
+}
+// the Night Manager only comes for you once you have everything you need to leave
+function checkStalker() {
+  if (ST.on || !(TASK.keys && TASK.card && TASK.power)) return;
+  setTimeout(() => {
+    if (ST.on || D.phase !== 'tasks') return;
+    const cands = WP.map(w => ({ w, d: Math.hypot(w.x - P.x, w.z - P.z) })).filter(c => c.d > 11 && c.d < 24);
+    const seen = cands.filter(c => los(c.w.x, c.w.z, P.x, P.z));
+    const c = pick(seen.length ? seen : cands.length ? cands : WP.map(w => ({ w })));
+    stalkerIntro(c.w.x, c.w.z);
+    say('<span class="shout">It found you. Get to the doors.</span>', 3);
+  }, 2500);
 }
 function useReader() {
   const miss = missing();
@@ -1207,7 +1220,7 @@ function director(dt) {
       if (D.lastIntercom > 30) { D.lastIntercom = 0; intercom(pick(['Clean-up on aisle 14.', 'Would the customer in Hardware please turn off their light.', 'Dale, please report to the front. Dale.', 'Associates, please restock the front entrance.', 'Rollback prices on all cutlery, tonight only.'])); }
       // the keys jingle wherever that zombie is
       if (D.keyZ && !D.keyZ.dead) { D.jingleT -= dt; if (D.jingleT <= 0) { D.jingleT = rand(1.6, 2.6); sfx.jingle(D.keyZ.p.position.x, D.keyZ.p.position.z); } }
-      if (!D.glimpse && !ST.on && Math.abs(P.x) < 3 && P.z > -9 && P.z < 6) {
+      if (!D.glimpse && !ST.on && (TASK.keys + TASK.card + TASK.power) >= 2 && Math.abs(P.x) < 3 && P.z > -9 && P.z < 6) {
         const fz = -Math.cos(P.yaw) * Math.cos(P.pitch);
         if (fz > 0.9) { D.glimpse = 1.1; creature.visible = true; creature.position.set(0, 0, -45); creature.rotation.y = 0; creature.userData.waist.rotation.x = 0.4; setMouth(0.5); sparkLight.position.set(0, 4.5, -42); sparkFlash = 4; sparks.emit(0, 5.9, -42, 50, 0xffc26a, 3, 1); sfx.crackle(0, -42); sfx.growl(0, -45, 1.2); sfx.dread(0.9); }
       }
@@ -1354,7 +1367,7 @@ function killZombie(z) {
   if (z.keyMesh) {
     z.p.userData.armR.remove(z.keyMesh); const k = z.keyMesh; k.position.set(z.p.position.x, 0.04, z.p.position.z); k.rotation.set(Math.PI / 2, 0, 0); k.scale.setScalar(1.8); scene.add(k);
     sfx.jingle(k.position.x, k.position.z); say('Something jingles as it hits the floor.', 2.5);
-    const a = addAct({ pos: { x: k.position.x, z: k.position.z }, got: false, get on() { return !a.got; }, label: () => 'Take your car keys', act: () => { a.got = true; scene.remove(k); TASK.keys = true; taskList(); sfx.jingle(P.x, P.z); say('Your keys. Sticky, but yours.', 2.2); } });
+    const a = addAct({ pos: { x: k.position.x, z: k.position.z }, got: false, get on() { return !a.got; }, label: () => 'Take your car keys', act: () => { a.got = true; scene.remove(k); TASK.keys = true; taskList(); sfx.jingle(P.x, P.z); say('Your keys. Sticky, but yours.', 2.2); checkStalker(); } });
   }
 }
 function damagePlayer(n, fromX, fromZ) {
@@ -1659,7 +1672,7 @@ requestAnimationFrame(frame);
 setWeaponHUD();
 
 // dev hook for automated checks
-window.__ssn = { P, D, zombies, FX, equip, sfx, ST, acts, TASK, spawnZombie, stalkerIntro, skipTo: (x, z) => { P.x = x; P.z = z; } };
+window.__ssn = { P, D, zombies, FX, equip, sfx, ST, acts, TASK, spawnZombie, stalkerIntro, killZombie, skipTo: (x, z) => { P.x = x; P.z = z; } };
 })();
 </script>
 
