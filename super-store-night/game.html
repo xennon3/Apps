@@ -152,6 +152,8 @@ body { background: var(--night); color: var(--tube); font-family: var(--font-mon
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
 <script>
 (() => {
 'use strict';
@@ -214,6 +216,220 @@ function collide(p, r) {
       const l = p.x - b.x0, rr = b.x1 - p.x, t = p.z - b.z0, bb = b.z1 - p.z, m = Math.min(l, rr, t, bb);
       if (m === l) p.x = b.x0 - r; else if (m === rr) p.x = b.x1 + r; else if (m === t) p.z = b.z0 - r; else p.z = b.z1 + r;
     }
+  }
+}
+
+// ---------- kit models ----------
+// Characters and props from Quaternius' Zombie Apocalypse Kit (CC0), loaded as
+// glTF files (JSON with embedded data) that ship next to this page. The zombies are repainted at load
+// into grey, bruised, blood-soaked corpses. If the files can't load, the game
+// falls back to the hand-built figures below.
+const KIT = { ready: false, src: {}, n: 0, total: 0 };
+const KIT_FILES = ['zombie_basic', 'zombie_chubby', 'zombie_arm', 'shopper_lis', 'shopper_matt', 'shopper_sam', 'shopper_shaun',
+  'pallet', 'pallet_broken', 'trashbag_1', 'trashbag_2', 'barrel', 'trafficcone_1', 'cinderblock', 'blood_1', 'blood_2', 'blood_3',
+  'wheels_stack', 'plasticbarrier', 'axe', 'woodenbat_barbed'];
+const ZTYPES = [{ f: 'zombie_basic', h: 1.36, head: 0.8, crawl: true }, { f: 'zombie_chubby', h: 1.64, crawl: true }, { f: 'zombie_arm', h: 1.57 }];
+const SHOPPERS = [{ f: 'shopper_lis', h: 1.71 }, { f: 'shopper_matt', h: 1.5 }, { f: 'shopper_sam', h: 1.53 }, { f: 'shopper_shaun', h: 1.53 }];
+function kitProgress() { const b = $('go'); if (b && b.disabled) b.textContent = `Stocking shelves ${KIT.n}/${KIT.total}`; }
+function loadKit() {
+  const b = $('go'); KIT.total = KIT_FILES.length;
+  const done = () => { if (b) { b.disabled = false; b.textContent = 'Enter the store'; } };
+  if (!THREE.GLTFLoader || !THREE.SkeletonUtils) { done(); return; }
+  if (b) { b.disabled = true; kitProgress(); }
+  const ld = new THREE.GLTFLoader();
+  const all = KIT_FILES.map(n => new Promise(res => ld.load('models/' + n + '.json', g => { KIT.src[n] = g; KIT.n++; kitProgress(); res(); }, undefined, () => res())));
+  const giveUp = new Promise(res => setTimeout(res, 25000));
+  Promise.race([Promise.all(all), giveUp]).then(() => {
+    KIT.ready = ZTYPES.every(t => KIT.src[t.f]);
+    try { kitWorld(); } catch (e) { console.warn('kit props', e); }
+    done();
+  });
+}
+const kitTex = {};
+function corpseTex(src, variant) {
+  const key = src.uuid + ':' + variant; if (kitTex[key]) return kitTex[key];
+  const img = src.image, cv = document.createElement('canvas'); cv.width = img.width; cv.height = img.height;
+  const c = cv.getContext('2d'); c.drawImage(img, 0, 0); const d = c.getImageData(0, 0, cv.width, cv.height), p = d.data;
+  const t = [[0.62, 0.66, 0.58], [0.58, 0.55, 0.6], [0.7, 0.64, 0.55], [0.5, 0.56, 0.54]][variant % 4];
+  for (let i = 0; i < p.length; i += 4) {
+    const r = p[i] / 255, g = p[i + 1] / 255, b = p[i + 2] / 255, s = Math.max(r, g, b) - Math.min(r, g, b);
+    if (r > g * 1.6 && r > b * 1.4 && s > 0.25) { p[i] = 55 + r * 40; p[i + 1] = 4; p[i + 2] = 6; continue; } // mouths and tongues go dark and wet
+    const k = 0.25 + (0.3 * r + 0.55 * g + 0.15 * b) * 0.75, keep = 0.25;
+    p[i] = 255 * Math.min(1, k * t[0] * (1 - keep) + r * keep * 0.8); p[i + 1] = 255 * Math.min(1, k * t[1] * (1 - keep) + g * keep * 0.7); p[i + 2] = 255 * Math.min(1, k * t[2] * (1 - keep) + b * keep * 0.7);
+  }
+  c.putImageData(d, 0, 0);
+  const tx = new THREE.CanvasTexture(cv); tx.flipY = src.flipY; tx.encoding = src.encoding;
+  return (kitTex[key] = tx);
+}
+// grime, bruising and blood painted in model space, since the kit's atlas is flat colour
+const CORPSE_GLSL = `
+  varying vec3 vZP; uniform float zSeed;
+  float zh(vec3 p){ return fract(sin(dot(p, vec3(12.9898,78.233,37.719)))*43758.5453); }
+  float zn(vec3 p){ vec3 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+    return mix(mix(mix(zh(i),zh(i+vec3(1,0,0)),f.x),mix(zh(i+vec3(0,1,0)),zh(i+vec3(1,1,0)),f.x),f.y),
+               mix(mix(zh(i+vec3(0,0,1)),zh(i+vec3(1,0,1)),f.x),mix(zh(i+vec3(0,1,1)),zh(i+vec3(1,1,1)),f.x),f.y),f.z); }`;
+function corpseMat(src, variant, seed) {
+  const m = new THREE.MeshLambertMaterial({ map: corpseTex(src.map, variant), side: THREE.DoubleSide, skinning: true });
+  m.onBeforeCompile = sh => {
+    sh.uniforms.zSeed = { value: seed };
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vZP;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvZP = position;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + CORPSE_GLSL).replace('#include <map_fragment>', `#include <map_fragment>
+      vec3 q = vZP * 5.0 + zSeed;
+      float grime = zn(q) * 0.6 + zn(q * 2.3) * 0.4;
+      diffuseColor.rgb *= 0.35 + 0.8 * grime * grime;
+      float bl = smoothstep(0.6, 0.74, zn(vZP * vec3(4.0, 1.4, 4.0) + zSeed * 1.7) * 0.7 + zn(q * 2.0) * 0.3);
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.16, 0.0, 0.0), bl * 0.9);
+      float vn = zn(q * 3.0), vein = smoothstep(0.47, 0.5, vn) - smoothstep(0.5, 0.53, vn);
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.1, 0.08, 0.14), vein * 0.5);`);
+  };
+  return m;
+}
+function kitMat(src, skinned, tint) { return new THREE.MeshLambertMaterial({ map: src.map, color: tint || 0xffffff, side: THREE.DoubleSide, skinning: !!skinned }); }
+function kitRig(o, clips) {
+  const mixer = new THREE.AnimationMixer(o), acts = {}, bones = {};
+  for (const c of clips) acts[c.name] = mixer.clipAction(c);
+  o.traverse(x => { if (x.isBone) bones[x.name] = x; });
+  return { mixer, acts, bones, cur: null };
+}
+function kitPlay(r, name, fade, once) {
+  if (!r.acts[name]) name = { Run_Arms: 'Run', Punch: 'Run_Attack', Run_Attack: 'Idle', Crawl: 'Walk', HitReact: 'Idle', Idle_Attack: 'Idle' }[name] || 'Idle';
+  if (r.cur === name) return r.acts[name];
+  const a = r.acts[name]; if (!a) return null;
+  a.reset(); a.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, Infinity); a.clampWhenFinished = !!once; a.timeScale = 1; a.play();
+  const prev = r.acts[r.cur]; if (prev && fade) { prev.fadeOut(fade); a.fadeIn(fade); } else if (prev) prev.stop();
+  r.cur = name; return a;
+}
+// the bounding box of the vertices a bone mostly drives, in world space, as currently posed
+function boneBox(model, boneName) {
+  const bb = new THREE.Box3(), v = new THREE.Vector3();
+  model.updateMatrixWorld(true);
+  model.traverse(m => {
+    if (!m.isSkinnedMesh) return;
+    const bi = m.skeleton.bones.findIndex(b => b.name === boneName); if (bi < 0) return;
+    m.skeleton.update();
+    const pos = m.geometry.attributes.position, si = m.geometry.attributes.skinIndex, sw = m.geometry.attributes.skinWeight;
+    for (let i = 0; i < pos.count; i++) {
+      const ids = [si.getX(i), si.getY(i), si.getZ(i), si.getW(i)], ws = [sw.getX(i), sw.getY(i), sw.getZ(i), sw.getW(i)];
+      let w = 0; for (let k = 0; k < 4; k++) if (ids[k] === bi) w += ws[k];
+      if (w > 0.6) { m.boneTransform(i, v); bb.expandByPoint(v.applyMatrix4(m.matrixWorld)); }
+    }
+  });
+  return bb;
+}
+const dummy3 = () => new THREE.Object3D();
+function kitZombie(o) {
+  const t = o.type || (o.vest ? ZTYPES[1] : pick(ZTYPES)), src = KIT.src[t.f];
+  const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
+  const model = THREE.SkeletonUtils.clone(src.scene), sc = rand(1.74, 1.92) / t.h;
+  model.scale.set(sc * rand(0.9, 0.96), sc * rand(1.02, 1.08), sc * 0.95); body.add(model); // stretched thin
+  const variant = Math.floor(rand(0, 4)), seed = rand(0, 50);
+  model.traverse(x => { if (x.isMesh) { x.material = corpseMat(x.material, variant, seed); x.frustumCulled = false; } });
+  const r = kitRig(model, src.animations);
+  kitPlay(r, 'Idle'); r.mixer.update(rand(0, 3));
+  // pinprick eyes, placed from the head's own vertices
+  const hb = r.bones.Head;
+  if (hb) {
+    const box3 = boneBox(model, 'Head'), c = box3.getCenter(new THREE.Vector3()), s = box3.getSize(new THREE.Vector3());
+    const eyeM = new THREE.MeshBasicMaterial({ color: 0xfff1b8 });
+    for (const ex of [-1, 1]) {
+      const e = new THREE.Mesh(new THREE.SphereGeometry(0.017, 6, 4), eyeM);
+      e.position.set(c.x + ex * s.x * 0.17, c.y + s.y * (t.f === 'zombie_basic' ? 0.05 : 0.18), box3.max.z - s.z * 0.12); hb.attach(e);
+    }
+    if (t.head) hb.scale.setScalar(t.head);
+  }
+  if (o.vest) { // what's left of the greeter's vest and name tag, on the belly under that head
+    const bone = r.bones.Torso || r.bones.Abdomen, tb = boneBox(model, bone.name), tc = tb.getCenter(new THREE.Vector3()), ts = tb.getSize(new THREE.Vector3());
+    const vest = new THREE.Mesh(new THREE.PlaneGeometry(ts.x * 0.75, ts.y * 0.9), new THREE.MeshLambertMaterial({ map: vestTex(), color: 0x6a7280, side: THREE.DoubleSide, alphaTest: 0.5 }));
+    vest.position.set(tc.x, tc.y, tb.max.z + 0.02); vest.rotation.z = 0.12; bone.attach(vest);
+    const tag = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.06), new THREE.MeshBasicMaterial({ map: greeterTag(), color: 0x999999 }));
+    tag.position.set(tc.x - ts.x * 0.18, tc.y + ts.y * 0.25, tb.max.z + 0.03); bone.attach(tag);
+  }
+  g.userData = { kit: r, ztype: t, body, legL: dummy3(), legR: dummy3(), armL: dummy3(), armR: dummy3(), head: dummy3(), torso: dummy3(), jaw: dummy3(), spine: dummy3() };
+  scene.add(g); return g;
+}
+let greeterTagTex = null, vestTexC = null;
+function vestTex() { // shredded vest: ragged edges, soaked from the collar down
+  return vestTexC || (vestTexC = canvasTex(64, 64, (c, w, h) => {
+    c.fillStyle = '#173a6b'; c.beginPath(); c.moveTo(4, 0);
+    for (let x = 4; x <= 60; x += 6) c.lineTo(x, rand(0, 6));
+    for (let y = 0; y <= 64; y += 5) c.lineTo(60 - rand(0, 10), y);
+    for (let x = 60; x >= 4; x -= 5) c.lineTo(x, 64 - rand(0, 18));
+    for (let y = 64; y >= 0; y -= 5) c.lineTo(4 + rand(0, 10), y);
+    c.fill(); c.clearRect(26, 0, 12, 64);
+    for (let i = 0; i < 9; i++) { c.fillStyle = `rgba(${rand(50, 90) | 0},4,4,.85)`; c.beginPath(); c.arc(rand(4, 60), rand(0, 30), rand(3, 9), 0, 7); c.fill(); }
+  }));
+}
+function greeterTag() {
+  return greeterTagTex || (greeterTagTex = canvasTex(128, 48, (c, w, h) => { c.fillStyle = '#e9e4d8'; c.fillRect(0, 0, w, h); c.fillStyle = '#1c4a96'; c.fillRect(0, 0, w, 14); c.fillStyle = '#222'; c.font = '700 17px "IBM Plex Mono", monospace'; c.fillText('HOW MAY I', 6, 30); c.fillText('HELP YOU?', 6, 45); c.fillStyle = 'rgba(100,4,4,.8)'; c.fillRect(80, 10, 16, 38); }));
+}
+function kitShopper(anim, pose) {
+  const t = pick(SHOPPERS), src = KIT.src[t.f];
+  const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
+  const model = THREE.SkeletonUtils.clone(src.scene); model.scale.setScalar(rand(1.68, 1.84) / t.h); body.add(model);
+  model.traverse(x => { if (x.isMesh) { x.material = kitMat(x.material, true, 0xb8b0a8); x.frustumCulled = false; } });
+  const r = kitRig(model, src.animations); const a = kitPlay(r, anim, 0, pose != null);
+  if (pose != null && a) { r.mixer.update(a.getClip().duration * pose); }
+  g.userData = { kit: r, body, legL: dummy3(), legR: dummy3(), armL: dummy3(), armR: dummy3(), head: dummy3() };
+  scene.add(g); return g;
+}
+function kitProp(name, x, z, ry, s, solid, y) {
+  const src = KIT.src[name]; if (!src) return null;
+  const m = src.scene.clone(); m.traverse(o => { if (o.isMesh) o.material = kitMat(o.material, false, 0x8a8580); });
+  m.position.set(x, y || 0, z); m.rotation.y = ry || 0; m.scale.setScalar(s || 1); scene.add(m);
+  if (solid) { const bb = new THREE.Box3().setFromObject(m); colliders.push({ x0: bb.min.x, x1: bb.max.x, z0: bb.min.z, z1: bb.max.z }); }
+  return m;
+}
+function kitWeapon(kind) {
+  const f = { axe: 'axe', bat: 'woodenbat_barbed' }[kind], src = f && KIT.src[f]; if (!src) return null;
+  const g = new THREE.Group(), m = src.scene.clone(); m.traverse(o => { if (o.isMesh) o.material = kitMat(o.material, false, 0xa09a94); });
+  m.rotation.x = -Math.PI / 2; m.scale.setScalar(kind === 'bat' ? 0.6 : 0.75); m.position.y = kind === 'bat' ? 0.02 : -0.08; g.add(m); return g;
+}
+const tmpQ = new THREE.Quaternion(), tmpE = new THREE.Euler();
+// drive a kit zombie's animation from what the game logic did to it this frame
+function kitZombieAnim(z, dt) {
+  const u = z.p.userData, r = u.kit, p = z.p.position;
+  const moved = z.lx == null ? 0 : Math.hypot(p.x - z.lx, p.z - z.lz) / Math.max(dt, 1e-3); z.lx = p.x; z.lz = p.z;
+  z.atkT = Math.max(0, (z.atkT || 0) - dt); z.mv = lerp(z.mv || 0, moved, Math.min(1, dt * 8));
+  let a;
+  if (z.dead) a = kitPlay(r, 'Death', 0.12, true);
+  else if (z.hurt > 0) a = kitPlay(r, 'HitReact', 0.06, true);
+  else if (z.atkT > 0) a = kitPlay(r, z.crawl ? 'Crawl' : 'Punch', 0.08, true);
+  else if (z.mv > 0.15) {
+    const run = z.mv > 2.4 && !z.crawl;
+    a = kitPlay(r, z.crawl ? 'Crawl' : run ? 'Run_Arms' : 'Walk', 0.2);
+    if (a) a.timeScale = clamp(z.mv / (z.crawl ? 0.9 : run ? 4.2 : 1.1), 0.4, 2.2);
+  } else a = kitPlay(r, z.state === 'chase' && controls ? 'Idle_Attack' : 'Idle', 0.3);
+  // stop-motion: freezes hold the pose; otherwise the clock stutters
+  if (z.freeze > 0 && !z.dead) return;
+  r.mixer.update(dt * (z.dead ? 1 : rand(0.6, 1.5)));
+  // the game's head twitch rides on top of the animation
+  const hb = r.bones.Head;
+  if (hb && !z.dead) { tmpE.set(u.head.rotation.x * 0.6, u.head.rotation.y * 0.6, u.head.rotation.z * 0.7); hb.quaternion.multiply(tmpQ.setFromEuler(tmpE)); }
+}
+// once the files are in: props, a dead shopper, and model versions of what's already standing
+function kitWorld() {
+  // blood where people fell, pallets and trash left mid-restock
+  const BLOOD = [[-16.2, -35, 0.3], [-3, -2, 0.42], [10.2, -20, 0.3], [-28, -30, 0.35], [16, -41.5, 0.4], [4, 3, 0.28], [-22, -14, 0.25], [28.2, -8, 0.3]];
+  BLOOD.forEach(([x, z, s], i) => kitProp('blood_' + (1 + i % 3), x, z, rand(0, 6.28), s, false, 0.012 + i * 0.001));
+  kitProp('pallet', -29.4, -44.5, 0.1, 1.2); kitProp('trashbag_1', -29.2, -44.2, 0.5, 1.1, false, 0.17); kitProp('trashbag_2', -28.8, -45.1, 2, 1.1, false, 0.17);
+  kitProp('pallet_broken', 12.5, -43.5, 1.2, 1.2); kitProp('cinderblock', 13, -42.9, 0.3, 1.1);
+  kitProp('pallet', 8.5, -48.6, 1.57, 1.2); kitProp('trashbag_2', 8.6, -48.6, 0.8, 1.2, false, 0.17);
+  for (const [x, z] of [[-6, -49.2], [-5.1, -49.3], [18.5, -49.2]]) kitProp('barrel', x, z, rand(0, 6), 1, true);
+  kitProp('wheels_stack', -10.9, -38.6, 0.3, 1, true);
+  kitProp('trashbag_1', 29.8, -3.5, 1, 1.1); kitProp('trashbag_2', -29.6, 4, 2.3, 1.2);
+  kitProp('trafficcone_1', -2.8, 12.4, 0.3, 1); kitProp('trafficcone_1', 3.4, 13.2, 1, 1);
+  kitProp('plasticbarrier', -9, 13.5, 0.1, 1, true);
+  // a shopper who didn't make it, and what they were carrying
+  if (KIT.src.shopper_sam) {
+    const d = kitShopper('Death', 1); d.position.set(22.1, 0, -28.6); d.rotation.y = 3.3;
+    kitProp('blood_2', 22.0, -28.2, 1, 0.34, false, 0.014);
+  }
+  for (const pk of pickups) {
+    const m = kitWeapon(pk.kind); if (!m) continue;
+    m.position.copy(pk.m.position); m.rotation.copy(pk.m.rotation); m.visible = pk.m.visible; scene.remove(pk.m); scene.add(m); pk.m = m;
+  }
+  if (greeter && KIT.src.shopper_matt) {
+    const g = kitShopper('Idle'); g.position.copy(greeter.position); g.rotation.y = greeter.rotation.y; scene.remove(greeter); greeter = g;
   }
 }
 
@@ -514,6 +730,7 @@ function clothTex(h) {
   }));
 }
 function makeZombie(o) {
+  if (KIT.ready) return kitZombie(o);
   const g = new THREE.Group(), s = rand(1.0, 1.14);
   const skinM = lam(0xffffff, { map: skinTex(o.skin) }), shirtM = lam(0xffffff, { map: clothTex(o.shirt) }), pantsM = lam(0xffffff, { map: clothTex(o.pants) });
   const body = new THREE.Group(); body.scale.setScalar(s); g.add(body);
@@ -558,14 +775,17 @@ const WEAPONS = {
   crowbar: { name: 'Crowbar', note: 'Long reach. Knocks them back', dmg: 28, reach: 2.3, time: 0.55, arc: 0.85, knock: 2.2 },
   axe: { name: 'Axe', note: 'Slow. Cleaves everything in front', dmg: 64, reach: 2.2, time: 0.95, arc: 1.0, cleave: true },
   chainsaw: { name: 'Chainsaw', note: 'Hold to cut. Loud. Burns fuel', dmg: 22, reach: 2.3, time: 0.14, arc: 0.7, saw: true },
+  bat: { name: 'Barbed bat', note: 'Wide swings. Knocks them off their feet', dmg: 46, reach: 2.2, time: 0.66, arc: 1.05, knock: 1.5 },
 };
 function weaponMesh(kind) {
+  const kw = kitWeapon(kind); if (kw) return kw;
   const g = new THREE.Group();
   const wood = mat('wood', 0x8a5a2e), steel = mat('steel', 0x9aa3aa), dark = mat('darksteel', 0x3a3f44), red = mat('redpaint', 0xb02a1e), orange = mat('orange', 0xe0761e);
   const add = (w, h, d, m, x, y, z, rx) => { const mm = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); mm.position.set(x, y, z); if (rx) mm.rotation.x = rx; g.add(mm); return mm; };
   if (kind === 'hammer') { add(0.05, 0.42, 0.05, wood, 0, 0, 0); add(0.08, 0.08, 0.24, steel, 0, 0.21, 0.03); }
   if (kind === 'axe') { add(0.05, 0.72, 0.05, wood, 0, 0.1, 0); add(0.04, 0.2, 0.24, steel, 0, 0.42, 0.1); add(0.05, 0.08, 0.08, red, 0, 0.42, -0.02); }
   if (kind === 'crowbar') { add(0.04, 0.8, 0.04, red, 0, 0.1, 0); add(0.04, 0.04, 0.14, dark, 0, 0.5, 0.05); add(0.04, 0.12, 0.04, dark, 0, -0.33, 0.04, 0.6); }
+  if (kind === 'bat') { add(0.06, 0.95, 0.06, wood, 0, 0.1, 0); for (let i = 0; i < 6; i++) add(0.09, 0.012, 0.09, dark, 0, 0.3 + i * 0.05, 0).rotation.y = i * 0.5; }
   if (kind === 'chainsaw') { add(0.2, 0.22, 0.36, orange, 0, 0, 0); add(0.18, 0.06, 0.2, dark, 0, 0.14, -0.04); add(0.05, 0.1, 0.74, steel, 0, -0.02, 0.52); add(0.06, 0.04, 0.74, dark, 0, -0.08, 0.52); }
   return g;
 }
@@ -575,6 +795,8 @@ const pickups = [];
   if (k === 'chainsaw') m.rotation.y = Math.PI / 2; else m.rotation.z = 0.15;
   scene.add(m); pickups.push({ kind: k, m, home: m.position.clone() });
 });
+// dropped in Garden by a shopper who didn't make it
+{ const m = weaponMesh('bat'); m.position.set(21.5, 0.07, -26.3); m.rotation.set(0, 0.5, Math.PI / 2); scene.add(m); pickups.push({ kind: 'bat', m, home: m.position.clone() }); }
 // display tag above pegboard
 const pegTag = canvasTex(512, 96, (c, w, h) => { c.fillStyle = '#f1c63a'; c.fillRect(0, 0, w, h); c.fillStyle = '#22211f'; c.font = '800 52px "Big Shoulders Display", Impact, sans-serif'; c.textBaseline = 'middle'; c.fillText('TOOLS · EVERY DAY LOW PRICE', 18, 50); });
 const pegTagM = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 0.8), new THREE.MeshBasicMaterial({ map: pegTag, color: 0x999999 }));
@@ -908,7 +1130,7 @@ function hurtFlash() { const h = $('hurt'); h.style.transition = 'none'; h.style
 const runners = [];
 function spawnRunner(path, speed, line) {
   const shirt = pick(SHIRTS);
-  const p = makePerson({ skin: pick(HSKIN), shirt, pants: pick(PANTS), hair: pick([0x2a1d14, 0x5a3a1a, 0x111111, 0x9a8a6a]) });
+  const p = KIT.src.shopper_lis ? kitShopper('Run') : makePerson({ skin: pick(HSKIN), shirt, pants: pick(PANTS), hair: pick([0x2a1d14, 0x5a3a1a, 0x111111, 0x9a8a6a]) });
   p.position.set(path[0][0], 0, path[0][1]);
   const r = { p, path, i: 1, speed, line, said: false, ph: rand(0, 6), shirt };
   runners.push(r); return r;
@@ -916,12 +1138,18 @@ function spawnRunner(path, speed, line) {
 const zombies = [];
 function spawnZombie(x, z, kind, opts) {
   const o = opts || {};
-  const p = makeZombie({ skin: pick(ZSKIN), shirt: o.shirt || (kind === 'greeter' ? 0x1f4f95 : pick(SHIRTS)), pants: pick(PANTS), hair: pick([0x2a1d14, 0x3a3a3a, 0x6a5a4a]), vest: kind === 'greeter' });
+  const p = makeZombie({ skin: pick(ZSKIN), shirt: o.shirt || (kind === 'greeter' ? 0x1f4f95 : pick(SHIRTS)), pants: pick(PANTS), hair: pick([0x2a1d14, 0x3a3a3a, 0x6a5a4a]), vest: kind === 'greeter', type: o.type });
   p.position.set(x, 0, z); p.rotation.y = rand(0, 6.28);
   const zb = Object.assign({ p, kind, hp: kind === 'cart' ? 90 : kind === 'greeter' ? 120 : 100, state: 'chase', cd: 0, hurt: 0, ph: rand(0, 6), groanT: rand(2, 5), dead: 0, charge: 0, stun: 0, dir: { x: 0, z: 1 }, twT: 0, lunge: 0, lungeCd: rand(1, 3), freeze: 0 }, o);
   if (kind === 'cart') { zb.cart = buildCart(0, 0, 0); scene.remove(zb.cart); p.add(zb.cart); zb.cart.position.set(0, 0, 0.85); p.userData.armL.rotation.x = -1.1; p.userData.armR.rotation.x = -1.1; }
   if (kind === 'greeter') { zb.state = 'still'; }
-  if (o.keys) { const k = keysMesh(); k.position.set(0, -0.92, 0.05); p.userData.armR.add(k); zb.keyMesh = k; }
+  const kr = p.userData.kit;
+  if (kr && kind === 'shopper' && p.userData.ztype.crawl && !o.keys && Math.random() < 0.22) zb.crawl = true;
+  if (o.keys) {
+    const k = keysMesh(); zb.keyMesh = k; const hand = kr && (kr.bones['Middle1.R'] || kr.bones['LowerArm.R']);
+    if (hand) { p.updateMatrixWorld(true); hand.getWorldPosition(k.position); k.position.y -= 0.06; k.scale.setScalar(1.4); hand.attach(k); }
+    else { k.position.set(0, -0.92, 0.05); p.userData.armR.add(k); }
+  }
   zombies.push(zb); return zb;
 }
 function faceTo(obj, dx, dz) { obj.rotation.y = Math.atan2(dx, dz); }
@@ -1287,7 +1515,7 @@ function showReceipt(won) {
   playing = false; if (document.pointerLockElement) document.exitPointerLock();
   const w = WEAPONS[P.weapon];
   const rows = won ? [
-    ['1 x ' + w.name.toUpperCase(), P.weapon === 'fists' ? '0.00' : { hammer: '14.97', crowbar: '11.48', axe: '32.88', chainsaw: '149.00' }[P.weapon]],
+    ['1 x ' + w.name.toUpperCase(), P.weapon === 'fists' ? '0.00' : { hammer: '14.97', crowbar: '11.48', axe: '32.88', chainsaw: '149.00', bat: '0.00' }[P.weapon]],
     ['CAR KEYS', 'RECOVERED'],
     ['MGR KEY CARD', 'BORROWED'],
     ['PAINKILLERS x' + TASK.pills, (TASK.pills * 6.47).toFixed(2)],
@@ -1325,7 +1553,7 @@ function equip(kind) {
   if (viewMesh) { view.add(viewMesh); viewMesh.rotation.set(-0.25, 0.25, 0.2); if (kind === 'chainsaw') { viewMesh.rotation.set(0.05, -0.08, 0); viewMesh.position.set(-0.1, 0.05, -0.1); } }
   const pk = pickups.find(p => p.kind === kind); if (pk) pk.m.visible = false;
   setWeaponHUD();
-  const lines = { hammer: 'A hammer. Quick. Quiet.', crowbar: 'A crowbar. Good reach.', axe: 'The axe. Heavy. It will do.', chainsaw: 'The chainsaw roars awake. Everything heard that.' };
+  const lines = { hammer: 'A hammer. Quick. Quiet.', crowbar: 'A crowbar. Good reach.', axe: 'The axe. Heavy. It will do.', chainsaw: 'The chainsaw roars awake. Everything heard that.', bat: 'Somebody wrapped wire around this. They didn\'t make it.' };
   say(lines[kind], 2.6);
   if (D.phase === 'wave' || D.phase === 'crash' || D.phase === 'quiet') objective('Survive whatever comes down this aisle.');
 }
@@ -1358,7 +1586,7 @@ function killZombie(z) {
   sfx.groan(z.p.position.x, z.p.position.z);
   if (z.cart) { z.p.remove(z.cart); scene.add(z.cart); z.cart.position.set(z.p.position.x + Math.sin(z.p.rotation.y) * 0.9, 0, z.p.position.z + Math.cos(z.p.rotation.y) * 0.9); z.cart.rotation.y = z.p.rotation.y + 0.4; }
   if (z.keyMesh) {
-    z.p.userData.armR.remove(z.keyMesh); const k = z.keyMesh; k.position.set(z.p.position.x, 0.04, z.p.position.z); k.rotation.set(Math.PI / 2, 0, 0); k.scale.setScalar(1.8); scene.add(k);
+    const k = z.keyMesh; k.parent.remove(k); k.position.set(z.p.position.x, 0.04, z.p.position.z); k.rotation.set(Math.PI / 2, 0, 0); k.scale.setScalar(1.8); scene.add(k);
     sfx.jingle(k.position.x, k.position.z); say('Something jingles as it hits the floor.', 2.5);
     const a = addAct({ pos: { x: k.position.x, z: k.position.z }, got: false, get on() { return !a.got; }, label: () => 'Take your car keys', act: () => { a.got = true; scene.remove(k); TASK.keys = true; taskList(); sfx.jingle(P.x, P.z); say('Your keys. Sticky, but yours.', 2.2); checkStalker(); } });
   }
@@ -1377,7 +1605,8 @@ function updateZombies(dt) {
   for (const z of zombies) {
     const p = z.p, u = p.userData;
     if (z.dead) {
-      if (z.dead < 1) { z.dead = Math.min(1, z.dead + dt * 2.5); u.body.rotation.x = -z.dead * Math.PI / 2; u.body.position.y = z.dead * 0.12; u.jaw.rotation.x = 0.9; }
+      if (u.kit) z.dead = Math.min(1, z.dead + dt * 2.5);
+      else if (z.dead < 1) { z.dead = Math.min(1, z.dead + dt * 2.5); u.body.rotation.x = -z.dead * Math.PI / 2; u.body.position.y = z.dead * 0.12; u.jaw.rotation.x = 0.9; }
       continue;
     }
     const dx = P.x - p.position.x, dz = P.z - p.position.z, d = Math.hypot(dx, dz);
@@ -1437,11 +1666,12 @@ function updateZombies(dt) {
     } else {
       animLegs(p, 0, 0); z.lunge = 0;
       z.cd -= dt;
-      if (z.cd <= 0) { z.cd = 1.1; u.armL.rotation.x = -1.9; u.armR.rotation.x = -1.9; u.jaw.rotation.x = 1.1; damagePlayer(z.fast ? 16 : 12, p.position.x, p.position.z); }
+      if (z.cd <= 0) { z.cd = 1.1; z.atkT = 0.55; u.armL.rotation.x = -1.9; u.armR.rotation.x = -1.9; u.jaw.rotation.x = 1.1; damagePlayer(z.fast ? 16 : 12, p.position.x, p.position.z); }
     }
     u.armL.rotation.x = lerp(u.armL.rotation.x, -1.2, dt * 4); u.armR.rotation.x = lerp(u.armR.rotation.x, -1.35, dt * 4);
     for (const o of zombies) if (o !== z && !o.dead) { const ox = p.position.x - o.p.position.x, oz = p.position.z - o.p.position.z, od = Math.hypot(ox, oz); if (od < 0.7 && od > 0) { p.position.x += ox / od * (0.7 - od) * 0.5; p.position.z += oz / od * (0.7 - od) * 0.5; } }
   }
+  for (const z of zombies) if (z.p.userData.kit) kitZombieAnim(z, dt);
   return nearest;
 }
 function spotted(z) {
@@ -1589,7 +1819,7 @@ function step(dt) {
     if (d < 0.3) { r.i++; if (r.i >= r.path.length) { scene.remove(r.p); runners.splice(i, 1); } continue; }
     r.p.position.x += dx / d * r.speed * dt; r.p.position.z += dz / d * r.speed * dt; faceTo(r.p, dx, dz);
     r.ph += dt * 13; animLegs(r.p, r.ph, 0.9); r.p.userData.armL.rotation.x = -Math.sin(r.ph) * 0.9; r.p.userData.armR.rotation.x = Math.sin(r.ph) * 0.9;
-    r.p.position.y = Math.abs(Math.sin(r.ph)) * 0.08;
+    if (r.p.userData.kit) r.p.userData.kit.mixer.update(dt * r.speed / 5.5); else r.p.position.y = Math.abs(Math.sin(r.ph)) * 0.08;
     if (r.line && !r.said && Math.hypot(P.x - r.p.position.x, P.z - r.p.position.z) < 6) { r.said = true; say('<span class="shout">' + r.line + '</span>', 3.2); sfx.scream(r.p.position.x, r.p.position.z, 520, 0.7, 0.5); }
   }
   const zNear = updateZombies(dt), stNear = updateStalker(dt), nearest = Math.min(zNear, stNear * 0.5);
@@ -1659,12 +1889,13 @@ function world(dt) {
   doorL.position.x = -1.5 - doorOpen * 2.7; doorR.position.x = 1.5 + doorOpen * 2.7;
   // intro cart rolls across the lot by itself
   if (introCart.position.x < 16) { introCart.position.x += dt * 0.7; introCart.rotation.y = Math.PI / 2 + Math.sin(clock * 0.8) * 0.05; }
-  if (greeter) greeter.userData.body.rotation.z = Math.sin(clock * 0.6) * 0.02;
+  if (greeter) { greeter.userData.body.rotation.z = Math.sin(clock * 0.6) * 0.02; if (greeter.userData.kit) greeter.userData.kit.mixer.update(dt); }
 }
 requestAnimationFrame(frame);
 setWeaponHUD();
+loadKit();
 
 // dev hook for automated checks
-window.__ssn = { P, D, zombies, FX, equip, sfx, ST, acts, TASK, spawnZombie, stalkerIntro, killZombie, skipTo: (x, z) => { P.x = x; P.z = z; } };
+window.__ssn = { KIT: Object.assign(KIT, { ZT: ZTYPES }), scene, camera, spawnRunner, P, D, zombies, FX, equip, sfx, ST, acts, TASK, spawnZombie, stalkerIntro, killZombie, skipTo: (x, z) => { P.x = x; P.z = z; } };
 })();
 </script>

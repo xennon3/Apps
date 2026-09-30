@@ -1,0 +1,3 @@
+Models: Zombie Apocalypse Kit by Quaternius (https://quaternius.com/packs/zombieapocalypsekit.html)
+License: CC0 1.0 Universal (public domain), https://creativecommons.org/publicdomain/zero/1.0/
+Trimmed from the kit's glTF files (unused animations, meshes and data removed) and saved as glTF JSON with a .json extension so the artifact host serves them.
