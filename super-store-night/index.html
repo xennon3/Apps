@@ -274,8 +274,18 @@ function collide(p, r) {
 const KIT = { ready: false, src: {}, n: 0, total: 0 };
 const KIT_FILES = ['zombie_basic', 'zombie_chubby', 'zombie_arm', 'shopper_lis', 'shopper_matt', 'shopper_sam', 'shopper_shaun',
   'pallet', 'pallet_broken', 'trashbag_1', 'trashbag_2', 'barrel', 'trafficcone_1', 'cinderblock', 'blood_1', 'blood_2', 'blood_3',
-  'wheels_stack', 'plasticbarrier', 'axe', 'woodenbat_barbed'];
-const ZTYPES = [{ f: 'zombie_basic', h: 1.36, head: 0.8, crawl: true }, { f: 'zombie_chubby', h: 1.64, crawl: true }, { f: 'zombie_arm', h: 1.57 }];
+  'wheels_stack', 'plasticbarrier', 'axe', 'woodenbat_barbed', 'zombie_luther'];
+const ZTYPES = [{ f: 'zombie_basic', h: 1.36, head: 0.8, crawl: true }, { f: 'zombie_chubby', h: 1.64, crawl: true }, { f: 'zombie_arm', h: 1.57 },
+  // Luther's own zombie (from his upload): flat colours, its own pale eyes, arms held out by code since its clips keep them low
+  { f: 'zombie_luther', h: 2.02, flat: true, reach: true, optional: true },
+  // Luther's zombie photo, cut into a paper puppet that always turns to face you
+  { f: 'zombie_photo', puppet: true, optional: true }];
+function pickZType() {
+  const r = Math.random();
+  if (KIT.src.zombie_photo && r < 0.35) return ZTYPES[4];
+  if (KIT.src.zombie_luther && r < 0.6) return ZTYPES[3];
+  return pick(ZTYPES.filter(t => !t.optional && KIT.src[t.f]));
+}
 const SHOPPERS = [{ f: 'shopper_lis', h: 1.71 }, { f: 'shopper_matt', h: 1.5 }, { f: 'shopper_sam', h: 1.53 }, { f: 'shopper_shaun', h: 1.53 }];
 function kitProgress() { const b = $('go'); if (b && b.disabled) b.textContent = `Stocking shelves ${KIT.n}/${KIT.total}`; }
 // Fetch a model and hand it to the loader as an in-memory .glb, decoding its
@@ -317,10 +327,13 @@ function loadKit() {
   if (!THREE.GLTFLoader || !THREE.SkeletonUtils) { KIT.err = 'loader script blocked'; done(); return; }
   if (b) { b.disabled = true; kitProgress(); }
   const ld = new THREE.GLTFLoader();
-  const all = KIT_FILES.map(n => kitFetch(ld, n).then(g => { KIT.src[n] = g; KIT.n++; kitProgress(); }, e => { KIT.err = KIT.err || String(e && e.message || e); console.warn('model', n, e); }));
+  KIT.total++;
+  const photo = fetch('models/zombie_photo.webp').then(r => { if (!r.ok) throw new Error('photo ' + r.status); return r.blob(); }).then(b => createImageBitmap(b))
+    .then(bm => { KIT.src.zombie_photo = bm; KIT.n++; kitProgress(); }, e => console.warn('photo zombie', e));
+  const all = [photo].concat(KIT_FILES.map(n => kitFetch(ld, n).then(g => { KIT.src[n] = g; KIT.n++; kitProgress(); }, e => { KIT.err = KIT.err || String(e && e.message || e); console.warn('model', n, e); })));
   const giveUp = new Promise(res => setTimeout(res, 30000));
   Promise.race([Promise.all(all), giveUp]).then(() => {
-    KIT.ready = ZTYPES.every(t => KIT.src[t.f]);
+    KIT.ready = ZTYPES.every(t => t.optional || KIT.src[t.f]);
     try { kitWorld(); } catch (e) { console.warn('kit props', e); }
     done();
   });
@@ -349,7 +362,11 @@ const CORPSE_GLSL = `
     return mix(mix(mix(zh(i),zh(i+vec3(1,0,0)),f.x),mix(zh(i+vec3(0,1,0)),zh(i+vec3(1,1,0)),f.x),f.y),
                mix(mix(zh(i+vec3(0,0,1)),zh(i+vec3(1,0,1)),f.x),mix(zh(i+vec3(0,1,1)),zh(i+vec3(1,1,1)),f.x),f.y),f.z); }`;
 function corpseMat(src, variant, seed) {
-  const m = new THREE.MeshLambertMaterial({ map: corpseTex(src.map, variant), side: THREE.DoubleSide, skinning: true });
+  const m = new THREE.MeshLambertMaterial({ map: src.map ? corpseTex(src.map, variant) : null, side: THREE.DoubleSide, skinning: true });
+  if (!src.map) { // flat-coloured models: drain the colour, keep the eyes lit
+    const hsl = {}; src.color.getHSL(hsl); m.color.setHSL(hsl.h, hsl.s * 0.6, hsl.l * 0.8);
+    if (src.name === 'eyes') { m.color.setHex(0xfff1b8); m.emissive.setHex(0xd8e8a0); }
+  }
   m.onBeforeCompile = sh => {
     sh.uniforms.zSeed = { value: seed };
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vZP;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvZP = position;');
@@ -398,7 +415,8 @@ function boneBox(model, boneName) {
 }
 const dummy3 = () => new THREE.Object3D();
 function kitZombie(o) {
-  const t = o.type || (o.vest ? ZTYPES[1] : pick(ZTYPES)), src = KIT.src[t.f];
+  const t = o.type || (o.vest ? ZTYPES[1] : pickZType()), src = KIT.src[t.f];
+  if (t.puppet) return photoZombie(t);
   const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
   const model = THREE.SkeletonUtils.clone(src.scene), sc = rand(1.74, 1.92) / t.h;
   model.scale.set(sc * rand(0.9, 0.96), sc * rand(1.02, 1.08), sc * 0.95); body.add(model); // stretched thin
@@ -408,7 +426,7 @@ function kitZombie(o) {
   kitPlay(r, 'Idle'); r.mixer.update(rand(0, 3));
   // pinprick eyes, placed from the head's own vertices
   const hb = r.bones.Head;
-  if (hb) {
+  if (hb && !t.flat) {
     const box3 = boneBox(model, 'Head'), c = box3.getCenter(new THREE.Vector3()), s = box3.getSize(new THREE.Vector3());
     const eyeM = new THREE.MeshBasicMaterial({ color: 0xfff1b8 });
     for (const ex of [-1, 1]) {
@@ -442,6 +460,71 @@ function vestTex() { // shredded vest: ragged edges, soaked from the collar down
 function greeterTag() {
   return greeterTagTex || (greeterTagTex = canvasTex(128, 48, (c, w, h) => { c.fillStyle = '#e9e4d8'; c.fillRect(0, 0, w, h); c.fillStyle = '#1c4a96'; c.fillRect(0, 0, w, 14); c.fillStyle = '#222'; c.font = '700 17px "IBM Plex Mono", monospace'; c.fillText('HOW MAY I', 6, 30); c.fillText('HELP YOU?', 6, 45); c.fillStyle = 'rgba(100,4,4,.8)'; c.fillRect(80, 10, 16, 38); }));
 }
+// ---- the photo zombie: six cut-out pieces of one picture, hinged at the
+// neck, shoulders and hips. Coordinates are pixels in the original
+// 1024x1536 photo; a = rectangle in the atlas, b = bounding box in the photo, pv = hinge.
+const PHOTO = {
+  legL: { a: [4, 4, 142, 403], b: [285, 815, 228, 650], pv: [430, 805], z: 0 },
+  legR: { a: [150, 4, 133, 403], b: [511, 815, 214, 650], pv: [595, 805], z: 0.001 },
+  torso: { a: [287, 4, 234, 380], b: [324, 258, 376, 612], pv: [512, 800], z: 0.01 },
+  head: { a: [525, 4, 124, 189], b: [412, 8, 200, 304], pv: [512, 300], z: 0.02, parent: 'torso' },
+  armL: { a: [653, 4, 127, 345], b: [168, 282, 204, 556], pv: [330, 318], z: 0.03, parent: 'torso' },
+  armR: { a: [784, 4, 127, 345], b: [652, 282, 204, 556], pv: [694, 318], z: 0.03, parent: 'torso' },
+};
+let photoMat = null;
+function photoZombie(t) {
+  if (!photoMat) {
+    const tx = new THREE.Texture(KIT.src.zombie_photo); tx.flipY = false; tx.needsUpdate = true; tx.anisotropy = 4;
+    photoMat = new THREE.MeshLambertMaterial({ map: tx, alphaTest: 0.45, side: THREE.DoubleSide, color: 0xc8c0b8 });
+  }
+  const S = rand(1.82, 1.95) / 1445, AW = 1024, AH = 512, toM = (x, y) => [(x - 512) * S, (1455 - y) * S];
+  const g = new THREE.Group(), body = new THREE.Group(), puppet = new THREE.Group(); g.add(body); body.add(puppet);
+  const parts = {};
+  for (const name of ['legL', 'legR', 'torso', 'head', 'armL', 'armR']) {
+    const P = PHOTO[name], [ax, ay, aw, ah] = P.a, [bx, by, bw, bh] = P.b;
+    const geo = new THREE.PlaneGeometry(bw * S, bh * S), uv = geo.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, (ax + uv.getX(i) * aw) / AW, (ay + (1 - uv.getY(i)) * ah) / AH); // bitmap textures upload unflipped
+    const [cx, cy] = toM(bx + bw / 2, by + bh / 2), [px, py] = toM(P.pv[0], P.pv[1]);
+    geo.translate(cx - px, cy - py, P.z);
+    const hinge = new THREE.Group(), mesh = new THREE.Mesh(geo, photoMat); hinge.add(mesh);
+    if (P.parent) { const [qx, qy] = toM(PHOTO[P.parent].pv[0], PHOTO[P.parent].pv[1]); hinge.position.set(px - qx, py - qy, 0); parts[P.parent].add(hinge); }
+    else { hinge.position.set(px, py, 0); puppet.add(hinge); }
+    hinge.userData.y0 = hinge.position.y; parts[name] = hinge;
+  }
+  // a faint glow in those milky eyes
+  const eyeM = new THREE.MeshBasicMaterial({ color: 0xfff1d0, transparent: true, opacity: 0.85 });
+  for (const ex of [487, 541]) { const [ex2, ey2] = toM(ex, 166), [hx, hy] = toM(512, 300); const e = new THREE.Mesh(new THREE.CircleGeometry(0.0065, 8), eyeM); e.position.set(ex2 - hx, ey2 - hy, 0.03); parts.head.add(e); }
+  const [hx, hy] = toM(220, 830), [sx, sy] = toM(330, 318), hand = new THREE.Object3D(); hand.position.set(hx - sx, hy - sy, 0.05); parts.armL.add(hand);
+  g.userData = { puppet: { parts, puppet, ph: rand(0, 6) }, ztype: t, body, hand, legL: dummy3(), legR: dummy3(), armL: dummy3(), armR: dummy3(), head: dummy3(), torso: dummy3(), jaw: dummy3(), spine: dummy3() };
+  scene.add(g); return g;
+}
+// shamble, reach, lunge and flinch, all as hinge rotations in the picture plane
+function photoAnim(z, dt) {
+  const u = z.p.userData, pp = u.puppet, P = pp.parts, p = z.p.position;
+  const moved = z.lx == null ? 0 : Math.hypot(p.x - z.lx, p.z - z.lz) / Math.max(dt, 1e-3); z.lx = p.x; z.lz = p.z;
+  z.atkT = Math.max(0, (z.atkT || 0) - dt); z.mv = lerp(z.mv || 0, moved, Math.min(1, dt * 8));
+  if (z.dead) { // the body falls in updateZombies: square it up so it drops away from you
+    if (!pp.fell) { pp.fell = 1; z.p.rotation.y = Math.atan2(camera.position.x - p.x, camera.position.z - p.z); pp.puppet.rotation.y = 0; }
+    return;
+  }
+  // always turn the picture toward you, with a little lag so it feels wrong
+  const want = Math.atan2(camera.position.x - p.x, camera.position.z - p.z) - z.p.rotation.y;
+  pp.puppet.rotation.y += Math.atan2(Math.sin(want - pp.puppet.rotation.y), Math.cos(want - pp.puppet.rotation.y)) * Math.min(1, dt * 6);
+  if (z.freeze > 0) return; // stop-motion hold
+  const k = clamp(z.mv / 1.4, 0, 2.2); pp.ph += dt * (1.5 + k * 4.5) * rand(0.6, 1.5);
+  const s = Math.sin(pp.ph), chase = z.state === 'chase' && controls;
+  P.legL.rotation.z = s * 0.1 * k; P.legR.rotation.z = s * 0.1 * k;
+  P.legL.position.y = toLegY(P.legL, Math.max(0, s) * 0.06 * k); P.legR.position.y = toLegY(P.legR, Math.max(0, -s) * 0.06 * k);
+  P.torso.rotation.z = Math.sin(pp.ph * 0.5) * (0.05 + 0.04 * k) + (z.hurt > 0 ? rand(-0.25, 0.25) : 0);
+  P.torso.position.y = P.torso.userData.y0 + Math.abs(s) * 0.03 * k;
+  const atk = z.atkT > 0 ? Math.sin((0.55 - z.atkT) / 0.55 * Math.PI) : 0;
+  const reach = (chase ? 0.42 : 0.08) + atk * 1.25; // one arm always a little higher, like it's reaching for you
+  P.armL.rotation.z = -reach * (z.ph % 2 > 1 ? 1.35 : 0.8) + s * 0.12 * k + Math.sin(clock * 2.3 + z.ph) * 0.05;
+  P.armR.rotation.z = reach * (z.ph % 2 > 1 ? 0.8 : 1.35) + s * 0.12 * k + Math.sin(clock * 2.1 + z.ph) * 0.05;
+  P.head.rotation.z = u.head.rotation.z * 0.6 + Math.sin(clock * 9 + z.ph) * 0.015 * k;
+  P.head.position.y = P.head.userData.y0 - atk * 0.05 - Math.max(0, u.head.rotation.x) * 0.04;
+}
+function toLegY(leg, lift) { if (leg.userData.y0 == null) leg.userData.y0 = leg.position.y; return leg.userData.y0 + lift; }
 function kitShopper(anim, pose) {
   const t = pick(SHOPPERS), src = KIT.src[t.f];
   const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
@@ -470,6 +553,7 @@ function kitZombieAnim(z, dt) {
   const u = z.p.userData, r = u.kit, p = z.p.position;
   const moved = z.lx == null ? 0 : Math.hypot(p.x - z.lx, p.z - z.lz) / Math.max(dt, 1e-3); z.lx = p.x; z.lz = p.z;
   z.atkT = Math.max(0, (z.atkT || 0) - dt); z.mv = lerp(z.mv || 0, moved, Math.min(1, dt * 8));
+  if (z.dead && !r.acts.Death) return; // no death clip: the body just falls (see updateZombies)
   let a;
   if (z.dead) a = kitPlay(r, 'Death', 0.12, true);
   else if (z.hurt > 0) a = kitPlay(r, 'HitReact', 0.06, true);
@@ -485,6 +569,14 @@ function kitZombieAnim(z, dt) {
   // the game's head twitch rides on top of the animation
   const hb = r.bones.Head;
   if (hb && !z.dead) { tmpE.set(u.head.rotation.x * 0.6, u.head.rotation.y * 0.6, u.head.rotation.z * 0.7); hb.quaternion.multiply(tmpQ.setFromEuler(tmpE)); }
+  if (u.ztype && u.ztype.reach && !z.dead) { // arms out, and a swipe when it attacks
+    const lift = z.atkT > 0 ? -1.75 + (0.55 - z.atkT) * 1.5 : -1.15 + Math.sin(clock * 3 + z.ph) * 0.08;
+    for (const sd of ['L', 'R']) {
+      const ua = r.bones['UpperArm_' + sd], fa = r.bones['Forearm_' + sd];
+      if (ua) ua.quaternion.multiply(tmpQ.setFromEuler(tmpE.set(lift + (sd === 'L' ? 0.1 : 0), 0, 0)));
+      if (fa) fa.quaternion.multiply(tmpQ.setFromEuler(tmpE.set(-0.25, 0, 0)));
+    }
+  }
 }
 // once the files are in: props, a dead shopper, and model versions of what's already standing
 function kitWorld() {
@@ -1371,6 +1463,7 @@ function spawnRunner(path, speed, line) {
 const zombies = [];
 function spawnZombie(x, z, kind, opts) {
   const o = opts || {};
+  if (o.keys && !o.type && KIT.ready) o.type = KIT.src.zombie_photo ? ZTYPES[4] : KIT.src.zombie_luther ? ZTYPES[3] : undefined;
   const p = makeZombie({ skin: pick(ZSKIN), shirt: o.shirt || (kind === 'greeter' ? 0x1f4f95 : pick(SHIRTS)), pants: pick(PANTS), hair: pick([0x2a1d14, 0x3a3a3a, 0x6a5a4a]), vest: kind === 'greeter', type: o.type });
   p.position.set(x, 0, z); p.rotation.y = rand(0, 6.28);
   const zb = Object.assign({ p, kind, hp: kind === 'cart' ? 90 : kind === 'greeter' ? 120 : 100, state: 'chase', cd: 0, hurt: 0, ph: rand(0, 6), groanT: rand(2, 5), dead: 0, charge: 0, stun: 0, dir: { x: 0, z: 1 }, twT: 0, lunge: 0, lungeCd: rand(1, 3), freeze: 0 }, o);
@@ -1379,7 +1472,7 @@ function spawnZombie(x, z, kind, opts) {
   const kr = p.userData.kit;
   if (kr && kind === 'shopper' && p.userData.ztype.crawl && !o.keys && Math.random() < 0.22) zb.crawl = true;
   if (o.keys) {
-    const k = keysMesh(); zb.keyMesh = k; const hand = kr && (kr.bones['Middle1.R'] || kr.bones['LowerArm.R']);
+    const k = keysMesh(); zb.keyMesh = k; const hand = (kr && (kr.bones['Middle1.R'] || kr.bones['LowerArm.R'] || kr.bones.Hand_R)) || p.userData.hand;
     if (hand) { p.updateMatrixWorld(true); hand.getWorldPosition(k.position); k.position.y -= 0.06; k.scale.setScalar(1.4); hand.attach(k); }
     else { k.position.set(0, -0.92, 0.05); p.userData.armR.add(k); }
   }
@@ -1838,7 +1931,7 @@ function updateZombies(dt) {
   for (const z of zombies) {
     const p = z.p, u = p.userData;
     if (z.dead) {
-      if (u.kit) z.dead = Math.min(1, z.dead + dt * 2.5);
+      if (u.kit && u.kit.acts.Death) z.dead = Math.min(1, z.dead + dt * 2.5);
       else if (z.dead < 1) { z.dead = Math.min(1, z.dead + dt * 2.5); u.body.rotation.x = -z.dead * Math.PI / 2; u.body.position.y = z.dead * 0.12; u.jaw.rotation.x = 0.9; }
       continue;
     }
@@ -1904,7 +1997,7 @@ function updateZombies(dt) {
     u.armL.rotation.x = lerp(u.armL.rotation.x, -1.2, dt * 4); u.armR.rotation.x = lerp(u.armR.rotation.x, -1.35, dt * 4);
     for (const o of zombies) if (o !== z && !o.dead) { const ox = p.position.x - o.p.position.x, oz = p.position.z - o.p.position.z, od = Math.hypot(ox, oz); if (od < 0.7 && od > 0) { p.position.x += ox / od * (0.7 - od) * 0.5; p.position.z += oz / od * (0.7 - od) * 0.5; } }
   }
-  for (const z of zombies) if (z.p.userData.kit) kitZombieAnim(z, dt);
+  for (const z of zombies) { if (z.p.userData.kit) kitZombieAnim(z, dt); else if (z.p.userData.puppet) photoAnim(z, dt); }
   return nearest;
 }
 function spotted(z) {
