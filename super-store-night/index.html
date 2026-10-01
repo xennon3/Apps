@@ -1215,7 +1215,7 @@ function setMouth(k) {
 // Everything is synthesized. Sounds run through HRTF 3D panners (headphones help),
 // a distance filter, and a shared convolution reverb shaped like a big concrete store.
 const sfx = (() => {
-  let AC = null, master, dryBus, verb, verbIn, noiseBuf, brownBuf, humG, hvacG, rainG, muzakBus, motor = null, dread = 0;
+  let AC = null, roarBuf = null, master, dryBus, verb, verbIn, noiseBuf, brownBuf, humG, hvacG, rainG, muzakBus, motor = null, dread = 0;
   const S = {};
   const VOWELS = { a: [800, 1150, 2900], o: [450, 800, 2830], u: [325, 700, 2530], e: [400, 1700, 2600], i: [300, 2100, 2900], ae: [660, 1720, 2410] };
   const FGAIN = [1, 0.5, 0.25];
@@ -1262,7 +1262,17 @@ const sfx = (() => {
     const mhp = AC.createBiquadFilter(); mhp.type = 'highpass'; mhp.frequency.value = 280; const mlp = AC.createBiquadFilter(); mlp.frequency.value = 3200;
     muzakBus.connect(mhp); mhp.connect(mlp); mlp.connect(dryBus); const ms = AC.createGain(); ms.gain.value = 1.6; mlp.connect(ms); ms.connect(verbIn);
     muzakLoop();
+    // Luther's monster roar, the creature's real voice (synth fallback until it loads)
+    fetch('sounds/monster_roar.wav').then(r => r.ok ? r.arrayBuffer() : Promise.reject(r.status))
+      .then(b => new Promise((ok, fail) => AC.decodeAudioData(b, ok, fail))).then(buf => { roarBuf = buf; }, e => console.warn('roar', e));
   };
+  function roar(o, t, dur, rate, offset, lpf) {
+    const src = AC.createBufferSource(); src.buffer = roarBuf; src.playbackRate.value = rate;
+    const g = AC.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + 0.03);
+    g.gain.setValueAtTime(1, t + dur); g.gain.linearRampToValueAtTime(0, t + dur + 0.6);
+    if (lpf) { const f = AC.createBiquadFilter(); f.frequency.value = lpf; src.connect(f); f.connect(g); } else src.connect(g);
+    g.connect(o); src.start(t, offset || 0); src.stop(t + dur + 0.7);
+  }
   S.resume = () => { if (AC && AC.state === 'suspended') AC.resume(); };
   S.set = (k, v) => { if (!AC) return; const n = { hum: humG, rain: rainG, muzak: muzakBus, hvac: hvacG }[k]; if (n) n.gain.setTargetAtTime(v, AC.currentTime, 0.3); };
   S.dread = v => { dread = v; };
@@ -1378,6 +1388,11 @@ const sfx = (() => {
     // the inhale
     noise(o, t, 0.55, { type: 'bandpass', f: 600, f1: 2400, q: 1, v: 0.35, a: 0.5 });
     const t2 = t + 0.5;
+    if (roarBuf) { // big screams roar low and long; quick hunting shrieks come out higher and faster
+      roar(o, t2, Math.min(dur, 2.6), dur >= 1.8 ? 0.9 : rand(1.08, 1.22), 0.05, null);
+      tone(o, t2, dur, { f: 38, f1: 28, v: 0.6, a: 0.2 });
+      return;
+    }
     const ring = AC.createGain(); ring.gain.value = 0.4; const rm = AC.createOscillator(); rm.frequency.value = 37; const rmg = AC.createGain(); rmg.gain.value = 0.6; rm.connect(rmg); rmg.connect(ring.gain); ring.connect(o); rm.start(t2); rm.stop(t2 + dur + 0.1);
     voice(ring, t2, dur, { pitch: [[0, 160], [0.1, 340], [0.5, 300], [1, 180]], voices: [-40, 0, 25, 1180], jit: 0.08, jitRate: 22, vib: [9, 0.04], rough: [43, 0.5], drive: 7, vowels: [[0, 'o'], [0.12, 'a'], [0.7, 'ae'], [1, 'a']], fscale: 0.72, q: 4, v: 1, a: 0.08, hold: 0.7, breath: 0.35 });
     voice(o, t2, dur, { pitch: [[0, 900], [0.15, 1500], [1, 1000]], voices: [0, 30], jit: 0.06, jitRate: 25, rough: [90, 0.4], drive: 3, vowels: [[0, 'i'], [1, 'e']], q: 8, v: 0.35, a: 0.15, hold: 0.6, bright: true });
@@ -1387,6 +1402,11 @@ const sfx = (() => {
   S.growl = (x, z, vol) => {
     if (!AC) return; const t = AC.currentTime, dur = rand(1.3, 2.6), o = out(x, z, (vol || 0.9) * 0.8, 0.8);
     voice(o, t, dur, { pitch: [[0, rand(38, 52)], [0.5, rand(46, 60)], [1, rand(32, 42)]], voices: [0, 7], jit: 0.12, jitRate: 9, rough: [rand(18, 28), 0.75], drive: 5, vowels: [[0, 'u'], [0.5, 'o'], [1, 'u']], fscale: 0.55, q: 3, v: 0.9, a: 0.3, hold: 0.5, breath: 0.25 });
+  };
+  // the creature, far off: its roar slowed down and muffled into a growl
+  S.creatureGrowl = (x, z, vol) => {
+    if (!AC) return; if (!roarBuf) return S.growl(x, z, vol);
+    roar(out(x, z, (vol || 0.9) * 1.3, 0.9), AC.currentTime, rand(1.2, 1.9), rand(0.5, 0.62), rand(0.2, 1.0), 650);
   };
   S.groan = (x, z) => {
     if (!AC) return; const t = AC.currentTime, dur = rand(0.9, 1.8), o = out(x, z, 0.9, 0.5), f = rand(80, 125);
@@ -1589,7 +1609,7 @@ function flipBreaker() {
   for (const f of FX) { f.prev = f.state; f.state = 'on'; }
   hemi.intensity = 0.25; D.surge = 2.6; P.shake = 0.4;
   intercom('Power restored to front entrance. Thank you for your patience.');
-  setTimeout(() => { sfx.growl(-20, -46, 1.4); say('<span class="sfx">[something at the back of the store heard that]</span>', 3); }, 2200);
+  setTimeout(() => { sfx.creatureGrowl(-20, -46, 1.4); say('<span class="sfx">[something at the back of the store heard that]</span>', 3); }, 2200);
   checkStalker();
 }
 // the Night Manager only comes for you once you have everything you need to leave
@@ -1691,7 +1711,7 @@ function updateStalker(dt) {
   ST.twT -= dt; if (ST.twT <= 0) { ST.twT = rand(0.25, 1.4); u.head.rotation.set(rand(-0.3, 0.4), rand(-0.5, 0.5), rand(-0.7, 0.7)); }
   creature.position.set(ST.x, Math.abs(Math.sin(ST.ph)) * 0.06, ST.z); creature.rotation.y = ST.yaw;
   if (spd > 0) { ST.stepT -= dt; if (ST.stepT <= 0) { ST.stepT = spd > 3 ? 0.32 : 0.62; sfx.stomp(ST.x, ST.z); } }
-  ST.growlT -= dt; if (ST.growlT <= 0) { ST.growlT = rand(2.5, 5); sfx.growl(ST.x, ST.z, 1.2); }
+  ST.growlT -= dt; if (ST.growlT <= 0) { ST.growlT = rand(2.5, 5); sfx.creatureGrowl(ST.x, ST.z, 1.2); }
   return d;
 }
 
@@ -1769,7 +1789,7 @@ function director(dt) {
       if (D.keyZ && !D.keyZ.dead) { D.jingleT -= dt; if (D.jingleT <= 0) { D.jingleT = rand(1.6, 2.6); sfx.jingle(D.keyZ.p.position.x, D.keyZ.p.position.z); } }
       if (!D.glimpse && !ST.on && (TASK.keys + TASK.card + TASK.power) >= 2 && Math.abs(P.x) < 3 && P.z > -9 && P.z < 6) {
         const fz = -Math.cos(P.yaw) * Math.cos(P.pitch);
-        if (fz > 0.9) { D.glimpse = 1.1; creature.visible = true; creature.position.set(0, 0, -45); creature.rotation.y = 0; creature.userData.waist.rotation.x = 0.4; setMouth(0.5); sparkLight.position.set(0, 4.5, -42); sparkFlash = 4; sparks.emit(0, 5.9, -42, 50, 0xffc26a, 3, 1); sfx.crackle(0, -42); sfx.growl(0, -45, 1.2); sfx.dread(0.9); }
+        if (fz > 0.9) { D.glimpse = 1.1; creature.visible = true; creature.position.set(0, 0, -45); creature.rotation.y = 0; creature.userData.waist.rotation.x = 0.4; setMouth(0.5); sparkLight.position.set(0, 4.5, -42); sparkFlash = 4; sparks.emit(0, 5.9, -42, 50, 0xffc26a, 3, 1); sfx.crackle(0, -42); sfx.creatureGrowl(0, -45, 1.2); sfx.dread(0.9); }
       }
       if (D.glimpse > 0) { D.glimpse -= dt; if (D.glimpse <= 0) { D.glimpse = -1; if (!ST.on) creature.visible = false; } }
       if (D.surge > 0) { D.surge -= dt; if (D.surge <= 0) { for (const f of FX) f.state = f.prev === 'bad' ? 'bad' : 'dying', f.stutter = rand(0.1, 0.8); hemi.intensity = 0.08; } }
@@ -1778,7 +1798,7 @@ function director(dt) {
     case 'ending': ending(dt); break;
   }
   if (['wave', 'fight', 'tasks'].includes(D.phase)) {
-    D.growlT -= dt; if (D.growlT <= 0) { D.growlT = rand(5, 11) * (P.light ? 0.7 : 1); sfx.growl(P.x + rand(-18, 18), P.z + rand(-18, 18), P.light ? 1 : 0.6); }
+    D.growlT -= dt; if (D.growlT <= 0) { D.growlT = rand(5, 11) * (P.light ? 0.7 : 1); (Math.random() < 0.5 ? sfx.creatureGrowl : sfx.growl)(P.x + rand(-18, 18), P.z + rand(-18, 18), P.light ? 1 : 0.6); }
   }
   // The Shuffle: the aisle 14 sign changes when you aren't looking
   if (D.phase === 'tasks' && D.shuffle === 0) {
