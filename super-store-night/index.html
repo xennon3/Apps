@@ -94,6 +94,9 @@ body { background: var(--night); color: var(--tube); font-family: var(--font-mon
 .receipt .big { font-weight: 600; font-size: 15px; }
 .receipt .bar { height: 38px; margin: 14px 0 6px; background: repeating-linear-gradient(90deg, var(--paper-ink) 0 2px, transparent 2px 4px, var(--paper-ink) 4px 5px, transparent 5px 8px, var(--paper-ink) 8px 11px, transparent 11px 12px); }
 .receipt .tag-btn { margin-top: 18px; width: 100%; font-size: 20px; }
+.receipt .pen { margin-top: 14px; font-family: "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive; font-size: 16px; line-height: 1.3; color: #233a8a; transform: rotate(-2deg); }
+#note { position: fixed; right: 16px; top: 50%; transform: translateY(-50%) rotate(1.5deg); width: min(300px, 70vw); font-size: 12px; padding: 18px 18px 22px; pointer-events: none; z-index: 5; }
+#note .store { font-size: 26px; }
 
 /* Touch controls */
 #touch { position: fixed; inset: 0; pointer-events: none; }
@@ -157,6 +160,8 @@ body { background: var(--night); color: var(--tube); font-family: var(--font-mon
 <div class="screen" id="pause" hidden>
   <div class="note-card" style="max-width:320px"><h2>Paused</h2><p style="margin:0 0 16px">The store waits for you.</p><button class="tag-btn" id="resume" type="button">Keep shopping</button></div>
 </div>
+
+<div class="receipt" id="note" hidden></div>
 
 <div class="screen" id="end" hidden>
   <div class="receipt" id="receipt"></div>
@@ -1601,7 +1606,7 @@ const sfx = (() => {
       if (beat === 0 || beat === 4) tone(muzakBus, t, 0.7, { f: hz(chord[0] - 24), v: 0.5, a: 0.01 });
       if (beat === 2 || beat === 6) noise(muzakBus, t, 0.08, { type: 'highpass', f: 6000, v: 0.12 });
     }
-    step++;
+    step++; if (dread > 0.45 && Math.random() < dread * 0.12) step -= 3; // the disc skips back
     setTimeout(muzakLoop, 260 * (1 + dread * 0.8));
   }
   function rainDrops() {
@@ -1710,6 +1715,11 @@ const sfx = (() => {
   let dropT = 0;
   S.shellDrop = (x, z, v) => { if (!AC || AC.currentTime - dropT < 0.03) return; dropT = AC.currentTime; const t = dropT, o = out(x, z, Math.min(1, 0.25 + v * 0.2), 0.3); noise(o, t, 0.02, { type: 'bandpass', f: 2600, q: 2, v: 0.5 }); tone(o, t, 0.18, { f: rand(3100, 3700), v: 0.035 }); tone(o, t, 0.12, { f: rand(5200, 5900), v: 0.015 }); };
   S.shells = () => { if (!AC) return; const t = AC.currentTime, o = out(null, null, 0.7, 0.1); for (let i = 0; i < 7; i++) { const tt = t + i * 0.035 + rand(0, 0.02); noise(o, tt, 0.03, { type: 'bandpass', f: rand(1800, 3200), q: 4, v: 0.45 }); tone(o, tt, 0.08, { f: rand(2800, 3600), v: 0.02 }); } };
+  S.chime = (wrong) => { if (!AC) return; const t = AC.currentTime, o = out(null, null, 0.42, 1.6); for (const [d, f] of [[0, 784], [0.45, wrong ? 587 : 622]]) { tone(o, t + d, 1.2, { f, v: 0.3, a: 0.004 }); tone(o, t + d, 0.8, { f: f * 2.01, v: 0.06, a: 0.004 }); } };
+  S.paper = () => { if (!AC) return; const t = AC.currentTime, o = out(null, null, 0.5, 0.1); for (let i = 0; i < 5; i++) noise(o, t + i * 0.04 + rand(0, 0.03), 0.05, { type: 'bandpass', f: rand(2500, 5000), q: 1.5, v: 0.4 }); };
+  S.breath = (x, z) => { if (!AC) return; const t = AC.currentTime, o = out(x, z, 0.5, 0.15); noise(o, t, 1.4, { type: 'bandpass', f: 900, f1: 500, q: 2, v: 0.5, a: 0.5 }); noise(o, t + 1.6, 1.8, { type: 'bandpass', f: 600, f1: 1100, q: 2, v: 0.35, a: 0.9 }); };
+  S.sting = () => { if (!AC) return; const t = AC.currentTime, o = out(null, null, 0.9, 0.8); for (const f of [233, 247, 466, 494, 988, 1046]) tone(o, t, 1.6, { type: 'sawtooth', f, f1: f * 0.97, v: 0.05, a: 0.004 }); noise(o, t, 0.25, { type: 'highpass', f: 3000, v: 0.4, a: 0.002 }); tone(o, t, 0.6, { f: 70, f1: 35, v: 0.8 }); };
+  S.scrape = (x, z) => { if (!AC) return; const t = AC.currentTime, o = out(x, z, 0.8, 0.6); noise(o, t, 0.35, { type: 'bandpass', f: 1400, f1: 700, q: 4, v: 0.5, a: 0.05 }); noise(o, t + 0.3, 0.06, { type: 'bandpass', f: 400, q: 1, v: 0.6 }); };
   S.stopAll = () => { if (!AC) return; master.gain.setTargetAtTime(0, AC.currentTime, 0.6); };
   S.duck = (v) => { if (!AC) return; master.gain.setTargetAtTime(v, AC.currentTime, 0.2); };
   return S;
@@ -1724,7 +1734,19 @@ let playing = false, paused = false, controls = true, clock = 0, attackHeld = fa
 const hud = { sub: $('sub'), prompt: $('prompt'), items: $('items'), list: $('list') };
 let subT = 0;
 function say(html, dur) { hud.sub.innerHTML = html; subT = dur || 3.5; }
-function intercom(text) { say('<span class="who">Intercom</span>' + text, 4.5); }
+// the PA: a two-tone chime through the ceiling speakers, then a slow, low voice (where the browser has one)
+let paVoice = null;
+function pickVoice() { try { const vs = speechSynthesis.getVoices(); paVoice = vs.find(v => /^en/i.test(v.lang) && /david|daniel|fred|alex|male|google uk english male/i.test(v.name)) || vs.find(v => /^en/i.test(v.lang)) || null; } catch (e) { paVoice = null; } }
+try { if (window.speechSynthesis) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; } } catch (e) { /* no voice: subtitles only */ }
+function intercom(text, o) {
+  o = o || {}; say('<span class="who">Intercom</span>' + text, Math.max(4.5, text.length * 0.07)); sfx.chime(o.pitch && o.pitch < 0.55);
+  setTimeout(() => {
+    try {
+      if (!window.speechSynthesis || !playing) return; speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text); if (paVoice) u.voice = paVoice; u.pitch = o.pitch || 0.6; u.rate = o.rate || 0.84; u.volume = 0.9; speechSynthesis.speak(u);
+    } catch (e) { /* subtitles carry it */ }
+  }, 1300);
+}
 function sfxText(text) { say('<span class="sfx">[' + text + ']</span>', 3); }
 function shellHUD() {
   $('ammo').hidden = P.weapon !== 'shotgun'; if (P.weapon !== 'shotgun') return;
@@ -1871,6 +1893,7 @@ function taskList() {
 function takeCard() {
   TASK.card = true; scene.remove(card); taskList(); sfx.pickup();
   say('Got the key card.', 1.6);
+  setTimeout(() => intercom("The manager's key card has left the office. The Night Manager has been notified.", { pitch: 0.5 }), 3000);
   checkStalker();
 }
 function flipBreaker() {
@@ -1988,6 +2011,267 @@ function updateStalker(dt) {
 // ---------- director ----------
 const D = { phase: 'outside', t: 0, beeps: 0, wave: [], waveI: 0, waveT: 0, glimpse: false, shuffle: 0, shuffleSeen: 0, lastIntercom: 0, endT: 0, growlT: 8, sparkT: 2, surge: 0 };
 const WAVE_ROWS = fxZ.slice().sort((a, b) => a - b);
+// ---------- the store remembers ----------
+// Visits, initials and the last run survive between plays (per browser; never required).
+const MEM = (() => {
+  let m = {}; try { m = JSON.parse(localStorage.getItem('ssn-memory') || '{}') || {}; } catch (e) { m = {}; }
+  if (!m.initials) { const L = 'ABCDEFGHJKLMNPRSTW'; m.initials = L[(Math.random() * L.length) | 0] + '.' + L[(Math.random() * L.length) | 0] + '.'; }
+  m.visits = (m.visits || 0) + 1;
+  const save = () => { try { localStorage.setItem('ssn-memory', JSON.stringify(m)); } catch (e) { /* the store forgets */ } };
+  save(); m.save = save; return m;
+})();
+const TODAY = new Date(), MMDD = String(TODAY.getMonth() + 1).padStart(2, '0') + '/' + String(TODAY.getDate()).padStart(2, '0');
+
+// a note card on the right of the screen; it stays up until you walk away
+let noteAt = null;
+function readNote(html, x, z) { const n = $('note'); n.innerHTML = html; n.hidden = false; noteAt = { x, z }; sfx.paper(); }
+function updateNote() { if (noteAt && Math.hypot(P.x - noteAt.x, P.z - noteAt.z) > 2.8) { $('note').hidden = true; noteAt = null; } }
+const rcpt = (date, rows, total, note) => `<div class="store">MEGAMART</div><div class="c">STORE #0413 · OPEN 24 HOURS</div><div class="c">${date} 03:14 AM · REG 07</div><hr>`
+  + rows.map(r => `<div class="row"><span>${r[0]}</span><span>${r[1]}</span></div>`).join('') + `<hr><div class="row big"><span>${total[0]}</span><span>${total[1]}</span></div>`
+  + `<div class="row"><span>CUSTOMER</span><span>${MEM.initials}</span></div>` + (note ? `<div class="pen">${note}</div>` : '');
+// receipts from other nights: the same date, the same screws, the same initials
+const LORE = [
+  [TODAY.getFullYear() - 1, [['WOOD SCREWS 1-1/4"', 'NOT FOUND'], ['1 x CROWBAR', 'RETURNED'], ['CAR KEYS', 'MISSING']], ['TOTAL SURVIVORS', '0'], 'it hunts by your light. turn it off.'],
+  [2009, [['WOOD SCREWS 1-1/4"', 'NOT FOUND'], ['PAINKILLERS x2', '4.18'], ['1 x HAMMER', 'RETURNED']], ['RETURN DENIED', 'AISLE 14'], "don't watch the monitors too long. it likes to stand behind you."],
+  [1998, [['WOOD SCREWS 1-1/4"', 'NOT FOUND'], ['MGR KEY CARD', 'BORROWED'], ['DOOR POWER', 'OFF']], ['RETURN DENIED', 'AISLE 0'], "count the aisles. there's one more than there should be."],
+  [1987, [['WOOD SCREWS 1-1/4"', 'NOT FOUND'], ['1 x AXE', 'RETURNED'], ['ZOMBIES CLEARED', '11']], ['TOTAL SURVIVORS', '1'], 'I got out. Why did I come back?'],
+  [1979, [['WOOD SCREWS 1-1/4"', 'NOT FOUND'], ['PAINKILLERS x1', '0.39'], ['CAR KEYS', 'MISSING']], ['RETURN DENIED', 'AISLE 7'], 'the dummies only move when nobody is looking at them'],
+  [1966, [['WOOD SCREWS 1-1/4"', 'NOT FOUND'], ['NIGHT MANAGER', 'ON DUTY'], ['NIGHT MANAGER', 'ON DUTY']], ['RETURN DENIED', '—'], 'the screws were never here. there is nothing to buy.'],
+];
+if (MEM.last) LORE.unshift(['LAST NIGHT', [['1 x ' + MEM.last.weapon, MEM.last.won ? 'TAKEN' : 'RETURNED'], ['ZOMBIES CLEARED', String(MEM.last.kills)], ['TIME IN STORE', MEM.last.time]], MEM.last.won ? ['TOTAL SURVIVORS', '1'] : ['RETURN DENIED', 'AISLE ' + MEM.last.aisle], 'you again.']);
+const RECEIPT_SPOTS = [[-16.4, -33], [9.6, -15], [-4, -44], [22.3, -36], [-28, -18], [3, -26], [27.5, -6], [-9.6, -24]];
+const paperM = new THREE.MeshLambertMaterial({ color: 0xe9e6dc, side: THREE.DoubleSide });
+RECEIPT_SPOTS.sort(() => Math.random() - 0.5).slice(0, Math.min(6, LORE.length)).forEach(([x, z], i) => {
+  const [yr, rows, total, note] = LORE[i], g = new THREE.PlaneGeometry(0.09, 0.22, 3, 6), pa = g.attributes.position;
+  for (let k = 0; k < pa.count; k++) pa.setZ(k, rand(-0.012, 0.012)); g.computeVertexNormals();
+  const m = new THREE.Mesh(g, paperM); m.rotation.set(-Math.PI / 2 + rand(-0.15, 0.15), 0, rand(0, 6)); m.position.set(x, 0.016, z); m.receiveShadow = true; scene.add(m);
+  const date = yr === 'LAST NIGHT' ? 'LAST NIGHT' : MMDD + '/' + yr;
+  addAct({ pos: { x, z }, get on() { return true; }, label: () => 'Read the receipt', act: () => readNote(rcpt(date, rows, total, note), x, z) });
+});
+// the break-room board by the office: tonight's schedule and the employee of the month
+const BOARD = { x: -21.6, z: -49.92 };
+const boardTex = canvasTex(512, 384, (c, w, h) => {
+  c.fillStyle = '#9a7650'; c.fillRect(0, 0, w, h); for (let i = 0; i < 2500; i++) { c.fillStyle = `rgba(60,40,20,${rand(0.05, 0.25)})`; c.fillRect(rand(0, w), rand(0, h), 2, 2); }
+  // schedule sheet
+  c.save(); c.translate(30, 30); c.rotate(-0.02); c.fillStyle = '#efece2'; c.fillRect(0, 0, 250, 320); c.fillStyle = '#222'; c.font = '700 20px "IBM Plex Mono", monospace'; c.fillText('NIGHT CREW', 14, 30);
+  c.font = '500 14px "IBM Plex Mono", monospace'; c.fillText('week of ' + MMDD, 14, 50);
+  [['DALE', 'MISSING'], ['RENEE', 'MISSING'], ['T. OKAFOR', 'MISSING'], ['MARCUS', 'MISSING'], [MEM.initials, '10PM - ?']].forEach(([n, s], i) => { const y = 92 + i * 40; c.fillStyle = '#222'; c.fillText(n, 14, y); c.fillText(s, 140, y); c.fillStyle = 'rgba(0,0,0,.2)'; c.fillRect(14, y + 10, 222, 1); });
+  c.strokeStyle = '#b02a1e'; c.lineWidth = 3; c.beginPath(); c.ellipse(80, 248, 76, 22, -0.05, 0, 7); c.stroke(); c.fillStyle = '#b02a1e'; c.font = 'italic 600 18px Georgia, serif'; c.fillText('tonight', 150, 300);
+  c.restore();
+  // employee of the month frame, the photo goes in once the models load
+  c.fillStyle = '#d8c070'; c.fillRect(310, 40, 170, 230); c.fillStyle = '#151515'; c.fillRect(322, 52, 146, 176); c.fillStyle = '#222'; c.font = '800 15px "Big Shoulders Display", Impact, sans-serif'; c.textAlign = 'center'; c.fillText('EMPLOYEE OF THE MONTH', 395, 248); c.font = '700 14px "IBM Plex Mono", monospace'; c.fillText(MEM.initials, 395, 264);
+  for (const [x, y] of [[40, 34], [270, 36], [395, 36]]) { c.fillStyle = '#c0392b'; c.beginPath(); c.arc(x, y, 6, 0, 7); c.fill(); }
+});
+function boardPhoto() {
+  if (BOARD.photo || !KIT.src.zombie_photo) return; BOARD.photo = true;
+  const c = boardTex.userData.ctx; c.save(); c.filter = 'grayscale(1) contrast(1.3) brightness(.8)'; c.drawImage(KIT.src.zombie_photo, 525, 4, 124, 189, 330, 56, 130, 168); c.restore(); boardTex.needsUpdate = true;
+}
+{ const m = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 1.5), lam(0xffffff, { map: boardTex })); m.position.set(BOARD.x, 1.7, BOARD.z); scene.add(m); }
+addAct({ pos: { x: BOARD.x, z: BOARD.z + 1.1 }, get on() { return true; }, label: () => 'Read the staff board', act: () => { boardPhoto(); readNote(`<div class="store">NIGHT CREW</div><div class="c">week of ${MMDD}</div><hr><div class="row"><span>DALE</span><span>MISSING</span></div><div class="row"><span>RENEE</span><span>MISSING</span></div><div class="row"><span>T. OKAFOR</span><span>MISSING</span></div><div class="row"><span>MARCUS</span><span>MISSING</span></div><div class="row big"><span>${MEM.initials}</span><span>10 PM – ?</span></div><hr><div class="c">EMPLOYEE OF THE MONTH: ${MEM.initials}</div><div class="pen">you don't work here. do you?</div>`, BOARD.x, BOARD.z + 1.1); } });
+
+// ---------- the store watches ----------
+// Four cameras render into the monitors in the back office, round robin, only while you're near.
+// Layer 1 holds things only the cameras see: your body, and whatever stands behind it.
+const CCTV = { cams: [], rt: [], i: 0, near: false, figure: null, you: null, ghost: null, aisleGhost: null, t: 0 };
+{
+  const W = HQ ? 256 : 160, H = W * 0.75;
+  const mk = (name, pos, look) => { const c = new THREE.PerspectiveCamera(62, 4 / 3, 0.1, 60); c.position.set(...pos); c.lookAt(...look); c.layers.enable(1); c.userData.name = name; return c; };
+  CCTV.cams.push(mk('CAM 01 · OFFICE', [-24.3, 3.1, -44.6], [-27.2, 0.9, -47.6]), mk('CAM 02 · AISLE 14', [-16, 3.8, -8.8], [-16, 0.6, -30]), mk('CAM 03 · ENTRANCE', [6.5, 3.8, 5.5], [0, 0.8, 9.5]), mk('CAM 04 · GARDEN', [22, 3.8, -9], [22, 0.6, -32]));
+  for (let i = 0; i < 4; i++) { const r = new THREE.WebGLRenderTarget(W, H); r.texture.minFilter = THREE.LinearFilter; CCTV.rt.push(r); }
+  const vs = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
+  const fs = `uniform sampler2D map, label; uniform float t, glitch; varying vec2 vUv;
+    float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+    void main(){
+      vec2 uv = vUv; float row = floor(uv.y * 60.0);
+      uv.x += (h(vec2(row, floor(t * 12.0))) - 0.5) * 0.012 * (1.0 + glitch * 10.0) * step(0.93 - glitch * 0.6, h(vec2(row * 0.3, floor(t * 5.0))));
+      float l = dot(texture2D(map, uv).rgb, vec3(0.3, 0.59, 0.11)); l = pow(clamp(l * 2.2, 0.0, 1.0), 0.75);
+      l *= 0.8 + 0.2 * sin(vUv.y * 520.0); l += (h(vUv * 400.0 + t) - 0.5) * (0.16 + glitch * 0.5);
+      float roll = fract(t * 0.09); l += 0.07 * (1.0 - smoothstep(0.0, 0.05, abs(vUv.y - roll)));
+      vec2 d = vUv - 0.5; l *= 1.0 - dot(d, d) * 1.4;
+      if (glitch > 0.85) l = h(floor(vUv * vec2(160.0, 120.0)) + floor(t * 30.0));
+      vec4 lb = texture2D(label, vUv);
+      vec3 col = mix(vec3(l * 0.78, l, l * 0.86), lb.rgb, lb.a);
+      gl_FragColor = vec4(col, 1.0);
+    }`;
+  const caseM = new THREE.MeshStandardMaterial({ color: 0x2a2a26, roughness: 0.6, envMap: WPN.env });
+  CCTV.screens = [];
+  [[-27.86, 1.55], [-27.28, 1.55], [-27.86, 1.13], [-27.28, 1.13]].forEach(([x, y], i) => {
+    const lab = canvasTex(256, 192, () => {}), u = { map: { value: CCTV.rt[i].texture }, label: { value: lab }, t: { value: 0 }, glitch: { value: 0 } };
+    const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.375), new THREE.ShaderMaterial({ uniforms: u, vertexShader: vs, fragmentShader: fs, toneMapped: false }));
+    scr.position.set(x, y, -47.96); scene.add(scr);
+    const cs = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.44, 0.4), caseM); cs.position.set(x, y, -48.18); cs.castShadow = true; scene.add(cs);
+    CCTV.screens.push({ scr, u, lab, cam: CCTV.cams[i] });
+  });
+  // the desk's old monitor goes; the cameras take its place
+  mon.visible = false;
+  // what only the cameras see
+  const sil = new THREE.MeshBasicMaterial({ color: 0x050505 }), eye = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  function figure(tall, eyes) {
+    const g = new THREE.Group(), add = (geo, m, x, y, z, rz) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.rotation.z = rz || 0; o.layers.set(1); g.add(o); return o; };
+    add(new THREE.CylinderGeometry(0.17, 0.12, 0.75 * tall, 10), sil, 0, 1.25 * tall, 0);
+    const head = add(new THREE.SphereGeometry(0.13, 12, 10), sil, 0.03, 1.8 * tall, 0); head.scale.y = 1.25;
+    for (const s of [-1, 1]) { add(new THREE.CylinderGeometry(0.045, 0.035, 0.95 * tall, 6), sil, s * 0.22, 1.1 * tall, 0, s * 0.05); add(new THREE.CylinderGeometry(0.07, 0.05, 0.9 * tall, 6), sil, s * 0.09, 0.45 * tall, 0); }
+    if (eyes) for (const s of [-1, 1]) add(new THREE.SphereGeometry(0.022, 6, 4), eye, 0.03 + s * 0.05, 1.82 * tall, 0.115);
+    g.traverse(o => o.layers.set(1)); g.visible = false; scene.add(g); return g;
+  }
+  CCTV.you = figure(1, false); CCTV.ghost = figure(1.28, true); CCTV.aisleGhost = figure(1.28, true);
+  CCTV.aisleGhost.position.set(-16, 0, -36); CCTV.aisleGhost.rotation.y = 0;
+}
+function cctvLabel(s, i) {
+  const c = s.lab.userData.ctx, sec = (D.runTime || 0) | 0, ts = `03:${String(14 + ((sec / 60) | 0)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')} AM`;
+  c.clearRect(0, 0, 256, 192); c.font = '600 13px "IBM Plex Mono", monospace'; c.fillStyle = '#e8f0e8'; c.shadowColor = '#000'; c.shadowBlur = 3;
+  c.fillText(s.cam.userData.name, 10, 20); c.fillText(MMDD + ' ' + ts, 10, 182);
+  if (sec % 2 === 0) { c.fillStyle = '#ff3a2a'; c.beginPath(); c.arc(222, 15, 5, 0, 7); c.fill(); c.fillStyle = '#e8f0e8'; c.fillText('REC', 200 - 30, 20); }
+  s.lab.needsUpdate = true;
+}
+function updateCCTV(dt) {
+  CCTV.t += dt;
+  const d = Math.hypot(P.x + 27.5, P.z + 47.6), near = d < 11 && playing;
+  CCTV.you.visible = playing; CCTV.you.position.set(P.x, 0, P.z); CCTV.you.rotation.y = P.yaw + Math.PI;
+  // CAM 04 follows the Night Manager once it's on the floor
+  const c4 = CCTV.cams[3];
+  if (ST.on) { const sx = ST.x + (ST.x > 0 ? -7 : 7), sz = ST.z + 7; c4.position.lerp(tmpV.set(clamp(sx, -29, 29), 4.2, clamp(sz, -48, 8)), Math.min(1, dt * 0.6)); c4.lookAt(ST.x, 1.6, ST.z); c4.userData.name = 'CAM 04 · ' + (Math.abs(ST.x) < 3 ? 'AISLE 0' : 'TRACKING'); }
+  for (let i = 0; i < 4; i++) { const s = CCTV.screens[i]; s.u.t.value = CCTV.t + i * 3.1; s.u.glitch.value = Math.max(0, s.u.glitch.value - dt * 1.5); }
+  if (!near) return;
+  if ((CCTV.lt = (CCTV.lt || 0) - dt) <= 0) { CCTV.lt = 1; CCTV.screens.forEach(cctvLabel); }
+  const s = CCTV.screens[CCTV.i = (CCTV.i + 1) % 4];
+  const vis = view.visible, sa = renderer.shadowMap.autoUpdate; view.visible = false; renderer.shadowMap.autoUpdate = false;
+  for (const q of CCTV.screens) q.scr.visible = false; // never sample a target while drawing into it
+  renderer.setRenderTarget(CCTV.rt[CCTV.i]); renderer.render(scene, s.cam); renderer.setRenderTarget(null);
+  for (const q of CCTV.screens) q.scr.visible = true;
+  view.visible = vis; renderer.shadowMap.autoUpdate = sa;
+}
+const tmpV = new THREE.Vector3();
+// watching the monitors: something comes to stand behind you, and only the cameras see it
+function watchMonitors(dt) {
+  const W = D.watch || 0, fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw), g = CCTV.ghost;
+  const dx = -27.57 - P.x, dz = -47.96 - P.z, d = Math.hypot(dx, dz), facing = (dx * fx + dz * fz) / (d || 1);
+  if (W === 0 && d < 2.8 && facing > 0.8) {
+    D.watchT = (D.watchT || 0) + dt;
+    if (D.watchT > 1.8) { D.watch = 1; D.watchT = 0; g.position.set(P.x - fx * 1.0, 0, P.z - fz * 1.0); g.rotation.y = Math.atan2(fx, fz); g.visible = true; sfx.breath(g.position.x, g.position.z); }
+  } else if (W === 1) {
+    D.watchT += dt;
+    const gx = g.position.x - P.x, gz = g.position.z - P.z, gd = Math.hypot(gx, gz), toward = (gx * fx + gz * fz) / (gd || 1);
+    if (D.watchT > 2.2 && !D.saidTurn) { D.saidTurn = 1; intercom('Please do not turn around.', { pitch: 0.4 }); }
+    if (D.watchT > 7 && D.watchT < 7.1) { g.position.x += fx * 0.5; g.position.z += fz * 0.5; } // closer
+    if (toward > 0.35 || gd > 4.5) { // you turned, or you left: nothing there
+      g.visible = false; D.watch = 2; CCTV.screens[0].u.glitch.value = 1.2;
+      if (toward > 0.35) { sfx.sting(); P.shake = Math.max(P.shake, 0.25); deskLight.intensity = 0; setTimeout(() => { deskLight.intensity = 0.7; }, 1600); }
+      setTimeout(() => { if (D.phase !== 'ending') { CCTV.aisleGhost.visible = true; } }, 4000);
+    }
+  }
+  // after that, it waits down aisle 14, on camera only, until you go and look
+  if (CCTV.aisleGhost.visible && Math.hypot(P.x + 16, P.z + 36) < 13) { CCTV.aisleGhost.visible = false; CCTV.screens[1].u.glitch.value = 1.2; }
+}
+
+// ---------- the store changes ----------
+// Mannequins: they only move while no one is looking at them.
+const MANNEQUINS = [];
+{
+  const skin = new THREE.MeshStandardMaterial({ color: 0xe6ddd0, roughness: 0.3, envMap: WPN.env, envMapIntensity: 0.8 });
+  const torsoG = new THREE.LatheGeometry([[0, 0], [0.13, 0.02], [0.16, 0.12], [0.13, 0.3], [0.15, 0.45], [0.19, 0.6], [0.17, 0.66], [0.06, 0.7], [0, 0.71]].map(([r, y]) => new THREE.Vector2(r, y)), 16);
+  const limb = (r0, r1, len) => { const g = new THREE.CylinderGeometry(r0, r1, len, 10); g.translate(0, -len / 2, 0); return g; };
+  const upperA = limb(0.045, 0.038, 0.32), lowerA = limb(0.036, 0.028, 0.3), upperL = limb(0.075, 0.055, 0.46), lowerL = limb(0.052, 0.04, 0.46), headG = new THREE.SphereGeometry(0.11, 16, 12);
+  function mannequin(x, z, ry) {
+    const g = new THREE.Group(), part = (geo, parent, px, py, pz) => { const m = new THREE.Mesh(geo, skin); m.position.set(px, py, pz); m.castShadow = true; parent.add(m); return m; };
+    part(torsoG, g, 0, 0.95, 0);
+    const head = new THREE.Group(); head.position.set(0, 1.72, 0); g.add(head); part(headG, head, 0, 0.1, 0).scale.set(0.92, 1.22, 1); part(new THREE.CylinderGeometry(0.04, 0.045, 0.1, 8), head, 0, -0.02, 0);
+    const arms = [], legs = [];
+    for (const s of [-1, 1]) {
+      const sh = new THREE.Group(); sh.position.set(s * 0.21, 1.58, 0); g.add(sh); part(upperA, sh, 0, 0, 0);
+      const el = new THREE.Group(); el.position.y = -0.32; sh.add(el); part(lowerA, el, 0, 0, 0); part(new THREE.SphereGeometry(0.035, 8, 6), el, 0, -0.31, 0);
+      arms.push({ sh, el });
+      const hp = new THREE.Group(); hp.position.set(s * 0.09, 0.97, 0); g.add(hp); part(upperL, hp, 0, 0, 0);
+      const kn = new THREE.Group(); kn.position.y = -0.46; hp.add(kn); part(lowerL, kn, 0, 0, 0); legs.push({ hp, kn });
+    }
+    g.position.set(x, 0.12, z); g.rotation.y = ry; scene.add(g);
+    const M = { g, head, arms, legs, home: { x, z }, moveT: rand(2, 4), seenSinceMove: true, moved: 0 }; pose(M, 0); MANNEQUINS.push(M); return M;
+  }
+  // a display riser in the front corner with four of them in store vests' colours
+  box(3.6, 0.12, 1.6, mat('riser', 0x2a2c30), 24, 0.06, 1.5, false);
+  [[22.7, 1.4, 0.1], [23.8, 1.7, -0.2], [24.9, 1.3, 0.3], [26, 1.6, -0.1]].forEach(([x, z, r]) => mannequin(x, z, Math.PI + r));
+}
+function pose(M, k) { // k = 0 shop-window pose; higher k, worse poses
+  const [a, b] = M.arms, [l, r] = M.legs;
+  const P0 = [
+    () => { a.sh.rotation.set(0, 0, 0.08); b.sh.rotation.set(0, 0, -0.08); a.el.rotation.set(-0.15, 0, 0); b.el.rotation.set(-0.15, 0, 0); M.head.rotation.set(0, 0, 0); },
+    () => { a.sh.rotation.set(-1.45, 0, 0.1); b.sh.rotation.set(-1.45, 0, -0.1); a.el.rotation.set(-0.1, 0, 0); b.el.rotation.set(-0.1, 0, 0); M.head.rotation.set(0.15, 0, 0.35); },
+    () => { a.sh.rotation.set(-1.6, 0, 0); b.sh.rotation.set(0.2, 0, -0.1); a.el.rotation.set(0, 0, 0); b.el.rotation.set(-0.3, 0, 0); M.head.rotation.set(0, 0.3, -0.5); },
+    () => { a.sh.rotation.set(-2.6, 0, 0.3); b.sh.rotation.set(-0.6, 0, -0.2); a.el.rotation.set(-1.2, 0, 0); b.el.rotation.set(-1.4, 0, 0); M.head.rotation.set(0.6, 0, 0.2); },
+    () => { a.sh.rotation.set(-1.2, 0.3, 0.5); b.sh.rotation.set(-1.2, -0.3, -0.5); a.el.rotation.set(-1.6, 0, 0); b.el.rotation.set(-1.6, 0, 0); M.head.rotation.set(-0.2, 0, 1.1); },
+  ];
+  P0[k]();
+  l.hp.rotation.set(k ? rand(-0.35, 0.25) : 0, 0, 0.02); r.hp.rotation.set(k ? rand(-0.35, 0.25) : 0, 0, -0.02); l.kn.rotation.x = k ? rand(0, 0.4) : 0; r.kn.rotation.x = k ? rand(0, 0.4) : 0;
+}
+function seen(x, z, y) {
+  const dx = x - P.x, dz = z - P.z, d = Math.hypot(dx, dz); if (d > 34) return false;
+  const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw);
+  return (dx * fx + dz * fz) / (d || 1) > 0.55 && los(P.x, P.z, x, z);
+}
+function updateMannequins(dt) {
+  if (D.phase !== 'tasks' && D.phase !== 'fight') return;
+  for (const M of MANNEQUINS) {
+    const p = M.g.position, dx = P.x - p.x, dz = P.z - p.z, d = Math.hypot(dx, dz);
+    if (seen(p.x, p.z)) { if (!M.seenSinceMove && M.moved && d < 4.5) { sfx.sting(); P.shake = Math.max(P.shake, 0.2); } M.seenSinceMove = true; M.moveT = Math.max(M.moveT, 0.6); continue; }
+    M.moveT -= dt; if (M.moveT > 0 || d < 2.2 || d > 26) continue;
+    M.moveT = rand(1.4, 3.2);
+    const step = Math.min(1.1, d - 2); p.x += dx / d * step; p.z += dz / d * step; p.y = 0; collide(p, 0.3);
+    M.g.rotation.y = Math.atan2(dx, dz); M.moved++; M.seenSinceMove = false; pose(M, 1 + ((Math.random() * 4) | 0));
+    if (d < 12) sfx.scrape(p.x, p.z);
+  }
+}
+// aisle signs change while your back is turned, and an aisle 0 hangs over the centre walkway
+const WRONG = ['Stay', 'No exit', 'Turn back', 'You again', 'Customers', 'Behind you', 'Closed', 'Go home'];
+for (const s of signs) s.wrong = s === hwSign ? hwSign.creepy : signTex(s.a.n, pick(WRONG), true);
+const aisle0 = { t: signTex('0', 'Lost', true) };
+aisle0.m = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.8), new THREE.MeshBasicMaterial({ map: aisle0.t, side: THREE.DoubleSide, color: 0x999999 }));
+aisle0.m.position.set(0, 4.5, -7.6); aisle0.m.visible = false; scene.add(aisle0.m);
+function facingAmount(x, z) { const dx = x - P.x, dz = z - P.z, d = Math.hypot(dx, dz) || 1; return [(-Math.sin(P.yaw) * dx - Math.cos(P.yaw) * dz) / d, d]; }
+function updateSigns(dt) {
+  if (D.phase !== 'tasks') return;
+  for (const s of signs) {
+    const [f, d] = facingAmount(s.m.position.x, s.m.position.z);
+    if (!s.swapped && f < -0.3 && d > 5 && Math.random() < dt * 0.05) { s.swapped = true; s.m.material.map = s.wrong; s.m.material.color.setHex(0xaaaaaa); s.m.material.needsUpdate = true; s.seenT = 0; }
+    else if (s.swapped && f > 0.85 && d < 26) { s.seenT += dt; if (s.seenT > 2.2) { s.swapped = false; s.m.material.map = s.t; s.m.material.color.setHex(0x777777); s.m.material.needsUpdate = true; sfx.crackle(s.m.position.x, -7.6); } }
+  }
+  // aisle 0 appears behind you once the store has started lying, and is gone if you go and stand under it
+  const [f0] = facingAmount(0, -7.6);
+  if (!aisle0.m.visible && !aisle0.done && signs.some(s => s.swapped) && f0 < -0.4) aisle0.m.visible = true;
+  if (aisle0.m.visible && !aisle0.done && Math.abs(P.x) < 2.5 && P.z < -5 && P.z > -11) { aisle0.done = true; intercom('Aisle zero is closed. Please return to your aisle.', { pitch: 0.5 }); for (const fx of FX) if (Math.abs(fx.x) < 6 && fx.z < -2 && fx.z > -16) { fx.state = 'dying'; fx.stutter = rand(0.2, 0.6); } }
+  if (aisle0.done && aisle0.m.visible && f0 < -0.3) aisle0.m.visible = false;
+}
+// the Night Manager drags the dark along with it: fixtures near it die and come back stuttering
+function updateDarkness() {
+  if (!ST.on || ST.mode === 'stare') return;
+  for (const f of FX) {
+    const d = Math.hypot(f.x - ST.x, f.z - ST.z);
+    if (d < 7 && (f.state === 'on' || f.state === 'bad') && !f.dark) { f.dark = f.state; f.state = 'dying'; f.stutter = rand(0.05, 0.4); }
+    else if (f.dark && d > 13) { f.state = 'bad'; f.dark = null; }
+  }
+}
+// the PA, with something listening on the other end
+function paLine() {
+  const n = nearestAisle(), a = AISLES.find(q => q.n === n), where = n === 'FRONT' ? 'at the front of the store' : `in aisle ${n}, ${a.label}`;
+  const o = [`Customer ${where}, please remain where you are.`, `Customer ${where}. We can see you.`];
+  if (P.light) o.push(`Would the customer ${where} please turn off their light. It can see it.`);
+  if (P.weapon !== 'fists') o.push(`Customer carrying the ${WEAPONS[P.weapon].name.toLowerCase()}. That item has not been paid for.`);
+  if (P.kills >= 3) o.push(`Clean-up on aisle ${n === 'FRONT' ? 'one' : n}. Clean-up on aisle ${n === 'FRONT' ? 'one' : n}.`);
+  if (P.hp < 45) o.push(`Customer ${where}, you are bleeding on the floor. Please stop.`);
+  if ((P.stillT || 0) > 8) o.push(`Customer ${where}. You have stopped moving. Good. Stay.`);
+  if (!D.family) o.push('Would the customer who came in for wood screws please come to the front. Your family is waiting.');
+  else if (D.family === 1 && D.familyT > 60) o.push('The family of the customer who came in for wood screws has left.');
+  if (MEM.visits > 1) o.push(`Welcome back, ${MEM.initials.replace(/\./g, ' ').trim()}. Your usual aisle is waiting.`);
+  o.push('Dale, please report to the front. Dale.', `Associates, please prepare aisle 0 for ${MEM.initials}.`);
+  const line = pick(o); if (/family is waiting/.test(line)) { D.family = 1; D.familyT = 0; } if (/has left/.test(line)) D.family = 2;
+  return line;
+}
+function haunt(dt) {
+  updateNote(); updateCCTV(dt); if (!BOARD.photo) boardPhoto();
+  if (!playing) return;
+  watchMonitors(dt); updateMannequins(dt); updateSigns(dt); updateDarkness();
+  if (D.family === 1) D.familyT += dt;
+}
+
 function setPhase(p) { D.phase = p; D.t = 0; }
 function inHardware() { return P.x > -18.2 && P.x < -13.8 && P.z < -9 && P.z > -40; }
 const KEY_SPOTS = [[16, -30], [10, -18], [-10, -34], [22, -12], [-28, -26], [28, -40], [-22, -40]];
@@ -1997,7 +2281,7 @@ function director(dt) {
   D.t += dt;
   switch (D.phase) {
     case 'outside':
-      if (P.z < 10) { setPhase('inside'); sfx.set('hvac', 0.07); intercom('Good evening, MegaMart shoppers. We are open all night for you.'); sfx.set('rain', 0.01); }
+      if (P.z < 10) { setPhase('inside'); sfx.set('hvac', 0.07); intercom(MEM.visits > 1 ? `Good evening, MegaMart shoppers. And welcome back. You were here last night.` : 'Good evening, MegaMart shoppers. We are open all night for you.'); sfx.set('rain', 0.01); }
       break;
     case 'inside':
       if (inHardware() && P.z < -13) { setPhase('quiet'); objective('Wood screws, 1-1/4 in. Keep looking'); }
@@ -2054,7 +2338,7 @@ function director(dt) {
       break;
     case 'tasks':
       D.lastIntercom += dt;
-      if (D.lastIntercom > 30) { D.lastIntercom = 0; intercom(pick(['Clean-up on aisle 14.', 'Would the customer in Hardware please turn off their light.', 'Dale, please report to the front. Dale.', 'Associates, please restock the front entrance.', 'Rollback prices on all cutlery, tonight only.'])); }
+      if (D.lastIntercom > (D.paGap || 28)) { D.lastIntercom = 0; D.paGap = rand(26, 42); intercom(paLine()); }
       // the keys jingle wherever that zombie is
       if (D.keyZ && !D.keyZ.dead) { D.jingleT -= dt; if (D.jingleT <= 0) { D.jingleT = rand(1.6, 2.6); sfx.jingle(D.keyZ.p.position.x, D.keyZ.p.position.z); } }
       if (!D.glimpse && !ST.on && (TASK.keys + TASK.card + TASK.power) >= 2 && Math.abs(P.x) < 3 && P.z > -9 && P.z < 6) {
@@ -2069,16 +2353,6 @@ function director(dt) {
   }
   if (['wave', 'fight', 'tasks'].includes(D.phase)) {
     D.growlT -= dt; if (D.growlT <= 0) { D.growlT = rand(5, 11) * (P.light ? 0.7 : 1); (Math.random() < 0.5 ? sfx.creatureGrowl : sfx.growl)(P.x + rand(-18, 18), P.z + rand(-18, 18), P.light ? 1 : 0.6); }
-  }
-  // The Shuffle: the aisle 14 sign changes when you aren't looking
-  if (D.phase === 'tasks' && D.shuffle === 0) {
-    const dx = hwSign.m.position.x - P.x, dz = hwSign.m.position.z - P.z, d = Math.hypot(dx, dz);
-    const f = (-Math.sin(P.yaw) * dx - Math.cos(P.yaw) * dz) / d;
-    if (f < -0.3 && d > 5) { D.shuffle = 1; hwSign.m.material.map = hwSign.creepy; hwSign.m.material.color.setHex(0xaaaaaa); hwSign.m.material.needsUpdate = true; }
-  } else if (D.shuffle === 1) {
-    const dx = hwSign.m.position.x - P.x, dz = hwSign.m.position.z - P.z, d = Math.hypot(dx, dz);
-    const f = (-Math.sin(P.yaw) * dx - Math.cos(P.yaw) * dz) / d;
-    if (f > 0.85 && d < 26) { D.shuffleSeen += dt; if (D.shuffleSeen > 2.2) { D.shuffle = 2; hwSign.m.material.map = hwSign.t; hwSign.m.material.color.setHex(0x777777); hwSign.m.material.needsUpdate = true; sfx.crackle(hwSign.m.position.x, -7.6); } }
   }
 }
 
@@ -2139,6 +2413,7 @@ function showReceipt(won) {
     ['ZOMBIES CLEARED', String(P.kills)],
     ['TIME IN STORE', mmss(D.runTime)],
     ['HEALTH LEFT', P.hp + '%'],
+    ['CUSTOMER', MEM.initials + ' · VISIT #' + MEM.visits],
   ] : [
     ['1 x ' + w.name.toUpperCase(), 'RETURNED'],
     ['CAR KEYS', TASK.keys ? 'FOUND' : 'MISSING'],
@@ -2147,7 +2422,10 @@ function showReceipt(won) {
     ['ZOMBIES CLEARED', String(P.kills)],
     ['TIME IN STORE', mmss(D.runTime)],
     ['CUSTOMER STATUS', 'RESTOCKED'],
+    ['CUSTOMER', MEM.initials + ' · VISIT #' + MEM.visits],
   ];
+  MEM.last = { weapon: w.name.toUpperCase(), won, kills: P.kills, time: mmss(D.runTime), aisle: nearestAisle() }; MEM.save();
+  try { speechSynthesis.cancel(); } catch (e) { /* none */ }
   $('receipt').innerHTML = `<div class="store">MEGAMART</div><div class="c">STORE #0413 · OPEN 24 HOURS</div><div class="c">09/30/2026 02:47 AM · REG 07</div><hr>`
     + rows.map(r => `<div class="row"><span>${r[0]}</span><span>${r[1]}</span></div>`).join('')
     + `<hr><div class="row big"><span>${won ? 'TOTAL SURVIVORS' : 'RETURN DENIED'}</span><span>${won ? '1' : 'AISLE ' + nearestAisle()}</span></div><hr>`
@@ -2218,6 +2496,7 @@ function fireGun() {
   P.swing = P.swingDur = w.time; P.swingHit = true; P.fired = true; P.bash = false; P.pumped = false; P.ejected = false;
   P.recoil = 1; P.kick = 0.075; P.yaw += rand(-0.01, 0.01); P.shake = Math.max(P.shake, 0.32); P.loudT = 4;
   sfx.blast(); gunFlash = 1;
+  if (!D.saidGun && D.phase !== 'ending') { D.saidGun = 1; setTimeout(() => intercom('Firearms are not permitted in the store. Everyone heard that.'), 2500); }
   const ox = P.x, oy = 1.62, oz = P.z, hits = new Map(); let stHits = 0;
   gunLight.position.set(ox - Math.sin(P.yaw) * 1.1, oy, oz - Math.cos(P.yaw) * 1.1);
   if (viewMesh && viewMesh.userData.flash) { const f = viewMesh.userData.flash; f.visible = true; f.rotation.z = rand(0, 6.28); f.scale.setScalar(rand(0.8, 1.25)); }
@@ -2291,7 +2570,7 @@ function killZombie(z) {
   if (z.keyMesh) {
     const k = z.keyMesh; k.parent.remove(k); k.position.set(z.p.position.x, 0.04, z.p.position.z); k.rotation.set(Math.PI / 2, 0, 0); k.scale.setScalar(1.8); scene.add(k);
     sfx.jingle(k.position.x, k.position.z); say('Something jingles as it hits the floor.', 2.5);
-    const a = addAct({ pos: { x: k.position.x, z: k.position.z }, got: false, get on() { return !a.got; }, label: () => 'Take your car keys', act: () => { a.got = true; scene.remove(k); TASK.keys = true; taskList(); sfx.jingle(P.x, P.z); say('Your keys. Sticky, but yours.', 2.2); checkStalker(); } });
+    const a = addAct({ pos: { x: k.position.x, z: k.position.z }, got: false, get on() { return !a.got; }, label: () => 'Take your car keys', act: () => { a.got = true; scene.remove(k); TASK.keys = true; taskList(); sfx.jingle(P.x, P.z); say('Your keys. Sticky, but yours.', 2.2); checkStalker(); setTimeout(() => intercom('Lost and found. One set of car keys has been claimed.'), 4500); } });
   }
 }
 function damagePlayer(n, fromX, fromZ) {
@@ -2460,6 +2739,7 @@ function frame(now) {
   if (playing) { D.runTime = (D.runTime || 0) + (D.phase !== 'ending' ? dt : 0); step(dt); }
   else idleCamera(dt);
   world(dt);
+  haunt(dt);
   render();
 }
 function idleCamera(dt) {
@@ -2482,7 +2762,7 @@ function step(dt) {
     P.vx = lerp(P.vx, wx, Math.min(1, dt * 10)); P.vz = lerp(P.vz, wz, Math.min(1, dt * 10));
     const pos = { x: P.x + P.vx * dt, z: P.z + P.vz * dt };
     collide(pos, 0.35); P.x = pos.x; P.z = pos.z;
-    const moving = ml > 0.1;
+    const moving = ml > 0.1; P.stillT = moving ? 0 : (P.stillT || 0) + dt;
     if (moving) { P.bob += dt * (P.running ? 11 : 7.5); P.stepT -= dt; if (P.stepT <= 0) { P.stepT = P.running ? 0.32 : 0.5; sfx.step(P.running); } }
   } else if (!P.alive) {
     D.deathT += dt;
@@ -2621,7 +2901,7 @@ setWeaponHUD();
 loadKit();
 
 // dev hook for automated checks
-window.__ssn = { W: WEAPONS, view, VM, attackStart, casings, counts: () => [products.count, cans.count], KIT: Object.assign(KIT, { ZT: ZTYPES }), scene, camera, spawnRunner, P, D, zombies, FX, equip, sfx, ST, acts, TASK, spawnZombie, stalkerIntro, killZombie, skipTo: (x, z) => { P.x = x; P.z = z; } };
+window.__ssn = { CCTV, watchMonitors, updateMannequins, updateSigns, updateCCTV, readNote, MANNEQUINS, MEM, signs, aisle0, intercom, W: WEAPONS, view, VM, attackStart, casings, counts: () => [products.count, cans.count], KIT: Object.assign(KIT, { ZT: ZTYPES }), scene, camera, spawnRunner, P, D, zombies, FX, equip, sfx, ST, acts, TASK, spawnZombie, stalkerIntro, killZombie, skipTo: (x, z) => { P.x = x; P.z = z; } };
 })();
 </script>
 
