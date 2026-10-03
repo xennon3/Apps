@@ -48,26 +48,30 @@
     margin: 0 0 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .panel h2 .sp { flex: 1; }
   .hint { color: var(--muted); font-size: 12px; }
-  code { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 12px; }
 
-  /* ---- scoreboard ---- */
-  #board { background: var(--board); color: var(--board-ink); border-radius: 14px; padding: 18px 18px 12px;
-    border: 1px solid #222; }
+  /* ---- football scoreboard ---- */
+  #board { background: var(--board); color: var(--board-ink); border-radius: 14px; padding: 18px 18px 12px; border: 1px solid #222; }
   #board .grid { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; text-align: center; }
   #board .team { font-size: clamp(16px, 3vw, 28px); font-weight: 700; letter-spacing: .12em; color: #cfd6e0;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #board .poss { display: inline-block; width: 1.3em; visibility: hidden; filter: drop-shadow(0 0 6px #ffb020); }
+  #board .poss.on { visibility: visible; }
   #board .score { font: 700 clamp(64px, 13vw, 150px)/1 ui-monospace, "SF Mono", Consolas, monospace;
     color: var(--led); text-shadow: 0 0 18px color-mix(in srgb, var(--led) 55%, transparent);
     font-variant-numeric: tabular-nums; border-radius: 12px; }
-  #board .score.flash { animation: flash 1.2s ease-out; }
+  #board .score.flash { animation: flash 1.4s ease-out; }
   @keyframes flash { 0% { background: color-mix(in srgb, var(--led) 45%, transparent); } 100% { background: transparent; } }
+  #board .tol { font-size: 12px; letter-spacing: .14em; color: #7b8494; margin-top: 4px; }
+  #board .tol b { color: var(--led); letter-spacing: .25em; font-size: 16px; }
   #board .mid { display: grid; gap: 6px; justify-items: center; }
+  #board .qtr { font: 700 15px ui-monospace, Consolas, monospace; letter-spacing: .14em; color: #cfd6e0; }
+  #board .qtr b { color: var(--led); font-size: 20px; }
   #board .clock { font: 700 clamp(40px, 7vw, 84px)/1 ui-monospace, "SF Mono", Consolas, monospace; color: var(--led2);
     text-shadow: 0 0 16px color-mix(in srgb, var(--led2) 55%, transparent); font-variant-numeric: tabular-nums; }
-  #board .clock2 { font: 700 clamp(22px, 3.4vw, 38px)/1 ui-monospace, Consolas, monospace; color: #7dd3fc; }
-  #board .lbl { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: #7b8494; cursor: pointer; }
-  #board .lbl:hover { color: #cfd6e0; }
-  #board .extras { color: #cfd6e0; font: 600 14px ui-monospace, Consolas, monospace; min-height: 1em; }
+  #board .play { font: 700 clamp(18px, 2.6vw, 28px)/1 ui-monospace, Consolas, monospace; color: #7dd3fc; }
+  #board .play small { font-size: 11px; letter-spacing: .14em; color: #7b8494; margin-right: 6px; }
+  #board .dd { font: 700 clamp(15px, 2vw, 20px) ui-monospace, Consolas, monospace; color: #fef08a; min-height: 1.3em; }
+  #board .dd span { color: #9aa3b2; font-weight: 500; }
   #board .strip { display: flex; flex-wrap: wrap; gap: 6px 16px; justify-content: center; margin-top: 14px;
     font-size: 12px; color: #9aa3b2; border-top: 1px solid #222; padding-top: 10px; }
   #board .strip b { color: #e8ebf0; font-weight: 600; }
@@ -78,18 +82,18 @@
   @keyframes blink { 50% { opacity: .5; } }
 
   /* ---- tiles ---- */
-  #tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+  #tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
   .tile { border: 1px solid var(--line); border-left: 5px solid var(--c); border-radius: 10px;
     padding: 10px 12px; position: relative; background: var(--bg); }
   .tile.alarm { animation: pulse 1s infinite; }
   @keyframes pulse { 50% { background: color-mix(in srgb, var(--bad) 22%, var(--bg)); } }
   .tile .name { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 6px; align-items: center; }
   .tile .name b { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .tile .val { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; margin: 4px 0;
+  .tile .val { font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; margin: 4px 0;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tile .val small { font-size: 14px; color: var(--muted); font-weight: 500; margin-left: 4px; }
   .tile .mm { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; display: flex; justify-content: space-between; min-height: 1em; }
-  .tile canvas { width: 100%; height: 34px; display: block; margin-top: 6px; }
+  .tile canvas { width: 100%; height: 30px; display: block; margin-top: 6px; }
   .tile .tools { display: flex; gap: 4px; flex: none; }
   .tile .tools button { padding: 0 6px; font-size: 11px; border-radius: 6px; background: transparent; }
   #hiddenChips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; align-items: center; }
@@ -113,11 +117,11 @@
   .row input[type=text] { flex: 1; min-width: 160px; }
   .bottom { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
   .side { display: grid; gap: 16px; align-content: start; min-width: 0; }
-  #events { max-height: 220px; overflow: auto; font-size: 13px; }
+  #events { max-height: 240px; overflow: auto; font-size: 13px; }
   #events div { padding: 4px 0; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
   #events .t { color: var(--muted); font-size: 11px; margin-right: 6px; }
   @media (max-width: 900px) { .bottom { grid-template-columns: 1fr; } #chartWrap { height: 240px; } }
-  @media (max-width: 560px) { #board { padding: 14px 10px 10px; } #board .grid { gap: 6px; } }
+  @media (max-width: 560px) { #board { padding: 14px 8px 10px; } #board .grid { gap: 4px; } }
   #unsupported { display: none; background: color-mix(in srgb, var(--warn) 18%, var(--panel));
     border: 1px solid var(--warn); border-radius: 10px; padding: 10px 14px; }
   dialog { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; width: min(560px, calc(100vw - 32px)); }
@@ -133,10 +137,10 @@
   <span class="dot" id="dot"></span>
   <span id="status">Disconnected</span>
   <select id="format" title="Data format"></select>
-  <select id="baud" title="Baud rate">
-    <option>300</option><option>1200</option><option>2400</option><option>4800</option>
+  <select id="baud" title="Baud rate (data bits 8, stop bits 1, parity none)">
+    <option>1200</option><option>2400</option><option>4800</option>
     <option selected>9600</option><option>19200</option><option>38400</option><option>57600</option>
-    <option>115200</option><option>230400</option>
+    <option>115200</option>
   </select>
   <button id="connect" class="primary">Connect</button>
   <button id="demo" title="Simulated data, to try the UI without a device">Demo</button>
@@ -153,19 +157,26 @@
 
   <section id="board">
     <div class="grid">
-      <div><div class="team" id="bHomeName">HOME</div><div class="score" id="bHome">–</div></div>
-      <div class="mid">
-        <div class="lbl" id="bClockLbl" title="Click to rename">Game clock</div>
-        <div class="clock" id="bClock">--:--</div>
-        <div class="lbl" id="bClock2Lbl" title="Click to rename">Clock 2</div>
-        <div class="clock2" id="bClock2">-:--</div>
-        <div class="extras" id="bExtras"></div>
+      <div>
+        <div class="team"><span class="poss" id="bHomePoss">🏈</span><span id="bHomeName">HOME</span><span class="poss"></span></div>
+        <div class="score" id="bHome">–</div>
+        <div class="tol">TIMEOUTS <b id="bHomeTOL">–</b></div>
       </div>
-      <div><div class="team" id="bGuestName">GUEST</div><div class="score" id="bGuest">–</div></div>
+      <div class="mid">
+        <div class="qtr">QTR <b id="bQtr">–</b></div>
+        <div class="clock" id="bClock">--:--</div>
+        <div class="play"><small>PLAY</small><span id="bPlay">--</span></div>
+        <div class="dd" id="bDD"></div>
+      </div>
+      <div>
+        <div class="team"><span class="poss"></span><span id="bGuestName">GUEST</span><span class="poss" id="bGuestPoss">🏈</span></div>
+        <div class="score" id="bGuest">–</div>
+        <div class="tol">TIMEOUTS <b id="bGuestTOL">–</b></div>
+      </div>
     </div>
     <div class="strip">
       <span id="bLive" class="pill idle">WAITING</span>
-      <span>Records <b id="bRecs">0</b> · <b id="bRate">0</b>/s</span>
+      <span>Packets <b id="bRecs">0</b> · <b id="bRate">0</b>/s</span>
       <span>Checksum <b id="bGood" style="color:#86efac">✓ 0</b> <b id="bBad" style="color:#fca5a5">✗ 0</b></span>
       <span>Last update <b id="bAge">–</b></span>
     </div>
@@ -217,8 +228,8 @@
 
     <div class="side">
       <section class="panel">
-        <h2>Events <span class="sp"></span><button id="clearEvents">Clear</button></h2>
-        <div id="events"><div class="hint" style="border:0">Score changes, team changes and alarms show up here.</div></div>
+        <h2>Game log <span class="sp"></span><button id="clearEvents">Clear</button></h2>
+        <div id="events"><div class="hint" style="border:0">Scores, quarters, possession changes, timeouts and alarms show up here.</div></div>
       </section>
       <section class="panel">
         <h2>Session</h2>
@@ -237,10 +248,10 @@
     <b id="fieldTitle">Field</b> <span class="hint" id="fieldKey"></span>
     <label class="f">Display name</label><input id="fLabel" type="text">
     <div id="fNumOnly">
-      <label class="f">Unit (optional)</label><input id="fUnit" type="text" placeholder="e.g. pts, °C">
+      <label class="f">Unit (optional)</label><input id="fUnit" type="text" placeholder="e.g. pts, yds">
       <label class="f">Alarm when below</label><input id="fLo" type="number" step="any" placeholder="(none)">
       <label class="f">Alarm when above</label><input id="fHi" type="number" step="any" placeholder="(none)">
-      <p class="hint" id="fClockHint" style="margin:4px 0 0">For clocks, enter seconds (e.g. 60 = 1:00).</p>
+      <p class="hint" id="fClockHint" style="margin:4px 0 0">For the game clock, enter seconds (e.g. 120 = 2:00).</p>
       <label class="hint" style="display:block;margin-top:8px"><input type="checkbox" id="fBeep"> Beep on alarm</label>
       <label class="hint" style="display:block;margin-top:4px"><input type="checkbox" id="fChart"> Show on chart</label>
     </div>
@@ -252,11 +263,11 @@
   <form method="dialog">
     <b>Paste data or load a log file</b>
     <p class="hint" style="margin:6px 0">Paste raw device output. The box starts with the data from your COM1 screenshot.
-      Tera Term can save a raw log with <i>File → Log…</i>; load that file here.</p>
+      Tera Term can save a raw log with <i>File → Log…</i> (tick <i>Binary</i>); load that file here.</p>
     <textarea id="feedText" spellcheck="false"></textarea>
     <div class="row">
-      <input type="file" id="feedFile" accept=".log,.txt,text/plain">
-      <label class="hint"><input type="checkbox" id="feedSlow" checked> replay slowly (5 records/s)</label>
+      <input type="file" id="feedFile" accept=".log,.txt,.bin,text/plain">
+      <label class="hint"><input type="checkbox" id="feedSlow" checked> replay slowly (5 packets/s)</label>
     </div>
     <div class="row"><button value="feed" class="primary">Feed it in</button><button value="cancel">Cancel</button></div>
   </form>
@@ -265,7 +276,7 @@
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-  const PALETTE = ['#f59e0b', '#3b82f6', '#ef4444', '#06b6d4', '#16a34a', '#a855f7', '#db2777', '#65a30d', '#ea580c', '#4f46e5'];
+  const PALETTE = ['#f59e0b', '#3b82f6', '#ef4444', '#06b6d4', '#16a34a', '#a855f7', '#db2777', '#65a30d', '#ea580c', '#4f46e5', '#0d9488', '#ca8a04'];
   const MAX_POINTS = 50000, MAX_TERM_LINES = 2000;
   const t0 = performance.now();
   const now = () => (performance.now() - t0) / 1000;
@@ -275,72 +286,82 @@
   };
 
   // =====================================================================
-  //  Formats
+  //  Daktronics Football TV Feed, ED-16098 Rev 1 (9600 8-N-1)
   // =====================================================================
-  // Scoreboard record decoded from the COM1 screen (43 chars, no line breaks):
-  //   97:42HOME      GUEST     23 81       0:33BF
-  //   0    5         15        25              41
-  //   clock|home name |guest name|scores ... clock2|checksum
-  // Checksum = sum of the first 41 bytes, mod 256, as 2 uppercase hex digits.
-  const SB_LEN = 43;
-  const sbSum = s => { let n = 0; for (let i = 0; i < s.length; i++) n += s.charCodeAt(i); return (n & 255).toString(16).toUpperCase().padStart(2, '0'); };
-  const sbValid = s => s.length === SB_LEN && sbSum(s.slice(0, 41)) === s.slice(41);
-  const sbLooksLike = s => s.length === SB_LEN && /^[0-9A-F]{2}$/.test(s.slice(41)) && !/[\x00-\x1f]/.test(s);
-  function sbMake(clock, hName, gName, hs, gs, clock2) {
-    const c2 = String(clock2), midW = 16 - c2.length;
-    const body = String(clock).padStart(5).slice(0, 5) + hName.padEnd(10).slice(0, 10) + gName.padEnd(10).slice(0, 10)
-      + (hs + ' ' + gs).padEnd(midW).slice(0, midW) + c2;
-    return body + sbSum(body);
+  //  SOH | 41 data bytes | 2-char hex checksum | EOT      = 45 bytes
+  //  Checksum = sum of the 41 data bytes, low byte, as 2 ASCII hex chars (MS first).
+  //  Rev 0 (pre-2007 equipment) sends 37 data bytes and no checksum.
+  const SOH = '\x01', EOT = '\x04';
+  const DK_FIELDS = [   // [key, start, length]  (right-justified, space-filled; names left-justified)
+    ['clock', 0, 5], ['homeName', 5, 10], ['guestName', 15, 10], ['home', 25, 2], ['guest', 27, 2],
+    ['quarter', 29, 1], ['ballOn', 30, 2], ['down', 32, 1], ['toGo', 33, 2], ['homePoss', 35, 1],
+    ['guestPoss', 36, 1], ['playClock', 37, 2], ['homeTOL', 39, 1], ['guestTOL', 40, 1],
+  ];
+  const DK_DATA = 41, DK_DATA_REV0 = 37, DK_VISIBLE = 43;
+  const dkSum = s => { let n = 0; for (let i = 0; i < s.length; i++) n += s.charCodeAt(i); return (n & 255).toString(16).toUpperCase().padStart(2, '0'); };
+  const dkValid43 = s => s.length === DK_VISIBLE && dkSum(s.slice(0, DK_DATA)) === s.slice(DK_DATA).toUpperCase();
+  function dkData(o) {
+    return DK_FIELDS.map(([k, , len]) => {
+      const v = String(o[k] ?? '');
+      return (k.endsWith('Name') ? v.padEnd(len) : v.padStart(len)).slice(0, len);
+    }).join('');
   }
+  const dkPacket = o => { const d = dkData(o); return SOH + d + dkSum(d) + EOT; };
   function parseClock(str) {
     const m = /^(\d+):(\d{1,2})(?:\.(\d+))?$/.exec(str);
     if (m) return +m[1] * 60 + +m[2] + (m[3] ? +('0.' + m[3]) : 0);
     const n = parseFloat(str); return isFinite(n) ? n : NaN;
   }
-  function sbDecode(s) {
-    const toks = s.slice(25, 41).trim().split(/\s+/).filter(Boolean);
-    let c2 = '';
-    if (toks.length && /[:.]/.test(toks[toks.length - 1])) c2 = toks.pop();
-    const num = t => { const n = parseFloat(t); return { num: isFinite(n) ? n : NaN, text: t ?? '' }; };
-    const clock = s.slice(0, 5).trim();
-    const out = {
-      home: num(toks[0]),
-      guest: num(toks[1]),
-      clock: { num: parseClock(clock), text: clock },
-      clock2: { num: parseClock(c2), text: c2 },
-      homeName: { text: s.slice(5, 15).trim() },
-      guestName: { text: s.slice(15, 25).trim() },
+  function dkDecode(d) {
+    const raw = {};
+    for (const [k, a, len] of DK_FIELDS) raw[k] = d.slice(a, a + len).trim();
+    const num = t => { const n = parseFloat(t); return { num: t === '' || !isFinite(n) ? NaN : n, text: t }; };
+    return {
+      home: num(raw.home), guest: num(raw.guest),
+      clock: { num: parseClock(raw.clock), text: raw.clock },
+      quarter: num(raw.quarter), down: num(raw.down), toGo: num(raw.toGo), ballOn: num(raw.ballOn),
+      playClock: num(raw.playClock),
+      homeTOL: num(raw.homeTOL), guestTOL: num(raw.guestTOL),
+      homePoss: { text: raw.homePoss }, guestPoss: { text: raw.guestPoss },
+      homeName: { text: raw.homeName }, guestName: { text: raw.guestName },
     };
-    toks.slice(2).forEach((t, i) => out['extra' + (i + 1)] = num(t));
-    return out;
   }
+  const hasBall = t => !!t && t !== '0';
 
   const FORMATS = {
-    sb43: {
-      name: 'Scoreboard: HOME/GUEST 43-char records',
+    dakfb: {
+      name: 'Daktronics Football TV Feed (ED-16098)',
       fields: {
-        home:      { label: 'Home score',  kind: 'num' },
-        guest:     { label: 'Guest score', kind: 'num' },
-        clock:     { label: 'Game clock',  kind: 'clock' },
-        clock2:    { label: 'Clock 2',     kind: 'clock' },
-        homeName:  { label: 'Home team',   kind: 'text', hidden: true },
-        guestName: { label: 'Guest team',  kind: 'text', hidden: true },
+        home:      { label: 'Home score',     kind: 'num' },
+        guest:     { label: 'Guest score',    kind: 'num' },
+        clock:     { label: 'Game clock',     kind: 'clock' },
+        quarter:   { label: 'Quarter',        kind: 'num', chart: false },
+        down:      { label: 'Down',           kind: 'num', chart: false },
+        toGo:      { label: 'To go',          kind: 'num', chart: false, unit: 'yds' },
+        ballOn:    { label: 'Ball on',        kind: 'num', chart: false },
+        playClock: { label: 'Play clock',     kind: 'num' },
+        homeTOL:   { label: 'Home timeouts',  kind: 'num', chart: false },
+        guestTOL:  { label: 'Guest timeouts', kind: 'num', chart: false },
+        homePoss:  { label: 'Home possession',  kind: 'text', hidden: true },
+        guestPoss: { label: 'Guest possession', kind: 'text', hidden: true },
+        homeName:  { label: 'Home team',      kind: 'text', hidden: true },
+        guestName: { label: 'Guest team',     kind: 'text', hidden: true },
       },
       board: true,
     },
     auto: { name: 'Auto: text lines (numbers, key:value, JSON)', fields: {}, board: false },
   };
-  const fieldDefault = (f, key) => FORMATS[f].fields[key] || (key.startsWith('extra') ? { label: 'Extra ' + key.slice(5), kind: 'num' } : { label: key, kind: 'num' });
+  const fieldDefault = (f, key) => FORMATS[f].fields[key] || { label: key, kind: 'num' };
 
   for (const [k, f] of Object.entries(FORMATS)) $('format').add(new Option(f.name, k));
-  let fmt = store.get('format', 'sb43');
-  if (!FORMATS[fmt]) fmt = 'sb43';
+  let fmt = store.get('format', 'dakfb');
+  if (!FORMATS[fmt]) fmt = 'dakfb';
 
   // per-field user settings, per format
   const cfgAll = store.get('cfg', {});
   function cfg(key) {
     const c = (cfgAll[fmt] ||= {});
-    if (!c[key]) { const d = fieldDefault(fmt, key); c[key] = { label: d.label, unit: '', hidden: !!d.hidden, chart: d.kind !== 'text', alarm: null }; }
+    if (!c[key]) { const d = fieldDefault(fmt, key); c[key] = { label: d.label, unit: d.unit || '', hidden: !!d.hidden, chart: d.chart ?? d.kind !== 'text', alarm: null }; }
     return c[key];
   }
   const saveCfg = () => store.set('cfg', cfgAll);
@@ -356,7 +377,7 @@
   let demoTimer = null, feedTimer = null, frozenAt = null;
   let bytesIn = 0, recsIn = 0, rateCount = 0, rate = 0, startedAt = null;
   let good = 0, bad = 0, lastRecT = null;
-  let prevSb = {};
+  let prev = null;
 
   // =====================================================================
   //  Field tiles
@@ -428,7 +449,7 @@
     return Number.isInteger(v) ? v.toLocaleString() : v.toFixed(a >= 100 ? 1 : a >= 10 ? 2 : 3);
   };
   const fmtClock = s => !isFinite(s) ? '–' : Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
-  const showVal = f => f.kind === 'num' ? fmtNum(f.last) : (f.text || '–');
+  const showVal = f => f.kind === 'num' ? (isFinite(f.last) ? fmtNum(f.last) : (f.text || '–')) : (f.text || '–');
 
   let audioCtx = null, lastBeep = 0;
   function beep() {
@@ -505,7 +526,7 @@
       c.alarm = lo == null && hi == null ? null : { lo, hi, beep: $('fBeep').checked };
       c.chart = $('fChart').checked;
     }
-    saveCfg(); layoutTiles(); updateBoardLabels();
+    saveCfg(); layoutTiles();
   });
 
   // =====================================================================
@@ -516,68 +537,111 @@
     const row = {};
     for (const [k, v] of Object.entries(vals)) {
       setField(k, v, t);
-      row[k] = fields.get(k).kind === 'num' ? v.num : (v.text ?? v.num);
+      row[k] = fields.get(k).kind === 'num' && isFinite(v.num) ? v.num : (v.text ?? v.num);
     }
     samples.push({ t, values: row });
     if (samples.length > 500000) { samples.splice(0, 100000); if (recording != null) recording = Math.max(0, recording - 100000); }
   }
 
-  // ---- scoreboard stream: lock on with the checksum, then step 43 chars at a time ----
-  let sbBuf = '', sbSynced = false, junk = '';
-  function sbChunk(text) {
-    sbBuf += text.replace(/[\r\n]/g, '');    // records carry no line breaks; strip any from pasted text
-    let i = 0;
-    while (sbBuf.length - i >= SB_LEN) {
-      const s = sbBuf.substr(i, SB_LEN);
-      let ok;
-      if (sbSynced) ok = sbValid(s);
-      else {
-        if (sbBuf.length - i < SB_LEN * 2) break;            // need two valid records in a row to lock on
-        ok = sbValid(s) && sbValid(sbBuf.substr(i + SB_LEN, SB_LEN));
+  // ---- Daktronics stream ----
+  // Normal case: frames are SOH ... EOT, so framing is exact.
+  // Fallback (pasted Tera Term text, where SOH/EOT are invisible and get lost):
+  // lock onto the 43 visible chars by checksum, needing two valid packets in a row.
+  let dkBuf = '', dkFramed = false, dkSynced = false, junk = '';
+  function dkChunk(text) {
+    if (!dkFramed && text.includes(SOH)) { dkFramed = true; junk += dkBuf; dkBuf = ''; dkSynced = false; }
+    if (dkFramed) { dkBuf += text; framedScan(); }
+    else { dkBuf += text.replace(/[\x00-\x1f\x7f]/g, ''); syncScan(); }
+    if (junk.length > 300) flushJunk();
+  }
+  function framedScan() {
+    for (;;) {
+      const s = dkBuf.indexOf(SOH);
+      if (s < 0) { junk += dkBuf; dkBuf = ''; return; }
+      if (s > 0) { junk += dkBuf.slice(0, s); dkBuf = dkBuf.slice(s); }
+      const e = dkBuf.indexOf(EOT, 1), s2 = dkBuf.indexOf(SOH, 1);
+      if (s2 > 0 && (e < 0 || s2 < e)) {          // new SOH before this frame's EOT: frame was cut short
+        flushJunk(); bad++;
+        logTerm(now(), 'bad', dkBuf.slice(1, s2), null, 'incomplete packet (no EOT)');
+        dkBuf = dkBuf.slice(s2); continue;
       }
-      if (ok) {
-        flushJunk();
-        sbSynced = true; good++;
-        sbRecord(s);
-        i += SB_LEN;
-      } else if (sbSynced && sbLooksLike(s)) {
-        flushJunk();
-        bad++;
-        logTerm(now(), 'bad', s, null, `checksum should be ${sbSum(s.slice(0, 41))}`);
-        i += SB_LEN;
-      } else {
-        sbSynced = false;
-        junk += sbBuf[i]; i++;
-        if (junk.length > 300) flushJunk();
+      if (e < 0) {                                  // wait for the rest of the packet
+        if (dkBuf.length > 256) { junk += dkBuf.slice(0, 1); dkBuf = dkBuf.slice(1); continue; }
+        return;
       }
+      const frame = dkBuf.slice(1, e);
+      dkBuf = dkBuf.slice(e + 1);
+      dkFrame(frame);
     }
-    sbBuf = sbBuf.slice(i);
+  }
+  function dkFrame(frame) {
+    flushJunk();
+    if (frame.length === DK_VISIBLE) {
+      const data = frame.slice(0, DK_DATA), cs = frame.slice(DK_DATA);
+      if (dkSum(data) === cs.toUpperCase()) { good++; dkRecord(data, cs); }
+      else { bad++; logTerm(now(), 'bad', frame, null, `checksum ${cs} should be ${dkSum(data)}`); }
+    } else if (frame.length === DK_DATA_REV0) {     // Rev 0 equipment: no play clock, timeouts or checksum
+      good++; dkRecord(frame.padEnd(DK_DATA), '');
+    } else {
+      bad++; logTerm(now(), 'bad', frame, null, `unexpected length ${frame.length} (expected ${DK_VISIBLE})`);
+    }
+  }
+  function syncScan() {
+    let i = 0;
+    while (dkBuf.length - i >= DK_VISIBLE) {
+      const s = dkBuf.substr(i, DK_VISIBLE);
+      let ok;
+      if (dkSynced) ok = dkValid43(s);
+      else {
+        if (dkBuf.length - i < DK_VISIBLE * 2) break;
+        ok = dkValid43(s) && dkValid43(dkBuf.substr(i + DK_VISIBLE, DK_VISIBLE));
+      }
+      if (ok) { flushJunk(); dkSynced = true; good++; dkRecord(s.slice(0, DK_DATA), s.slice(DK_DATA)); i += DK_VISIBLE; }
+      else if (dkSynced && /^[0-9A-Fa-f]{2}$/.test(s.slice(DK_DATA))) {
+        flushJunk(); bad++;
+        logTerm(now(), 'bad', s, null, `checksum should be ${dkSum(s.slice(0, DK_DATA))}`);
+        i += DK_VISIBLE;
+      } else { dkSynced = false; junk += dkBuf[i]; i++; }
+    }
+    dkBuf = dkBuf.slice(i);
   }
   function flushJunk() {
-    if (!junk) return;
-    logTerm(now(), 'sys', `skipped ${junk.length} byte${junk.length > 1 ? 's' : ''} (not a valid record): ` + junk);
-    junk = '';
+    const j = junk.replace(/[\r\n]/g, ''); junk = '';
+    if (j) logTerm(now(), 'sys', `skipped ${j.length} byte${j.length > 1 ? 's' : ''} outside a packet: ` + j);
   }
 
-  const SB_SEGS = [[0, 5, 'clock'], [5, 15, 'homeName'], [15, 25, 'guestName'], [25, 41, 'home'], [41, 43, null]];
-  function sbRecord(s) {
+  const ordinal = n => n + (['th', 'st', 'nd', 'rd'][n % 100 > 10 && n % 100 < 14 ? 0 : n % 10] || 'th');
+  const PLAY_NAMES = { 6: 'Touchdown', 3: 'Field goal', 2: 'Safety / 2-pt', 1: 'Extra point' };
+  const SEGS = [[0, 5, 'clock'], [5, 15, 'homeName'], [15, 25, 'guestName'], [25, 27, 'home'], [27, 29, 'guest'],
+    [29, 30, 'quarter'], [30, 35, 'down'], [35, 37, 'homePoss'], [37, 39, 'playClock'], [39, 41, 'homeTOL'], [41, 43, null]];
+
+  function dkRecord(data, cs) {
     const t = now();
-    const v = sbDecode(s);
+    const v = dkDecode(data);
     const hn = v.homeName.text || 'HOME', gn = v.guestName.text || 'GUEST';
-    if (prevSb.hn !== undefined) {
+    const cur = { home: v.home.num, guest: v.guest.num, q: v.quarter.num, hp: hasBall(v.homePoss.text), gp: hasBall(v.guestPoss.text),
+      htol: v.homeTOL.num, gtol: v.guestTOL.num, hn, gn };
+    if (prev) {
+      const at = v.clock.text ? ` at ${esc(v.clock.text)}` : '';
+      const qs = isFinite(cur.q) ? ` Q${cur.q}` : '';
       for (const [k, name] of [['home', hn], ['guest', gn]]) {
-        const a = prevSb[k], b = v[k].num;
+        const a = prev[k], b = cur[k];
         if (isFinite(a) && isFinite(b) && a !== b) {
-          addEvent(`<b>${esc(name)}</b> ${a} → <b>${b}</b> (${b > a ? '+' : ''}${b - a}) at ${esc(v.clock.text || '?')}`, true);
+          const d = b - a, what = d > 0 && PLAY_NAMES[d] ? ` · ${PLAY_NAMES[d]}?` : '';
+          addEvent(`🏟 <b>${esc(name)}</b> ${a} → <b>${b}</b> (${d > 0 ? '+' : ''}${d})${what}${qs}${at}`, true);
           flashScore(k);
         }
       }
-      if (prevSb.hn !== hn || prevSb.gn !== gn) addEvent(`Teams changed: <b>${esc(hn)}</b> vs <b>${esc(gn)}</b>`, true);
+      if (isFinite(cur.q) && cur.q !== prev.q) addEvent(`⏱ Quarter <b>${cur.q}</b>`, true);
+      if ((cur.hp && !prev.hp) || (cur.gp && !prev.gp)) addEvent(`🏈 Possession: <b>${esc(cur.hp ? hn : gn)}</b>${qs}${at}`, true);
+      if (isFinite(prev.htol) && cur.htol < prev.htol) addEvent(`✋ <b>${esc(hn)}</b> timeout (${cur.htol} left)${qs}${at}`, true);
+      if (isFinite(prev.gtol) && cur.gtol < prev.gtol) addEvent(`✋ <b>${esc(gn)}</b> timeout (${cur.gtol} left)${qs}${at}`, true);
+      if (prev.hn !== hn || prev.gn !== gn) addEvent(`Teams: <b>${esc(hn)}</b> vs <b>${esc(gn)}</b>`, true);
     }
-    prevSb = { home: v.home.num, guest: v.guest.num, hn, gn };
+    prev = cur;
     ingestValues(v, t);
-    const segs = SB_SEGS.map(([a, b, k]) => [a, b, k ? fields.get(k)?.color : null]);
-    logTerm(t, 'rx', s, segs);
+    const segs = SEGS.map(([a, b, k]) => [a, b, k ? fields.get(k)?.color : null]);
+    logTerm(t, 'rx', data + cs, segs, cs ? '' : 'rev 0, no checksum');
   }
 
   // ---- generic line stream ----
@@ -600,14 +664,16 @@
     else if (o && typeof o === 'object') for (const k in o) flatten(o[k], pre ? pre + '.' + k : k, out);
   }
   function lineChunk(text) {
-    // switch to the scoreboard format automatically if its records show up in Auto mode
-    sniff = (sniff + text.replace(/[\r\n]/g, '')).slice(-400);
-    for (let i = 0; i + SB_LEN * 2 <= sniff.length; i++) {
-      if (sbValid(sniff.substr(i, SB_LEN)) && sbValid(sniff.substr(i + SB_LEN, SB_LEN))) {
-        const pending = sniff.slice(i);
-        logTerm(now(), 'sys', 'scoreboard records detected, switching format');
-        setFormat('sb43'); sbChunk(pending); return;
-      }
+    // switch to the Daktronics format by itself if its packets show up while in Auto mode
+    sniff = (sniff + text).slice(-400);
+    const vis = sniff.replace(/[\x00-\x1f\x7f]/g, '');
+    let hit = /\x01[\x20-\x7e]{43}\x04/.exec(sniff);
+    hit = hit && dkValid43(hit[0].slice(1, -1));
+    for (let i = 0; !hit && i + DK_VISIBLE * 2 <= vis.length; i++) hit = dkValid43(vis.substr(i, DK_VISIBLE)) && dkValid43(vis.substr(i + DK_VISIBLE, DK_VISIBLE));
+    if (hit) {
+      const pending = sniff;
+      logTerm(now(), 'sys', 'Daktronics football packets detected, switching format');
+      setFormat('dakfb'); dkChunk(pending); return;
     }
     lineBuf += text;
     const lines = lineBuf.split(/\r?\n|\r(?!$)/);
@@ -624,18 +690,18 @@
   function ingestChunk(text) {
     bytesIn += text.length;
     startedAt ??= now();
-    fmt === 'sb43' ? sbChunk(text) : lineChunk(text);
+    fmt === 'dakfb' ? dkChunk(text) : lineChunk(text);
   }
 
   function setFormat(f) {
     fmt = f; $('format').value = f; store.set('format', f);
-    fields.clear(); samples = []; prevSb = {}; recording = null;
+    fields.clear(); samples = []; prev = null; recording = null;
     $('rec').classList.remove('on'); $('rec').textContent = '● Rec';
-    sbBuf = ''; sbSynced = false; junk = ''; lineBuf = ''; sniff = '';
+    dkBuf = ''; dkFramed = false; dkSynced = false; junk = ''; lineBuf = ''; sniff = '';
     good = bad = recsIn = 0; lastRecT = null;
     $('board').style.display = FORMATS[f].board ? '' : 'none';
-    $('term').classList.toggle('wrap', f !== 'sb43');
-    layoutTiles(); updateBoardLabels(); resetBoard();
+    $('term').classList.toggle('wrap', f !== 'dakfb');
+    layoutTiles(); resetBoard();
   }
   $('format').onchange = () => { stopDemo(); setFormat($('format').value); };
 
@@ -646,26 +712,34 @@
     const el = $(k === 'home' ? 'bHome' : 'bGuest');
     el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
   }
-  function updateBoardLabels() {
-    if (fmt !== 'sb43') return;
-    $('bClockLbl').textContent = cfg('clock').label;
-    $('bClock2Lbl').textContent = cfg('clock2').label;
-  }
   function resetBoard() {
     $('bHomeName').textContent = 'HOME'; $('bGuestName').textContent = 'GUEST';
-    $('bHome').textContent = $('bGuest').textContent = '–';
-    $('bClock').textContent = '--:--'; $('bClock2').textContent = '-:--'; $('bExtras').textContent = '';
+    for (const id of ['bHome', 'bGuest', 'bQtr', 'bHomeTOL', 'bGuestTOL']) $(id).textContent = '–';
+    $('bClock').textContent = '--:--'; $('bPlay').textContent = '--'; $('bDD').innerHTML = '';
+    $('bHomePoss').classList.remove('on'); $('bGuestPoss').classList.remove('on');
   }
+  const tolDots = n => isFinite(n) ? '●'.repeat(Math.max(0, n)) + '○'.repeat(Math.max(0, 3 - n)) : '–';
   function updateBoard() {
-    if (fmt !== 'sb43') return;
-    const txt = (k, d) => { const f = fields.get(k); if (!f) return d; const s = f.kind === 'num' ? fmtNum(f.last) : f.text; return s && s !== '–' ? s : d; };
+    if (fmt !== 'dakfb') return;
+    const F = k => fields.get(k);
+    const txt = (k, d) => { const f = F(k); if (!f) return d; const s = showVal(f); return s && s !== '–' ? s : d; };
+    const n = k => F(k)?.last ?? NaN;
     $('bHomeName').textContent = txt('homeName', 'HOME');
     $('bGuestName').textContent = txt('guestName', 'GUEST');
     $('bHome').textContent = txt('home', '–');
     $('bGuest').textContent = txt('guest', '–');
     $('bClock').textContent = txt('clock', '--:--');
-    $('bClock2').textContent = txt('clock2', '-:--');
-    $('bExtras').textContent = [...fields.values()].filter(f => f.key.startsWith('extra')).map(f => cfg(f.key).label + ' ' + showVal(f)).join('   ');
+    $('bQtr').textContent = txt('quarter', '–');
+    $('bPlay').textContent = txt('playClock', '--');
+    $('bHomeTOL').textContent = tolDots(n('homeTOL'));
+    $('bGuestTOL').textContent = tolDots(n('guestTOL'));
+    $('bHomePoss').classList.toggle('on', hasBall(F('homePoss')?.text));
+    $('bGuestPoss').classList.toggle('on', hasBall(F('guestPoss')?.text));
+    const down = n('down'), togo = n('toGo'), ball = n('ballOn');
+    let dd = '';
+    if (isFinite(down) && down > 0) dd = esc(ordinal(down)) + (isFinite(togo) ? ' &amp; ' + togo : '');
+    if (isFinite(ball)) dd += (dd ? ' <span>·</span> ' : '') + '<span>Ball on</span> ' + ball;
+    $('bDD').innerHTML = dd;
     $('bRecs').textContent = recsIn.toLocaleString();
     $('bRate').textContent = rate;
     $('bGood').textContent = '✓ ' + good.toLocaleString();
@@ -675,6 +749,7 @@
     else {
       const age = now() - lastRecT;
       $('bAge').textContent = age < 1 ? 'now' : fmtDur(Math.floor(age)) + ' ago';
+      // the spec says packets repeat about once a second even when nothing changes
       if (age > 3) { live.className = 'pill stale'; live.textContent = 'NO DATA'; }
       else { live.className = 'pill live'; live.textContent = 'LIVE'; }
     }
@@ -726,8 +801,11 @@
       g.fillStyle = ink; g.textAlign = 'right';
       const ticks = laneH > 120 ? 4 : 2;
       const fy = lanes.length > 1 && group[0].kind === 'clock' ? fmtClock : fmtNum;
+      const ints = group.every(f => Number.isInteger(f.last));   // scores, downs: label whole numbers only
+      const seen = new Set();
       for (let k = 0; k <= ticks; k++) {
-        const v = lo + (hi - lo) * (0.1 + 0.8 * k / ticks);   // keep labels off lane edges
+        let v = lo + (hi - lo) * (0.1 + 0.8 * k / ticks);   // keep labels off lane edges
+        if (ints && fy === fmtNum) { v = Math.round(v); if (seen.has(v) || v < lo || v > hi) continue; seen.add(v); }
         g.fillText(fy(v), padL - 6, Y(v) + 4);
       }
       if (lanes.length > 1) {
@@ -744,7 +822,7 @@
         }
         g.strokeStyle = f.color; g.lineWidth = 1.75; g.lineJoin = 'round'; g.beginPath();
         const stride = Math.max(1, Math.floor(seg.length / (pw * 2)));
-        const stepped = fmt === 'sb43';   // scores and clocks hold their value until the next record
+        const stepped = fmt === 'dakfb';   // scoreboard values hold until the next packet
         let py = null;
         for (let i = 0; i < seg.length; i += stride) {
           const [t, v] = seg[i], x = X(t), y = Y(v);
@@ -772,7 +850,7 @@
   function fmtDur(s) { return s >= 3600 ? (s / 3600).toFixed(1) + 'h' : s >= 60 ? (s / 60).toFixed(s % 60 ? 1 : 0) + 'm' : (+s.toFixed(1)) + 's'; }
 
   // =====================================================================
-  //  Console + events
+  //  Console + game log
   // =====================================================================
   const term = $('term');
   const CTRL = ['NUL','SOH','STX','ETX','EOT','ENQ','ACK','BEL','BS','TAB','LF','VT','FF','CR','SO','SI','DLE','DC1','DC2','DC3','DC4','NAK','SYN','ETB','CAN','EM','SUB','ESC','FS','GS','RS','US'];
@@ -824,7 +902,7 @@
     const d = document.createElement('div');
     d.innerHTML = `<span class="t">${new Date().toLocaleTimeString()}</span>` + (trusted ? html : esc(html));
     ev.prepend(d);
-    while (ev.childElementCount > 300) ev.lastChild.remove();
+    while (ev.childElementCount > 500) ev.lastChild.remove();
   }
   $('clearEvents').onclick = () => { $('events').innerHTML = ''; };
 
@@ -836,16 +914,16 @@
     const el = startedAt == null ? 0 : now() - startedAt;
     $('stats').innerHTML =
       `Uptime: <b>${fmtDur(Math.floor(el))}</b><br>` +
-      `Records: <b>${recsIn.toLocaleString()}</b> · <b>${rate}</b>/s<br>` +
+      `Packets: <b>${recsIn.toLocaleString()}</b> · <b>${rate}</b>/s<br>` +
       `Bytes: <b>${bytesIn.toLocaleString()}</b><br>` +
-      (fmt === 'sb43' ? `Checksum: <b>${good.toLocaleString()}</b> good · <b>${bad.toLocaleString()}</b> bad<br>` : '') +
+      (fmt === 'dakfb' ? `Checksum: <b>${good.toLocaleString()}</b> good · <b>${bad.toLocaleString()}</b> bad<br>` : '') +
       `Samples stored: <b>${samples.length.toLocaleString()}</b>` +
       (recording != null ? ` · <span style="color:var(--bad)">recording ${(samples.length - recording).toLocaleString()}</span>` : '');
   }
   setInterval(() => { rate = rateCount; rateCount = 0; updateStats(); }, 1000);
 
   // =====================================================================
-  //  Serial port
+  //  Serial port (works with USB-serial adapters such as Moxa UPort)
   // =====================================================================
   if (!('serial' in navigator)) $('unsupported').style.display = 'block';
   const hex = n => n.toString(16).padStart(4, '0');
@@ -856,21 +934,21 @@
     try {
       port = await navigator.serial.requestPort();
       const baudRate = +$('baud').value;
-      await port.open({ baudRate });
+      await port.open({ baudRate, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none' });
       const info = port.getInfo();
       const id = info.usbVendorId ? ` (USB ${hex(info.usbVendorId)}:${hex(info.usbProductId)})` : '';
-      setStatus(`Connected @ ${baudRate} baud${id}`, 'on');
-      sys(`connected @ ${baudRate}${id}`);
+      setStatus(`Connected @ ${baudRate} 8-N-1${id}`, 'on');
+      sys(`connected @ ${baudRate} baud, 8 data bits, no parity, 1 stop bit${id}`);
       $('connect').textContent = 'Disconnect'; $('baud').disabled = true;
-      port.addEventListener('disconnect', () => { sys('device unplugged'); disconnect(); });
+      port.addEventListener('disconnect', () => { sys('adapter unplugged'); disconnect(); });
       readLoop();
       const goodAtConnect = good, bytesAtConnect = bytesIn;
-      // the two most common problems: wrong baud rate, or another program holding the port
+      // the two most common problems: wrong baud rate, or nothing on the wire
       setTimeout(() => {
-        if (!port || fmt !== 'sb43' || good > goodAtConnect) return;
+        if (!port || fmt !== 'dakfb' || good > goodAtConnect) return;
         sys(bytesIn > bytesAtConnect
-          ? 'bytes are arriving but no valid records yet. Check the baud rate: copy it from Tera Term (Setup → Serial port)'
-          : 'no bytes received yet. Is the scoreboard sending? Check the cable and baud rate');
+          ? 'bytes are arriving but no valid packets yet. The Daktronics feed should be 9600 baud: check the baud rate'
+          : 'no bytes received yet. Check the cable into the Moxa adapter, and that the controller\'s TV feed output is on');
       }, 4000);
     } catch (e) {
       if (e.name !== 'NotFoundError') sys('connect failed: ' + e.message + ' (close Tera Term or any other program using the port, then try again)');
@@ -880,7 +958,7 @@
   async function readLoop() {
     keepReading = true;
     while (port && port.readable && keepReading) {
-      // byte-for-byte decoding so checksums stay exact
+      // byte-for-byte decoding so SOH/EOT and checksums stay exact
       const decoder = new TextDecoderStream('iso-8859-1');
       readClosed = port.readable.pipeTo(decoder.writable).catch(() => {});
       reader = decoder.readable.getReader();
@@ -911,29 +989,48 @@
   }
 
   // =====================================================================
-  //  Demo + paste/replay
+  //  Demo (a simulated football game) + paste/replay
   // =====================================================================
   function startDemo() {
     if (port) return;
     if (demoTimer) return stopDemo();
     stopDemo();
-    setStatus('Demo: simulated ' + (fmt === 'sb43' ? 'scoreboard' : 'sensor'), 'demo');
+    setStatus('Demo: simulated ' + (fmt === 'dakfb' ? 'football game' : 'sensor'), 'demo');
     $('demo').textContent = 'Stop demo'; sys('demo started');
-    let k = 0, clock = 12 * 60, c2 = 35, hs = 23, gs = 21, rpm = 1200;
+    const g = { clock: 15 * 60, q: 1, h: 0, gs: 0, poss: 'h', yds: 75, down: 1, togo: 10, play: 40, htol: 3, gtol: 3, pat: 0 };
+    let k = 0, rpm = 1200;
+    const flip = () => { g.poss = g.poss === 'h' ? 'g' : 'h'; g.down = 1; g.togo = 10; g.play = 40; };
     demoTimer = setInterval(() => {
       k++;
-      if (fmt === 'sb43') {
-        if (k % 4 === 0) { clock = Math.max(0, clock - 1); c2 = c2 > 0 ? c2 - 1 : 35; }
-        if (Math.random() < 0.025) { hs += [1, 2, 2, 3][Math.floor(Math.random() * 4)]; c2 = 35; }
-        if (Math.random() < 0.025) { gs += [1, 2, 2, 3][Math.floor(Math.random() * 4)]; c2 = 35; }
-        let rec = sbMake(fmtClock(clock), 'HOME', 'GUEST', hs, gs, fmtClock(c2));
-        if (k % 150 === 0) rec = rec.slice(0, 41) + '00';   // an occasional corrupted record
-        ingestChunk(rec);
-      } else {
-        const t = now();
+      if (fmt !== 'dakfb') {
         rpm += (Math.random() - .5) * 60 + (1500 - rpm) * 0.02;
-        ingestChunk(`temp:${(22 + 3 * Math.sin(t / 6) + Math.random() * .3).toFixed(2)} rpm=${Math.round(rpm)}\r\n`);
+        ingestChunk(`temp:${(22 + 3 * Math.sin(now() / 6) + Math.random() * .3).toFixed(2)} rpm=${Math.round(rpm)}\r\n`);
+        return;
       }
+      if (k % 4 === 0) {                       // one game second
+        g.clock = Math.max(0, g.clock - 1); g.play = Math.max(0, g.play - 1);
+        if (g.pat && --g.pat === 0) { g[g.poss === 'h' ? 'h' : 'gs'] += 1; flip(); g.yds = 75; }
+        else if (g.play < 30 && Math.random() < 0.12) {   // snap
+          const gain = Math.round(-3 + Math.random() * Math.random() * 30);
+          g.yds -= gain; g.togo -= gain; g.play = 40;
+          if (g.yds <= 0) { g[g.poss === 'h' ? 'h' : 'gs'] += 6; g.pat = 3; g.yds = 3; g.down = 0; g.togo = 0; }
+          else if (g.togo <= 0) { g.down = 1; g.togo = Math.min(10, g.yds); }
+          else if (++g.down > 4) {
+            if (g.yds < 35) g[g.poss === 'h' ? 'h' : 'gs'] += 3;
+            flip(); g.yds = g.yds < 35 ? 75 : 100 - g.yds;
+          }
+          if (Math.random() < 0.03) { const t = g.poss === 'h' ? 'gtol' : 'htol'; if (g[t] > 0) g[t]--; }
+        }
+        if (g.clock === 0) { g.q = g.q % 4 + 1; g.clock = 15 * 60; if (g.q === 3) { g.htol = g.gtol = 3; } }
+      }
+      let pkt = dkPacket({
+        clock: fmtClock(g.clock), homeName: 'HOME', guestName: 'GUEST', home: g.h, guest: g.gs, quarter: g.q,
+        ballOn: g.down ? (g.yds > 50 ? 100 - g.yds : g.yds) : '', down: g.down || '', toGo: g.down ? g.togo : '',
+        homePoss: g.poss === 'h' ? 1 : '', guestPoss: g.poss === 'g' ? 1 : '', playClock: g.play,
+        homeTOL: g.htol, guestTOL: g.gtol,
+      });
+      if (k % 180 === 0) pkt = pkt.slice(0, 20) + 'X' + pkt.slice(21);   // an occasional line glitch
+      ingestChunk(pkt);
     }, 250);
   }
   function stopDemo() {
@@ -943,20 +1040,26 @@
     setStatus('Disconnected'); $('demo').textContent = 'Demo'; sys('demo stopped');
   }
 
-  // Exactly what the COM1 screenshot shows: records 97:42 down to 97:20
-  const SCREENSHOT = Array.from({ length: 23 }, (_, i) => sbMake('97:' + (42 - i), 'HOME', 'GUEST', 23, 81, '0:33')).join('');
+  // Exactly what the COM1 screenshot shows (SOH/EOT are invisible in Tera Term, so they're not here)
+  const SCREENSHOT = Array.from({ length: 23 }, (_, i) => {
+    const d = dkData({ clock: '97:' + (42 - i), homeName: 'HOME', guestName: 'GUEST', home: 23, guest: 8, quarter: 1, playClock: '0:', homeTOL: 3, guestTOL: 3 });
+    return d + dkSum(d);
+  }).join('');
   $('feedBtn').onclick = () => { if (!$('feedText').value) $('feedText').value = SCREENSHOT; $('feedDlg').showModal(); };
+  let fileText = null;
   $('feedFile').onchange = async e => {
     const file = e.target.files[0]; if (!file) return;
-    $('feedText').value = new TextDecoder('iso-8859-1').decode(new Uint8Array(await file.arrayBuffer()));
+    fileText = new TextDecoder('iso-8859-1').decode(new Uint8Array(await file.arrayBuffer()));
+    $('feedText').value = fileText;   // the textarea drops SOH/EOT on display edits, so keep the original too
   };
+  $('feedText').addEventListener('input', () => { fileText = null; });
   $('feedDlg').addEventListener('close', () => {
     if ($('feedDlg').returnValue !== 'feed') return;
-    const text = $('feedText').value;
+    const text = fileText ?? $('feedText').value;
     stopDemo();
-    sys(`feeding ${text.length.toLocaleString()} chars of pasted data`);
+    sys(`feeding ${text.length.toLocaleString()} chars`);
     if (!$('feedSlow').checked) { ingestChunk(text); return; }
-    let i = 0; const step = fmt === 'sb43' ? SB_LEN : 80;
+    let i = 0; const step = fmt === 'dakfb' ? (text.includes(SOH) ? 45 : DK_VISIBLE) : 80;
     feedTimer = setInterval(() => {
       ingestChunk(text.slice(i, i + step)); i += step;
       if (i >= text.length) { clearInterval(feedTimer); feedTimer = null; sys('replay finished'); }
@@ -985,7 +1088,7 @@
     if (recording == null) { recording = samples.length; $('rec').classList.add('on'); $('rec').textContent = '■ Stop'; sys('recording started'); }
     else {
       const rows = samples.slice(recording); recording = null;
-      $('rec').classList.remove('on'); $('rec').textContent = '● Rec'; sys(`recording stopped (${rows.length} records)`);
+      $('rec').classList.remove('on'); $('rec').textContent = '● Rec'; sys(`recording stopped (${rows.length} packets)`);
       if (rows.length) download(`recording-${stamp()}.csv`, toCsv(rows), 'text/csv');
     }
   };
@@ -1007,8 +1110,6 @@
   const th = store.get('theme', null); if (th) document.documentElement.dataset.theme = th;
   $('baud').value = store.get('baud', '9600');
   $('baud').addEventListener('change', () => store.set('baud', $('baud').value));
-  $('bClockLbl').onclick = () => openField(getField('clock'));
-  $('bClock2Lbl').onclick = () => openField(getField('clock2'));
 
   setFormat(fmt);
   let lastUi = 0;
@@ -1019,7 +1120,7 @@
   })(0);
   updateStats();
 
-  window.__serialScope = { ingestChunk, parseLine, sbDecode, sbValid, sbMake, SCREENSHOT };   // for testing from devtools
+  window.__serialScope = { ingestChunk, parseLine, dkDecode, dkData, dkSum, dkPacket, SCREENSHOT };   // for testing from devtools
 })();
 </script>
 </body>
