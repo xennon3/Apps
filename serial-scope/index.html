@@ -9,6 +9,7 @@
     --bg: #f4f5f7; --panel: #ffffff; --ink: #14161a; --muted: #6b7280; --line: #e3e5ea;
     --accent: #2563eb; --ok: #16a34a; --bad: #dc2626; --warn: #d97706;
     --term-bg: #0f1115; --term-ink: #cfd6e0;
+    --board: #0b0d10; --board-ink: #f5f7fa; --led: #ffb020; --led2: #ff4d4d;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -28,13 +29,14 @@
   header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
     padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
     position: sticky; top: 0; z-index: 5; }
-  h1 { font-size: 16px; margin: 0 12px 0 0; letter-spacing: .02em; }
-  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  h1 { font-size: 16px; margin: 0 8px 0 0; letter-spacing: .02em; white-space: nowrap; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); display: inline-block; flex: none; }
   .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
   .dot.demo { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
   #status { color: var(--muted); margin-right: auto; font-size: 13px; }
-  button, select, input { font: inherit; color: var(--ink); background: var(--bg);
+  button, select, input, textarea { font: inherit; color: var(--ink); background: var(--bg);
     border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  select { max-width: 100%; }
   button { cursor: pointer; }
   button:hover { border-color: var(--accent); }
   button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -45,37 +47,84 @@
   .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
     margin: 0 0 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .panel h2 .sp { flex: 1; }
-  #tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
-  .tile { border: 1px solid var(--line); border-left: 5px solid var(--c); border-radius: 10px;
-    padding: 10px 12px; position: relative; background: var(--bg); transition: background .2s; }
-  .tile.alarm { animation: pulse 1s infinite; }
-  @keyframes pulse { 50% { background: color-mix(in srgb, var(--bad) 22%, var(--bg)); } }
-  .tile .name { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 6px; }
-  .tile .name b { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .tile .val { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; margin: 4px 0; }
-  .tile .mm { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; display: flex; justify-content: space-between; }
-  .tile canvas { width: 100%; height: 34px; display: block; margin-top: 6px; }
-  .tile .tools { display: flex; gap: 4px; }
-  .tile .tools button { padding: 0 6px; font-size: 11px; border-radius: 6px; background: transparent; }
-  .tile.hidden-ch { opacity: .45; }
-  .empty { color: var(--muted); padding: 24px; text-align: center; border: 1px dashed var(--line); border-radius: 10px; }
-  #chartWrap { position: relative; height: 340px; }
-  #chart { width: 100%; height: 100%; display: block; }
-  #term { background: var(--term-bg); color: var(--term-ink); border-radius: 8px; height: 260px; overflow: auto;
-    font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 8px 10px; white-space: pre-wrap; word-break: break-all; }
-  #term .ts { color: #6b7280; }
-  #term .tx { color: #7dd3fc; }
-  #term .sys { color: #fbbf24; }
-  .row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-  .row input[type=text] { flex: 1; min-width: 160px; }
   .hint { color: var(--muted); font-size: 12px; }
   code { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 12px; }
+
+  /* ---- scoreboard ---- */
+  #board { background: var(--board); color: var(--board-ink); border-radius: 14px; padding: 18px 18px 12px;
+    border: 1px solid #222; }
+  #board .grid { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; text-align: center; }
+  #board .team { font-size: clamp(16px, 3vw, 28px); font-weight: 700; letter-spacing: .12em; color: #cfd6e0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #board .score { font: 700 clamp(64px, 13vw, 150px)/1 ui-monospace, "SF Mono", Consolas, monospace;
+    color: var(--led); text-shadow: 0 0 18px color-mix(in srgb, var(--led) 55%, transparent);
+    font-variant-numeric: tabular-nums; border-radius: 12px; }
+  #board .score.flash { animation: flash 1.2s ease-out; }
+  @keyframes flash { 0% { background: color-mix(in srgb, var(--led) 45%, transparent); } 100% { background: transparent; } }
+  #board .mid { display: grid; gap: 6px; justify-items: center; }
+  #board .clock { font: 700 clamp(40px, 7vw, 84px)/1 ui-monospace, "SF Mono", Consolas, monospace; color: var(--led2);
+    text-shadow: 0 0 16px color-mix(in srgb, var(--led2) 55%, transparent); font-variant-numeric: tabular-nums; }
+  #board .clock2 { font: 700 clamp(22px, 3.4vw, 38px)/1 ui-monospace, Consolas, monospace; color: #7dd3fc; }
+  #board .lbl { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: #7b8494; cursor: pointer; }
+  #board .lbl:hover { color: #cfd6e0; }
+  #board .extras { color: #cfd6e0; font: 600 14px ui-monospace, Consolas, monospace; min-height: 1em; }
+  #board .strip { display: flex; flex-wrap: wrap; gap: 6px 16px; justify-content: center; margin-top: 14px;
+    font-size: 12px; color: #9aa3b2; border-top: 1px solid #222; padding-top: 10px; }
+  #board .strip b { color: #e8ebf0; font-weight: 600; }
+  .pill { padding: 1px 8px; border-radius: 99px; font-weight: 700; font-size: 11px; letter-spacing: .08em; }
+  .pill.live { background: #14532d; color: #86efac; }
+  .pill.stale { background: #7f1d1d; color: #fecaca; animation: blink 1s infinite; }
+  .pill.idle { background: #374151; color: #d1d5db; }
+  @keyframes blink { 50% { opacity: .5; } }
+
+  /* ---- tiles ---- */
+  #tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+  .tile { border: 1px solid var(--line); border-left: 5px solid var(--c); border-radius: 10px;
+    padding: 10px 12px; position: relative; background: var(--bg); }
+  .tile.alarm { animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { background: color-mix(in srgb, var(--bad) 22%, var(--bg)); } }
+  .tile .name { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 6px; align-items: center; }
+  .tile .name b { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile .val { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; margin: 4px 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile .val small { font-size: 14px; color: var(--muted); font-weight: 500; margin-left: 4px; }
+  .tile .mm { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; display: flex; justify-content: space-between; min-height: 1em; }
+  .tile canvas { width: 100%; height: 34px; display: block; margin-top: 6px; }
+  .tile .tools { display: flex; gap: 4px; flex: none; }
+  .tile .tools button { padding: 0 6px; font-size: 11px; border-radius: 6px; background: transparent; }
+  #hiddenChips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; align-items: center; }
+  #hiddenChips:empty { display: none; }
+  #hiddenChips button { font-size: 12px; padding: 2px 10px; border-radius: 99px; }
+  .empty { color: var(--muted); padding: 24px; text-align: center; border: 1px dashed var(--line); border-radius: 10px; grid-column: 1 / -1; }
+
+  #chartWrap { position: relative; height: 320px; }
+  #chart { width: 100%; height: 100%; display: block; }
+  #term { background: var(--term-bg); color: var(--term-ink); border-radius: 8px; height: 280px; overflow: auto;
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 8px 10px; white-space: pre; }
+  #term.wrap { white-space: pre-wrap; word-break: break-all; }
+  #term .ts { color: #6b7280; }
+  #term .tx { color: #7dd3fc; }
+  #term .sys { color: #fbbf24; white-space: pre-wrap; word-break: break-all; }
+  #term .bad { color: #f87171; }
+  #term .ok { color: #4ade80; }
+  #term .cs { color: #6b7280; }
+  #term .note { color: #9ca3af; }
+  .row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; align-items: center; }
+  .row input[type=text] { flex: 1; min-width: 160px; }
   .bottom { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
-  @media (max-width: 900px) { .bottom { grid-template-columns: 1fr; } #chartWrap { height: 260px; } }
+  .side { display: grid; gap: 16px; align-content: start; min-width: 0; }
+  #events { max-height: 220px; overflow: auto; font-size: 13px; }
+  #events div { padding: 4px 0; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+  #events .t { color: var(--muted); font-size: 11px; margin-right: 6px; }
+  @media (max-width: 900px) { .bottom { grid-template-columns: 1fr; } #chartWrap { height: 240px; } }
+  @media (max-width: 560px) { #board { padding: 14px 10px 10px; } #board .grid { gap: 6px; } }
   #unsupported { display: none; background: color-mix(in srgb, var(--warn) 18%, var(--panel));
     border: 1px solid var(--warn); border-radius: 10px; padding: 10px 14px; }
-  dialog { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; }
-  dialog label { display: block; margin: 8px 0 4px; font-size: 12px; color: var(--muted); }
+  dialog { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; width: min(560px, calc(100vw - 32px)); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  dialog label.f { display: block; margin: 10px 0 4px; font-size: 12px; color: var(--muted); }
+  dialog input[type=text], dialog input[type=number] { width: 100%; }
+  dialog textarea { width: 100%; height: 160px; font: 12px ui-monospace, Consolas, monospace; }
 </style>
 </head>
 <body>
@@ -83,35 +132,59 @@
   <h1>⚡ Serial Scope</h1>
   <span class="dot" id="dot"></span>
   <span id="status">Disconnected</span>
+  <select id="format" title="Data format"></select>
   <select id="baud" title="Baud rate">
     <option>300</option><option>1200</option><option>2400</option><option>4800</option>
     <option selected>9600</option><option>19200</option><option>38400</option><option>57600</option>
-    <option>115200</option><option>230400</option><option>460800</option><option>921600</option>
+    <option>115200</option><option>230400</option>
   </select>
   <button id="connect" class="primary">Connect</button>
-  <button id="demo" title="Fake sensor data, to try the UI without a device">Demo</button>
-  <button id="rec" class="rec" title="Record parsed values to CSV">● Rec</button>
+  <button id="demo" title="Simulated data, to try the UI without a device">Demo</button>
+  <button id="feedBtn" title="Paste text or load a Tera Term log file">Paste / Load log</button>
+  <button id="rec" class="rec" title="Record values to CSV">● Rec</button>
   <button id="theme" title="Toggle theme">◐</button>
 </header>
 
 <main>
   <div id="unsupported">
-    Your browser doesn't have the Web Serial API. Use <b>Chrome</b> or <b>Edge</b> on desktop
-    (opened from <code>file://</code>, <code>localhost</code> or HTTPS). You can still click <b>Demo</b>.
+    This browser doesn't have the Web Serial API. Use <b>Chrome</b> or <b>Edge</b> on a desktop.
+    You can still try <b>Demo</b> or <b>Paste / Load log</b>.
   </div>
 
+  <section id="board">
+    <div class="grid">
+      <div><div class="team" id="bHomeName">HOME</div><div class="score" id="bHome">–</div></div>
+      <div class="mid">
+        <div class="lbl" id="bClockLbl" title="Click to rename">Game clock</div>
+        <div class="clock" id="bClock">--:--</div>
+        <div class="lbl" id="bClock2Lbl" title="Click to rename">Clock 2</div>
+        <div class="clock2" id="bClock2">-:--</div>
+        <div class="extras" id="bExtras"></div>
+      </div>
+      <div><div class="team" id="bGuestName">GUEST</div><div class="score" id="bGuest">–</div></div>
+    </div>
+    <div class="strip">
+      <span id="bLive" class="pill idle">WAITING</span>
+      <span>Records <b id="bRecs">0</b> · <b id="bRate">0</b>/s</span>
+      <span>Checksum <b id="bGood" style="color:#86efac">✓ 0</b> <b id="bBad" style="color:#fca5a5">✗ 0</b></span>
+      <span>Last update <b id="bAge">–</b></span>
+    </div>
+  </section>
+
   <section class="panel">
-    <h2>Live values <span class="sp"></span><button id="resetStats" title="Reset min/max">Reset min/max</button></h2>
-    <div id="tiles"><div class="empty">No data yet. Connect a device or start the demo.<br>
-      <span class="hint">Supported lines: <code>23.4</code> · <code>12,45,0.7</code> · <code>temp:23.4 hum=51</code> · <code>{"temp":23.4,"rpm":1200}</code></span></div></div>
+    <h2>Fields <span class="sp"></span>
+      <span class="hint" style="text-transform:none;letter-spacing:0">✏ rename / alarm · ✕ hide</span>
+      <button id="resetStats" title="Reset min/max">Reset min/max</button></h2>
+    <div id="tiles"></div>
+    <div id="hiddenChips"></div>
   </section>
 
   <section class="panel">
     <h2>Chart
       <span class="sp"></span>
       <select id="window" title="Time window">
-        <option value="10">10 s</option><option value="30" selected>30 s</option>
-        <option value="60">1 min</option><option value="300">5 min</option><option value="900">15 min</option>
+        <option value="10">10 s</option><option value="30">30 s</option>
+        <option value="60" selected>1 min</option><option value="300">5 min</option><option value="900">15 min</option><option value="3600">1 h</option>
       </select>
       <select id="layout" title="Layout">
         <option value="lanes">Stacked lanes</option>
@@ -126,80 +199,398 @@
     <section class="panel">
       <h2>Raw console
         <span class="sp"></span>
-        <input id="filter" type="text" placeholder="filter…" style="width:120px">
+        <input id="filter" type="text" placeholder="filter…" style="width:110px">
+        <label class="hint"><input type="checkbox" id="showHidden"> show spaces &amp; hidden chars</label>
         <label class="hint"><input type="checkbox" id="autoscroll" checked> autoscroll</label>
-        <label class="hint"><input type="checkbox" id="showTs" checked> time</label>
         <button id="clearTerm">Clear</button>
       </h2>
       <div id="term"></div>
       <div class="row">
         <input id="sendText" type="text" placeholder="Send to device…">
         <select id="eol" title="Line ending">
-          <option value="\n">LF</option><option value="\r\n">CRLF</option>
-          <option value="\r">CR</option><option value="">none</option>
+          <option value="lf">LF</option><option value="crlf">CRLF</option>
+          <option value="cr">CR</option><option value="none">none</option>
         </select>
         <button id="send">Send</button>
       </div>
     </section>
 
-    <section class="panel">
-      <h2>Session</h2>
-      <div id="stats" class="hint" style="font-variant-numeric:tabular-nums;line-height:1.9"></div>
-      <div class="row">
-        <button id="exportCsv">Download CSV</button>
-        <button id="exportLog">Download raw log</button>
-      </div>
-      <p class="hint">The CSV holds every parsed sample this session (or only the recording, if you used ● Rec).
-        Click a tile's 🔔 to set an alarm range, and 👁 to hide it from the chart.</p>
-    </section>
+    <div class="side">
+      <section class="panel">
+        <h2>Events <span class="sp"></span><button id="clearEvents">Clear</button></h2>
+        <div id="events"><div class="hint" style="border:0">Score changes, team changes and alarms show up here.</div></div>
+      </section>
+      <section class="panel">
+        <h2>Session</h2>
+        <div id="stats" class="hint" style="font-variant-numeric:tabular-nums;line-height:1.8"></div>
+        <div class="row">
+          <button id="exportCsv">Download CSV</button>
+          <button id="exportLog">Download raw log</button>
+        </div>
+      </section>
+    </div>
   </div>
 </main>
 
-<dialog id="alarmDlg">
+<dialog id="fieldDlg">
   <form method="dialog">
-    <b id="alarmTitle">Alarm</b>
-    <label>Alarm when below</label><input id="alarmLo" type="number" step="any" placeholder="(none)">
-    <label>Alarm when above</label><input id="alarmHi" type="number" step="any" placeholder="(none)">
-    <label><input type="checkbox" id="alarmBeep"> Beep</label>
-    <div class="row"><button value="ok" class="primary">Save</button><button value="clear">Clear</button><button value="cancel">Cancel</button></div>
+    <b id="fieldTitle">Field</b> <span class="hint" id="fieldKey"></span>
+    <label class="f">Display name</label><input id="fLabel" type="text">
+    <div id="fNumOnly">
+      <label class="f">Unit (optional)</label><input id="fUnit" type="text" placeholder="e.g. pts, °C">
+      <label class="f">Alarm when below</label><input id="fLo" type="number" step="any" placeholder="(none)">
+      <label class="f">Alarm when above</label><input id="fHi" type="number" step="any" placeholder="(none)">
+      <p class="hint" id="fClockHint" style="margin:4px 0 0">For clocks, enter seconds (e.g. 60 = 1:00).</p>
+      <label class="hint" style="display:block;margin-top:8px"><input type="checkbox" id="fBeep"> Beep on alarm</label>
+      <label class="hint" style="display:block;margin-top:4px"><input type="checkbox" id="fChart"> Show on chart</label>
+    </div>
+    <div class="row" style="margin-top:14px"><button value="ok" class="primary">Save</button><button value="reset">Reset to default</button><button value="cancel">Cancel</button></div>
+  </form>
+</dialog>
+
+<dialog id="feedDlg">
+  <form method="dialog">
+    <b>Paste data or load a log file</b>
+    <p class="hint" style="margin:6px 0">Paste raw device output. The box starts with the data from your COM1 screenshot.
+      Tera Term can save a raw log with <i>File → Log…</i>; load that file here.</p>
+    <textarea id="feedText" spellcheck="false"></textarea>
+    <div class="row">
+      <input type="file" id="feedFile" accept=".log,.txt,text/plain">
+      <label class="hint"><input type="checkbox" id="feedSlow" checked> replay slowly (5 records/s)</label>
+    </div>
+    <div class="row"><button value="feed" class="primary">Feed it in</button><button value="cancel">Cancel</button></div>
   </form>
 </dialog>
 
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-  const PALETTE = ['#2563eb', '#e11d48', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#65a30d', '#ea580c', '#4f46e5'];
-  const MAX_POINTS = 50000;      // per channel
-  const MAX_TERM_LINES = 2000;
-
-  // ---------- state ----------
-  const channels = new Map();    // name -> {name,color,data:[[t,v]],last,min,max,hidden,alarm,el}
-  const samples = [];            // [{t, values:{name:v}}] for CSV
-  const rawLog = [];             // [t, dir, text]
-  let recording = null;          // null or start index into samples
-  let port = null, reader = null, readClosed = null, keepReading = false;
-  let demoTimer = null;
-  let frozenAt = null;
-  let bytesIn = 0, linesIn = 0, startedAt = null, rateCount = 0, rate = 0;
+  const PALETTE = ['#f59e0b', '#3b82f6', '#ef4444', '#06b6d4', '#16a34a', '#a855f7', '#db2777', '#65a30d', '#ea580c', '#4f46e5'];
+  const MAX_POINTS = 50000, MAX_TERM_LINES = 2000;
   const t0 = performance.now();
   const now = () => (performance.now() - t0) / 1000;
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('serialscope-' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem('serialscope-' + k, JSON.stringify(v)); } catch {} },
+  };
 
-  // ---------- parsing ----------
+  // =====================================================================
+  //  Formats
+  // =====================================================================
+  // Scoreboard record decoded from the COM1 screen (43 chars, no line breaks):
+  //   97:42HOME      GUEST     23 81       0:33BF
+  //   0    5         15        25              41
+  //   clock|home name |guest name|scores ... clock2|checksum
+  // Checksum = sum of the first 41 bytes, mod 256, as 2 uppercase hex digits.
+  const SB_LEN = 43;
+  const sbSum = s => { let n = 0; for (let i = 0; i < s.length; i++) n += s.charCodeAt(i); return (n & 255).toString(16).toUpperCase().padStart(2, '0'); };
+  const sbValid = s => s.length === SB_LEN && sbSum(s.slice(0, 41)) === s.slice(41);
+  const sbLooksLike = s => s.length === SB_LEN && /^[0-9A-F]{2}$/.test(s.slice(41)) && !/[\x00-\x1f]/.test(s);
+  function sbMake(clock, hName, gName, hs, gs, clock2) {
+    const c2 = String(clock2), midW = 16 - c2.length;
+    const body = String(clock).padStart(5).slice(0, 5) + hName.padEnd(10).slice(0, 10) + gName.padEnd(10).slice(0, 10)
+      + (hs + ' ' + gs).padEnd(midW).slice(0, midW) + c2;
+    return body + sbSum(body);
+  }
+  function parseClock(str) {
+    const m = /^(\d+):(\d{1,2})(?:\.(\d+))?$/.exec(str);
+    if (m) return +m[1] * 60 + +m[2] + (m[3] ? +('0.' + m[3]) : 0);
+    const n = parseFloat(str); return isFinite(n) ? n : NaN;
+  }
+  function sbDecode(s) {
+    const toks = s.slice(25, 41).trim().split(/\s+/).filter(Boolean);
+    let c2 = '';
+    if (toks.length && /[:.]/.test(toks[toks.length - 1])) c2 = toks.pop();
+    const num = t => { const n = parseFloat(t); return { num: isFinite(n) ? n : NaN, text: t ?? '' }; };
+    const clock = s.slice(0, 5).trim();
+    const out = {
+      home: num(toks[0]),
+      guest: num(toks[1]),
+      clock: { num: parseClock(clock), text: clock },
+      clock2: { num: parseClock(c2), text: c2 },
+      homeName: { text: s.slice(5, 15).trim() },
+      guestName: { text: s.slice(15, 25).trim() },
+    };
+    toks.slice(2).forEach((t, i) => out['extra' + (i + 1)] = num(t));
+    return out;
+  }
+
+  const FORMATS = {
+    sb43: {
+      name: 'Scoreboard: HOME/GUEST 43-char records',
+      fields: {
+        home:      { label: 'Home score',  kind: 'num' },
+        guest:     { label: 'Guest score', kind: 'num' },
+        clock:     { label: 'Game clock',  kind: 'clock' },
+        clock2:    { label: 'Clock 2',     kind: 'clock' },
+        homeName:  { label: 'Home team',   kind: 'text', hidden: true },
+        guestName: { label: 'Guest team',  kind: 'text', hidden: true },
+      },
+      board: true,
+    },
+    auto: { name: 'Auto: text lines (numbers, key:value, JSON)', fields: {}, board: false },
+  };
+  const fieldDefault = (f, key) => FORMATS[f].fields[key] || (key.startsWith('extra') ? { label: 'Extra ' + key.slice(5), kind: 'num' } : { label: key, kind: 'num' });
+
+  for (const [k, f] of Object.entries(FORMATS)) $('format').add(new Option(f.name, k));
+  let fmt = store.get('format', 'sb43');
+  if (!FORMATS[fmt]) fmt = 'sb43';
+
+  // per-field user settings, per format
+  const cfgAll = store.get('cfg', {});
+  function cfg(key) {
+    const c = (cfgAll[fmt] ||= {});
+    if (!c[key]) { const d = fieldDefault(fmt, key); c[key] = { label: d.label, unit: '', hidden: !!d.hidden, chart: d.kind !== 'text', alarm: null }; }
+    return c[key];
+  }
+  const saveCfg = () => store.set('cfg', cfgAll);
+
+  // =====================================================================
+  //  State
+  // =====================================================================
+  const fields = new Map();   // key -> field
+  let samples = [];           // [{t, values}]
+  const rawLog = [];          // [t, dir, text, segs, note]
+  let recording = null;
+  let port = null, reader = null, readClosed = null, keepReading = false;
+  let demoTimer = null, feedTimer = null, frozenAt = null;
+  let bytesIn = 0, recsIn = 0, rateCount = 0, rate = 0, startedAt = null;
+  let good = 0, bad = 0, lastRecT = null;
+  let prevSb = {};
+
+  // =====================================================================
+  //  Field tiles
+  // =====================================================================
+  function getField(key) {
+    let f = fields.get(key);
+    if (f) return f;
+    const d = fieldDefault(fmt, key);
+    const color = PALETTE[fields.size % PALETTE.length];
+    const el = document.createElement('div');
+    el.className = 'tile';
+    el.style.setProperty('--c', color);
+    el.innerHTML = `<div class="name"><b></b><span class="tools">
+        <button data-a="edit" title="Rename, units, alarm">✏</button>
+        <button data-a="hide" title="Hide this field">✕</button></span></div>
+      <div class="val">–</div><div class="mm"><span class="mn"></span><span class="mx"></span></div>
+      ${d.kind !== 'text' ? '<canvas></canvas>' : ''}`;
+    f = { key, kind: d.kind, color, data: [], last: NaN, text: '', min: Infinity, max: -Infinity, el, dirty: true,
+      nameEl: el.querySelector('b'), valEl: el.querySelector('.val'), mnEl: el.querySelector('.mn'),
+      mxEl: el.querySelector('.mx'), spark: el.querySelector('canvas'), alarmOn: false };
+    el.addEventListener('click', e => {
+      const a = e.target.dataset.a;
+      if (a === 'edit') openField(f);
+      if (a === 'hide') { cfg(key).hidden = true; saveCfg(); layoutTiles(); }
+    });
+    fields.set(key, f);
+    layoutTiles();
+    return f;
+  }
+
+  function layoutTiles() {
+    const tiles = $('tiles'), chips = $('hiddenChips');
+    tiles.innerHTML = ''; chips.innerHTML = '';
+    let shown = 0;
+    for (const f of fields.values()) {
+      const c = cfg(f.key);
+      f.nameEl.textContent = c.label; f.nameEl.title = `${c.label} (${f.key})`;
+      if (c.hidden) {
+        const b = document.createElement('button');
+        b.textContent = '+ ' + c.label; b.title = 'Show this field again';
+        b.onclick = () => { c.hidden = false; saveCfg(); layoutTiles(); };
+        chips.appendChild(b);
+      } else { tiles.appendChild(f.el); shown++; f.dirty = true; }
+    }
+    if (chips.childElementCount) chips.insertAdjacentHTML('afterbegin', '<span class="hint">Hidden:</span>');
+    if (!shown) tiles.innerHTML = fields.size ? '<div class="empty">All fields hidden. Click one below to show it.</div>'
+      : `<div class="empty">No data yet. <b>Connect</b> your device, or try <b>Demo</b> / <b>Paste / Load log</b>.<br>
+         <span class="hint">Format: <b>${FORMATS[fmt].name}</b> (change it at the top if needed)</span></div>`;
+  }
+
+  function setField(key, v, t) {
+    const f = getField(key);
+    if (v.text !== undefined) f.text = v.text;
+    const n = v.num;
+    if (n !== undefined && isFinite(n)) {
+      f.data.push([t, n]);
+      if (f.data.length > MAX_POINTS) f.data.splice(0, f.data.length - MAX_POINTS);
+      f.last = n;
+      if (n < f.min) f.min = n;
+      if (n > f.max) f.max = n;
+    } else if (n !== undefined) f.last = NaN;
+    f.dirty = true;
+  }
+
+  const fmtNum = v => {
+    if (!isFinite(v)) return '–';
+    const a = Math.abs(v);
+    if (a !== 0 && (a >= 1e6 || a < 1e-3)) return v.toExponential(2);
+    return Number.isInteger(v) ? v.toLocaleString() : v.toFixed(a >= 100 ? 1 : a >= 10 ? 2 : 3);
+  };
+  const fmtClock = s => !isFinite(s) ? '–' : Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+  const showVal = f => f.kind === 'num' ? fmtNum(f.last) : (f.text || '–');
+
+  let audioCtx = null, lastBeep = 0;
+  function beep() {
+    try {
+      audioCtx ||= new AudioContext();
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.frequency.value = 880; g.gain.value = 0.08;
+      o.connect(g).connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.12);
+    } catch {}
+  }
+
+  function updateTiles() {
+    let wantBeep = false;
+    for (const f of fields.values()) {
+      const c = cfg(f.key), a = c.alarm;
+      const badNow = !!(a && isFinite(f.last) && ((a.lo != null && f.last < a.lo) || (a.hi != null && f.last > a.hi)));
+      if (badNow && !f.alarmOn) addEvent(`⚠ ${c.label} = ${showVal(f)} is outside the alarm range`);
+      f.alarmOn = badNow;
+      f.el.classList.toggle('alarm', badNow);
+      if (badNow && a.beep) wantBeep = true;
+      if (!f.dirty || c.hidden) continue;
+      f.dirty = false;
+      f.valEl.textContent = showVal(f);
+      if (c.unit && f.kind !== 'text') { const u = document.createElement('small'); u.textContent = c.unit; f.valEl.appendChild(u); }
+      if (f.kind !== 'text' && isFinite(f.min)) {
+        const ff = f.kind === 'clock' ? fmtClock : fmtNum;
+        f.mnEl.textContent = 'min ' + ff(f.min); f.mxEl.textContent = 'max ' + ff(f.max);
+      }
+      if (f.spark) drawSpark(f);
+    }
+    if (wantBeep && performance.now() - lastBeep > 1000) { lastBeep = performance.now(); beep(); }
+  }
+
+  function drawSpark(f) {
+    const c = f.spark, dpr = devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+    if (!w) return;
+    if (c.width !== w * dpr) { c.width = w * dpr; c.height = h * dpr; }
+    const g = c.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+    const pts = f.data.slice(-150);
+    if (pts.length < 2) return;
+    let lo = Infinity, hi = -Infinity;
+    for (const [, v] of pts) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    if (hi === lo) { hi += 1; lo -= 1; }
+    g.strokeStyle = f.color; g.lineWidth = 1.5; g.beginPath();
+    pts.forEach(([, v], i) => { const x = i / (pts.length - 1) * w, y = h - 2 - (v - lo) / (hi - lo) * (h - 4); i ? g.lineTo(x, y) : g.moveTo(x, y); });
+    g.stroke();
+  }
+
+  // ---- field settings dialog ----
+  let dlgField = null;
+  function openField(f) {
+    dlgField = f;
+    const c = cfg(f.key);
+    $('fieldTitle').textContent = c.label;
+    $('fieldKey').textContent = `(${f.key})`;
+    $('fLabel').value = c.label; $('fUnit').value = c.unit || '';
+    $('fLo').value = c.alarm?.lo ?? ''; $('fHi').value = c.alarm?.hi ?? '';
+    $('fBeep').checked = !!c.alarm?.beep; $('fChart').checked = c.chart !== false;
+    $('fNumOnly').style.display = f.kind === 'text' ? 'none' : '';
+    $('fClockHint').style.display = f.kind === 'clock' ? '' : 'none';
+    $('fieldDlg').showModal();
+  }
+  $('fieldDlg').addEventListener('close', () => {
+    const r = $('fieldDlg').returnValue, f = dlgField; dlgField = null;
+    if (!f) return;
+    if (r === 'reset') { delete cfgAll[fmt][f.key]; cfg(f.key); }
+    if (r === 'ok') {
+      const c = cfg(f.key);
+      c.label = $('fLabel').value.trim() || fieldDefault(fmt, f.key).label;
+      c.unit = $('fUnit').value.trim();
+      const lo = $('fLo').value === '' ? null : parseFloat($('fLo').value);
+      const hi = $('fHi').value === '' ? null : parseFloat($('fHi').value);
+      c.alarm = lo == null && hi == null ? null : { lo, hi, beep: $('fBeep').checked };
+      c.chart = $('fChart').checked;
+    }
+    saveCfg(); layoutTiles(); updateBoardLabels();
+  });
+
+  // =====================================================================
+  //  Ingest
+  // =====================================================================
+  function ingestValues(vals, t) {
+    recsIn++; rateCount++; lastRecT = t;
+    const row = {};
+    for (const [k, v] of Object.entries(vals)) {
+      setField(k, v, t);
+      row[k] = fields.get(k).kind === 'num' ? v.num : (v.text ?? v.num);
+    }
+    samples.push({ t, values: row });
+    if (samples.length > 500000) { samples.splice(0, 100000); if (recording != null) recording = Math.max(0, recording - 100000); }
+  }
+
+  // ---- scoreboard stream: lock on with the checksum, then step 43 chars at a time ----
+  let sbBuf = '', sbSynced = false, junk = '';
+  function sbChunk(text) {
+    sbBuf += text.replace(/[\r\n]/g, '');    // records carry no line breaks; strip any from pasted text
+    let i = 0;
+    while (sbBuf.length - i >= SB_LEN) {
+      const s = sbBuf.substr(i, SB_LEN);
+      let ok;
+      if (sbSynced) ok = sbValid(s);
+      else {
+        if (sbBuf.length - i < SB_LEN * 2) break;            // need two valid records in a row to lock on
+        ok = sbValid(s) && sbValid(sbBuf.substr(i + SB_LEN, SB_LEN));
+      }
+      if (ok) {
+        flushJunk();
+        sbSynced = true; good++;
+        sbRecord(s);
+        i += SB_LEN;
+      } else if (sbSynced && sbLooksLike(s)) {
+        flushJunk();
+        bad++;
+        logTerm(now(), 'bad', s, null, `checksum should be ${sbSum(s.slice(0, 41))}`);
+        i += SB_LEN;
+      } else {
+        sbSynced = false;
+        junk += sbBuf[i]; i++;
+        if (junk.length > 300) flushJunk();
+      }
+    }
+    sbBuf = sbBuf.slice(i);
+  }
+  function flushJunk() {
+    if (!junk) return;
+    logTerm(now(), 'sys', `skipped ${junk.length} byte${junk.length > 1 ? 's' : ''} (not a valid record): ` + junk);
+    junk = '';
+  }
+
+  const SB_SEGS = [[0, 5, 'clock'], [5, 15, 'homeName'], [15, 25, 'guestName'], [25, 41, 'home'], [41, 43, null]];
+  function sbRecord(s) {
+    const t = now();
+    const v = sbDecode(s);
+    const hn = v.homeName.text || 'HOME', gn = v.guestName.text || 'GUEST';
+    if (prevSb.hn !== undefined) {
+      for (const [k, name] of [['home', hn], ['guest', gn]]) {
+        const a = prevSb[k], b = v[k].num;
+        if (isFinite(a) && isFinite(b) && a !== b) {
+          addEvent(`<b>${esc(name)}</b> ${a} → <b>${b}</b> (${b > a ? '+' : ''}${b - a}) at ${esc(v.clock.text || '?')}`, true);
+          flashScore(k);
+        }
+      }
+      if (prevSb.hn !== hn || prevSb.gn !== gn) addEvent(`Teams changed: <b>${esc(hn)}</b> vs <b>${esc(gn)}</b>`, true);
+    }
+    prevSb = { home: v.home.num, guest: v.guest.num, hn, gn };
+    ingestValues(v, t);
+    const segs = SB_SEGS.map(([a, b, k]) => [a, b, k ? fields.get(k)?.color : null]);
+    logTerm(t, 'rx', s, segs);
+  }
+
+  // ---- generic line stream ----
+  let lineBuf = '', sniff = '';
   const NUM = /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/;
   function parseLine(line) {
     const s = line.trim();
     if (!s) return null;
-    if (s[0] === '{') {
-      try { const out = {}; flatten(JSON.parse(s), '', out); return Object.keys(out).length ? out : null; } catch {}
-    }
-    // key:value / key=value pairs
+    if (s[0] === '{') { try { const o = {}; flatten(JSON.parse(s), '', o); return Object.keys(o).length ? o : null; } catch {} }
     const kv = [...s.matchAll(/([A-Za-z_][\w.\-\/]*)\s*[:=]\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g)];
-    if (kv.length) { const out = {}; for (const m of kv) out[m[1]] = parseFloat(m[2]); return out; }
-    // bare numbers separated by comma / tab / space / semicolon
+    if (kv.length) { const o = {}; for (const m of kv) o[m[1]] = parseFloat(m[2]); return o; }
     const parts = s.split(/[\s,;\t]+/).filter(Boolean);
-    if (parts.length && parts.every(p => NUM.test(p))) {
-      const out = {}; parts.forEach((p, i) => out[parts.length === 1 ? 'value' : 'ch' + (i + 1)] = parseFloat(p)); return out;
-    }
+    if (parts.length && parts.every(p => NUM.test(p))) { const o = {}; parts.forEach((p, i) => o[parts.length === 1 ? 'value' : 'ch' + (i + 1)] = parseFloat(p)); return o; }
     return null;
   }
   function flatten(o, pre, out) {
@@ -208,163 +599,104 @@
     else if (typeof o === 'string' && NUM.test(o.trim())) out[pre || 'value'] = parseFloat(o);
     else if (o && typeof o === 'object') for (const k in o) flatten(o[k], pre ? pre + '.' + k : k, out);
   }
-
-  // ---------- ingest ----------
-  function ingestLine(line) {
-    linesIn++; rateCount++;
-    const t = now();
-    logTerm(t, 'rx', line);
-    const vals = parseLine(line);
-    if (!vals) return;
-    samples.push({ t, values: vals });
-    for (const [name, v] of Object.entries(vals)) {
-      let ch = channels.get(name);
-      if (!ch) ch = addChannel(name);
-      ch.data.push([t, v]);
-      if (ch.data.length > MAX_POINTS) ch.data.splice(0, ch.data.length - MAX_POINTS);
-      ch.last = v; ch.lastT = t;
-      if (v < ch.min) ch.min = v;
-      if (v > ch.max) ch.max = v;
-      ch.dirty = true;
+  function lineChunk(text) {
+    // switch to the scoreboard format automatically if its records show up in Auto mode
+    sniff = (sniff + text.replace(/[\r\n]/g, '')).slice(-400);
+    for (let i = 0; i + SB_LEN * 2 <= sniff.length; i++) {
+      if (sbValid(sniff.substr(i, SB_LEN)) && sbValid(sniff.substr(i + SB_LEN, SB_LEN))) {
+        const pending = sniff.slice(i);
+        logTerm(now(), 'sys', 'scoreboard records detected, switching format');
+        setFormat('sb43'); sbChunk(pending); return;
+      }
     }
-  }
-
-  let lineBuf = '';
-  function ingestChunk(text) {
-    bytesIn += text.length;
     lineBuf += text;
     const lines = lineBuf.split(/\r?\n|\r(?!$)/);
     lineBuf = lines.pop();
     if (lineBuf.length > 8192) { lines.push(lineBuf); lineBuf = ''; }
-    for (const l of lines) ingestLine(l);
-  }
-
-  // ---------- tiles ----------
-  function addChannel(name) {
-    if (!channels.size) $('tiles').innerHTML = '';
-    const color = PALETTE[channels.size % PALETTE.length];
-    const el = document.createElement('div');
-    el.className = 'tile';
-    el.style.setProperty('--c', color);
-    el.innerHTML = `<div class="name"><b></b><span class="tools">
-        <button data-a="alarm" title="Alarm range">🔔</button><button data-a="hide" title="Hide from chart">👁</button></span></div>
-      <div class="val">–</div><div class="mm"><span class="mn"></span><span class="mx"></span></div><canvas></canvas>`;
-    el.querySelector('b').textContent = name;
-    el.querySelector('b').title = name;
-    $('tiles').appendChild(el);
-    const ch = { name, color, data: [], last: NaN, min: Infinity, max: -Infinity, hidden: false, alarm: null, el,
-      valEl: el.querySelector('.val'), mnEl: el.querySelector('.mn'), mxEl: el.querySelector('.mx'),
-      spark: el.querySelector('canvas'), dirty: true };
-    el.addEventListener('click', e => {
-      const a = e.target.dataset.a;
-      if (a === 'hide') { ch.hidden = !ch.hidden; el.classList.toggle('hidden-ch', ch.hidden); }
-      if (a === 'alarm') openAlarm(ch);
-    });
-    channels.set(name, ch);
-    return ch;
-  }
-
-  const fmt = v => {
-    if (!isFinite(v)) return '–';
-    const a = Math.abs(v);
-    if (a !== 0 && (a >= 1e6 || a < 1e-3)) return v.toExponential(2);
-    return Number.isInteger(v) ? v.toLocaleString() : v.toFixed(a >= 100 ? 1 : a >= 10 ? 2 : 3);
-  };
-
-  let audioCtx = null;
-  function beep() {
-    try {
-      audioCtx = audioCtx || new AudioContext();
-      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-      o.frequency.value = 880; g.gain.value = 0.08;
-      o.connect(g).connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.12);
-    } catch {}
-  }
-  let lastBeep = 0;
-
-  function updateTiles() {
-    let anyBeep = false;
-    for (const ch of channels.values()) {
-      const a = ch.alarm;
-      const bad = a && isFinite(ch.last) && ((a.lo != null && ch.last < a.lo) || (a.hi != null && ch.last > a.hi));
-      ch.el.classList.toggle('alarm', !!bad);
-      if (bad && a.beep) anyBeep = true;
-      if (!ch.dirty) continue;
-      ch.dirty = false;
-      ch.valEl.textContent = fmt(ch.last);
-      ch.mnEl.textContent = 'min ' + fmt(ch.min);
-      ch.mxEl.textContent = 'max ' + fmt(ch.max);
-      drawSpark(ch);
+    for (const l of lines) {
+      const t = now();
+      logTerm(t, 'rx', l);
+      const p = parseLine(l);
+      if (p) { const v = {}; for (const k in p) v[k] = { num: p[k] }; ingestValues(v, t); }
     }
-    if (anyBeep && performance.now() - lastBeep > 1000) { lastBeep = performance.now(); beep(); }
   }
 
-  function drawSpark(ch) {
-    const c = ch.spark, dpr = devicePixelRatio || 1;
-    const w = c.clientWidth, h = c.clientHeight;
-    if (c.width !== w * dpr) { c.width = w * dpr; c.height = h * dpr; }
-    const g = c.getContext('2d');
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.clearRect(0, 0, w, h);
-    const pts = ch.data.slice(-120);
-    if (pts.length < 2) return;
-    let lo = Infinity, hi = -Infinity;
-    for (const [, v] of pts) { if (v < lo) lo = v; if (v > hi) hi = v; }
-    if (hi === lo) { hi += 1; lo -= 1; }
-    g.strokeStyle = ch.color; g.lineWidth = 1.5; g.beginPath();
-    pts.forEach(([, v], i) => {
-      const x = (i / (pts.length - 1)) * w, y = h - 2 - ((v - lo) / (hi - lo)) * (h - 4);
-      i ? g.lineTo(x, y) : g.moveTo(x, y);
-    });
-    g.stroke();
+  function ingestChunk(text) {
+    bytesIn += text.length;
+    startedAt ??= now();
+    fmt === 'sb43' ? sbChunk(text) : lineChunk(text);
   }
 
-  // ---------- alarm dialog ----------
-  let alarmCh = null;
-  function openAlarm(ch) {
-    alarmCh = ch;
-    $('alarmTitle').textContent = 'Alarm · ' + ch.name;
-    $('alarmLo').value = ch.alarm?.lo ?? '';
-    $('alarmHi').value = ch.alarm?.hi ?? '';
-    $('alarmBeep').checked = !!ch.alarm?.beep;
-    $('alarmDlg').showModal();
+  function setFormat(f) {
+    fmt = f; $('format').value = f; store.set('format', f);
+    fields.clear(); samples = []; prevSb = {}; recording = null;
+    $('rec').classList.remove('on'); $('rec').textContent = '● Rec';
+    sbBuf = ''; sbSynced = false; junk = ''; lineBuf = ''; sniff = '';
+    good = bad = recsIn = 0; lastRecT = null;
+    $('board').style.display = FORMATS[f].board ? '' : 'none';
+    $('term').classList.toggle('wrap', f !== 'sb43');
+    layoutTiles(); updateBoardLabels(); resetBoard();
   }
-  $('alarmDlg').addEventListener('close', () => {
-    const r = $('alarmDlg').returnValue;
-    if (!alarmCh) return;
-    if (r === 'clear') alarmCh.alarm = null;
-    if (r === 'ok') {
-      const lo = $('alarmLo').value === '' ? null : parseFloat($('alarmLo').value);
-      const hi = $('alarmHi').value === '' ? null : parseFloat($('alarmHi').value);
-      alarmCh.alarm = (lo == null && hi == null) ? null : { lo, hi, beep: $('alarmBeep').checked };
+  $('format').onchange = () => { stopDemo(); setFormat($('format').value); };
+
+  // =====================================================================
+  //  Scoreboard view
+  // =====================================================================
+  function flashScore(k) {
+    const el = $(k === 'home' ? 'bHome' : 'bGuest');
+    el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+  }
+  function updateBoardLabels() {
+    if (fmt !== 'sb43') return;
+    $('bClockLbl').textContent = cfg('clock').label;
+    $('bClock2Lbl').textContent = cfg('clock2').label;
+  }
+  function resetBoard() {
+    $('bHomeName').textContent = 'HOME'; $('bGuestName').textContent = 'GUEST';
+    $('bHome').textContent = $('bGuest').textContent = '–';
+    $('bClock').textContent = '--:--'; $('bClock2').textContent = '-:--'; $('bExtras').textContent = '';
+  }
+  function updateBoard() {
+    if (fmt !== 'sb43') return;
+    const txt = (k, d) => { const f = fields.get(k); if (!f) return d; const s = f.kind === 'num' ? fmtNum(f.last) : f.text; return s && s !== '–' ? s : d; };
+    $('bHomeName').textContent = txt('homeName', 'HOME');
+    $('bGuestName').textContent = txt('guestName', 'GUEST');
+    $('bHome').textContent = txt('home', '–');
+    $('bGuest').textContent = txt('guest', '–');
+    $('bClock').textContent = txt('clock', '--:--');
+    $('bClock2').textContent = txt('clock2', '-:--');
+    $('bExtras').textContent = [...fields.values()].filter(f => f.key.startsWith('extra')).map(f => cfg(f.key).label + ' ' + showVal(f)).join('   ');
+    $('bRecs').textContent = recsIn.toLocaleString();
+    $('bRate').textContent = rate;
+    $('bGood').textContent = '✓ ' + good.toLocaleString();
+    $('bBad').textContent = '✗ ' + bad.toLocaleString();
+    const live = $('bLive');
+    if (lastRecT == null) { live.className = 'pill idle'; live.textContent = 'WAITING'; $('bAge').textContent = '–'; }
+    else {
+      const age = now() - lastRecT;
+      $('bAge').textContent = age < 1 ? 'now' : fmtDur(Math.floor(age)) + ' ago';
+      if (age > 3) { live.className = 'pill stale'; live.textContent = 'NO DATA'; }
+      else { live.className = 'pill live'; live.textContent = 'LIVE'; }
     }
-    alarmCh = null;
-  });
+  }
 
-  // ---------- main chart ----------
+  // =====================================================================
+  //  Chart
+  // =====================================================================
   const chart = $('chart');
-  function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
-
+  const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   function drawChart() {
-    const dpr = devicePixelRatio || 1;
-    const w = chart.clientWidth, h = chart.clientHeight;
-    if (chart.width !== Math.round(w * dpr) || chart.height !== Math.round(h * dpr)) {
-      chart.width = Math.round(w * dpr); chart.height = Math.round(h * dpr);
-    }
+    const dpr = devicePixelRatio || 1, w = chart.clientWidth, h = chart.clientHeight;
+    if (chart.width !== Math.round(w * dpr) || chart.height !== Math.round(h * dpr)) { chart.width = Math.round(w * dpr); chart.height = Math.round(h * dpr); }
     const g = chart.getContext('2d');
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.clearRect(0, 0, w, h);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
     const ink = css('--muted'), line = css('--line');
     g.font = '11px system-ui, sans-serif';
+    const win = +$('window').value, tEnd = frozenAt ?? now(), tStart = tEnd - win;
+    const visible = [...fields.values()].filter(f => f.kind !== 'text' && cfg(f.key).chart !== false && f.data.length);
+    const padL = 56, padR = 12, padB = 20, padT = 6, pw = w - padL - padR;
+    const X = t => padL + (t - tStart) / win * pw;
 
-    const win = +$('window').value;
-    const tEnd = frozenAt ?? now(), tStart = tEnd - win;
-    const visible = [...channels.values()].filter(c => !c.hidden && c.data.length);
-    const padL = 56, padR = 12, padB = 20, padT = 6;
-    const pw = w - padL - padR;
-    const X = t => padL + ((t - tStart) / win) * pw;
-
-    // time grid
     g.strokeStyle = line; g.fillStyle = ink; g.lineWidth = 1;
     const step = niceStep(win / 6);
     for (let s = Math.ceil(tStart / step) * step; s <= tEnd; s += step) {
@@ -372,95 +704,106 @@
       g.beginPath(); g.moveTo(x, padT); g.lineTo(x, h - padB); g.stroke();
       g.textAlign = 'center'; g.fillText('-' + fmtDur(tEnd - s), x, h - 5);
     }
-
-    if (!visible.length) {
-      g.textAlign = 'center'; g.fillText('waiting for numeric data…', w / 2, h / 2); return;
-    }
+    if (!visible.length) { g.textAlign = 'center'; g.fillText('waiting for data…', w / 2, h / 2); return; }
 
     const lanes = $('layout').value === 'lanes' ? visible.map(c => [c]) : [visible];
     const laneH = (h - padT - padB) / lanes.length;
-
     lanes.forEach((group, li) => {
       const top = padT + li * laneH, bot = top + laneH;
       let lo = Infinity, hi = -Infinity;
-      const segs = group.map(c => {
-        const d = c.data; let i = lowerBound(d, tStart); if (i > 0) i--;
-        const seg = d.slice(i);
+      const segs = group.map(f => {
+        let i = lowerBound(f.data, tStart); if (i > 0) i--;
+        const seg = f.data.slice(i);
         for (const [t, v] of seg) if (t <= tEnd) { if (v < lo) lo = v; if (v > hi) hi = v; }
         return seg;
       });
       if (!isFinite(lo)) { lo = 0; hi = 1; }
       if (hi === lo) { hi += Math.abs(hi) * 0.1 || 1; lo -= Math.abs(lo) * 0.1 || 1; }
       const m = (hi - lo) * 0.08; lo -= m; hi += m;
-      const Y = v => bot - 4 - ((v - lo) / (hi - lo)) * (laneH - 8);
-
-      // lane frame + y labels
+      const Y = v => bot - 4 - (v - lo) / (hi - lo) * (laneH - 8);
       g.strokeStyle = line;
       if (li) { g.beginPath(); g.moveTo(padL, top + .5); g.lineTo(w - padR, top + .5); g.stroke(); }
       g.fillStyle = ink; g.textAlign = 'right';
       const ticks = laneH > 120 ? 4 : 2;
+      const fy = lanes.length > 1 && group[0].kind === 'clock' ? fmtClock : fmtNum;
       for (let k = 0; k <= ticks; k++) {
-        const f = 0.1 + 0.8 * (k / ticks), v = lo + (hi - lo) * f, y = Y(v);   // keep labels off lane edges
-        g.fillText(fmt(v), padL - 6, y + 4);
+        const v = lo + (hi - lo) * (0.1 + 0.8 * k / ticks);   // keep labels off lane edges
+        g.fillText(fy(v), padL - 6, Y(v) + 4);
       }
       if (lanes.length > 1) {
         g.fillStyle = group[0].color; g.textAlign = 'left'; g.font = '600 11px system-ui, sans-serif';
-        g.fillText(group[0].name, padL + 6, top + 14); g.font = '11px system-ui, sans-serif';
+        g.fillText(cfg(group[0].key).label, padL + 6, top + 14); g.font = '11px system-ui, sans-serif';
       }
-
       g.save(); g.beginPath(); g.rect(padL, top, pw, laneH); g.clip();
-      group.forEach((c, ci) => {
-        const seg = segs[ci];
-        // alarm band
-        if (c.alarm) {
-          g.fillStyle = 'rgba(220,38,38,.08)';
-          if (c.alarm.hi != null) g.fillRect(padL, top, pw, Math.max(0, Y(c.alarm.hi) - top));
-          if (c.alarm.lo != null) { const y = Y(c.alarm.lo); g.fillRect(padL, y, pw, Math.max(0, bot - y)); }
+      group.forEach((f, ci) => {
+        const seg = segs[ci], a = cfg(f.key).alarm;
+        if (a) {
+          g.fillStyle = 'rgba(220,38,38,.10)';
+          if (a.hi != null) g.fillRect(padL, top, pw, Math.max(0, Y(a.hi) - top));
+          if (a.lo != null) { const y = Y(a.lo); g.fillRect(padL, y, pw, Math.max(0, bot - y)); }
         }
-        g.strokeStyle = c.color; g.lineWidth = 1.75; g.lineJoin = 'round'; g.beginPath();
-        // decimate: at most ~2 points per pixel column
+        g.strokeStyle = f.color; g.lineWidth = 1.75; g.lineJoin = 'round'; g.beginPath();
         const stride = Math.max(1, Math.floor(seg.length / (pw * 2)));
+        const stepped = fmt === 'sb43';   // scores and clocks hold their value until the next record
+        let py = null;
         for (let i = 0; i < seg.length; i += stride) {
           const [t, v] = seg[i], x = X(t), y = Y(v);
-          i ? g.lineTo(x, y) : g.moveTo(x, y);
+          if (py == null) g.moveTo(x, y);
+          else { if (stepped) g.lineTo(x, py); g.lineTo(x, y); }
+          py = y;
         }
+        if (stepped && py != null && !frozenAt) g.lineTo(X(tEnd), py);
         g.stroke();
       });
       g.restore();
     });
-
-    if (lanes.length === 1 && visible.length > 1) {   // overlay legend
-      let x = padL + 8;
-      g.textAlign = 'left';
-      for (const c of visible) {
-        g.fillStyle = c.color; g.fillRect(x, padT + 6, 10, 3);
-        g.fillStyle = css('--ink'); g.fillText(c.name, x + 14, padT + 11);
-        x += g.measureText(c.name).width + 30;
+    if (lanes.length === 1 && visible.length > 1) {
+      let x = padL + 8; g.textAlign = 'left';
+      for (const f of visible) {
+        const lbl = cfg(f.key).label;
+        g.fillStyle = f.color; g.fillRect(x, padT + 6, 10, 3);
+        g.fillStyle = css('--ink'); g.fillText(lbl, x + 14, padT + 11);
+        x += g.measureText(lbl).width + 30;
       }
     }
   }
   function lowerBound(d, t) { let a = 0, b = d.length; while (a < b) { const m = (a + b) >> 1; d[m][0] < t ? a = m + 1 : b = m; } return a; }
-  function niceStep(x) { const p = Math.pow(10, Math.floor(Math.log10(x))); const n = x / p; return (n < 1.5 ? 1 : n < 3.5 ? 2 : n < 7.5 ? 5 : 10) * p; }
-  function fmtDur(s) { return s >= 60 ? (s / 60).toFixed(s % 60 ? 1 : 0) + 'm' : (+s.toFixed(1)) + 's'; }
+  function niceStep(x) { const p = Math.pow(10, Math.floor(Math.log10(x))), n = x / p; return (n < 1.5 ? 1 : n < 3.5 ? 2 : n < 7.5 ? 5 : 10) * p; }
+  function fmtDur(s) { return s >= 3600 ? (s / 3600).toFixed(1) + 'h' : s >= 60 ? (s / 60).toFixed(s % 60 ? 1 : 0) + 'm' : (+s.toFixed(1)) + 's'; }
 
-  // ---------- terminal ----------
+  // =====================================================================
+  //  Console + events
+  // =====================================================================
   const term = $('term');
+  const CTRL = ['NUL','SOH','STX','ETX','EOT','ENQ','ACK','BEL','BS','TAB','LF','VT','FF','CR','SO','SI','DLE','DC1','DC2','DC3','DC4','NAK','SYN','ETB','CAN','EM','SUB','ESC','FS','GS','RS','US'];
+  const visText = s => $('showHidden').checked
+    ? s.replace(/ /g, '·').replace(/[\x00-\x1f\x7f]/g, c => '⟨' + (CTRL[c.charCodeAt(0)] || 'DEL') + '⟩')
+    : s.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '');
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   let termQueue = [];
-  function logTerm(t, dir, text) {
-    rawLog.push([t, dir, text]);
+  function logTerm(t, dir, text, segs, note) {
+    const e = [t, dir, text, segs, note];
+    rawLog.push(e);
     if (rawLog.length > 200000) rawLog.splice(0, 50000);
-    termQueue.push([t, dir, text]);
+    termQueue.push(e);
   }
   function flushTerm() {
     if (!termQueue.length) return;
-    const f = $('filter').value.toLowerCase(), showTs = $('showTs').checked;
+    const f = $('filter').value.toLowerCase();
     const frag = document.createDocumentFragment();
-    for (const [t, dir, text] of termQueue) {
+    for (const [t, dir, text, segs, note] of termQueue) {
       if (f && !text.toLowerCase().includes(f)) continue;
       const div = document.createElement('div');
       if (dir !== 'rx') div.className = dir;
-      if (showTs) { const s = document.createElement('span'); s.className = 'ts'; s.textContent = t.toFixed(3).padStart(9) + '  '; div.appendChild(s); }
-      div.appendChild(document.createTextNode((dir === 'tx' ? '→ ' : dir === 'sys' ? '• ' : '') + text));
+      let html = `<span class="ts">${t.toFixed(3).padStart(9)}  </span>`;
+      if (dir === 'tx') html += '→ ';
+      else if (dir === 'sys') html += '• ';
+      else if (dir === 'bad') html += '✗ ';
+      else if (segs) html += '<span class="ok">✓</span> ';
+      if (segs) for (const [a, b, col] of segs) html += `<span${col ? ` style="color:${col}"` : ' class="cs"'}>${esc(visText(text.slice(a, b)))}</span>`;
+      else html += esc(visText(text));
+      if (note) html += `  <span class="note">${esc(note)}</span>`;
+      div.innerHTML = html;
       frag.appendChild(div);
     }
     termQueue = [];
@@ -470,30 +813,42 @@
   }
   function rebuildTerm() { term.innerHTML = ''; termQueue = rawLog.slice(-MAX_TERM_LINES); flushTerm(); }
   $('filter').addEventListener('input', rebuildTerm);
-  $('showTs').addEventListener('change', rebuildTerm);
+  $('showHidden').addEventListener('change', rebuildTerm);
   $('clearTerm').onclick = () => { term.innerHTML = ''; };
   const sys = msg => logTerm(now(), 'sys', msg);
 
-  // ---------- status ----------
-  function setStatus(text, mode) {
-    $('status').textContent = text;
-    $('dot').className = 'dot' + (mode ? ' ' + mode : '');
+  let eventsEmpty = true;
+  function addEvent(html, trusted) {
+    const ev = $('events');
+    if (eventsEmpty) { ev.innerHTML = ''; eventsEmpty = false; }
+    const d = document.createElement('div');
+    d.innerHTML = `<span class="t">${new Date().toLocaleTimeString()}</span>` + (trusted ? html : esc(html));
+    ev.prepend(d);
+    while (ev.childElementCount > 300) ev.lastChild.remove();
   }
+  $('clearEvents').onclick = () => { $('events').innerHTML = ''; };
+
+  // =====================================================================
+  //  Status / stats
+  // =====================================================================
+  function setStatus(text, mode) { $('status').textContent = text; $('dot').className = 'dot' + (mode ? ' ' + mode : ''); }
   function updateStats() {
     const el = startedAt == null ? 0 : now() - startedAt;
     $('stats').innerHTML =
       `Uptime: <b>${fmtDur(Math.floor(el))}</b><br>` +
-      `Lines: <b>${linesIn.toLocaleString()}</b> · <b>${rate}</b>/s<br>` +
+      `Records: <b>${recsIn.toLocaleString()}</b> · <b>${rate}</b>/s<br>` +
       `Bytes: <b>${bytesIn.toLocaleString()}</b><br>` +
-      `Channels: <b>${channels.size}</b><br>` +
-      `Samples: <b>${samples.length.toLocaleString()}</b>` +
+      (fmt === 'sb43' ? `Checksum: <b>${good.toLocaleString()}</b> good · <b>${bad.toLocaleString()}</b> bad<br>` : '') +
+      `Samples stored: <b>${samples.length.toLocaleString()}</b>` +
       (recording != null ? ` · <span style="color:var(--bad)">recording ${(samples.length - recording).toLocaleString()}</span>` : '');
   }
   setInterval(() => { rate = rateCount; rateCount = 0; updateStats(); }, 1000);
 
-  // ---------- serial ----------
-  if (!('serial' in navigator)) { $('unsupported').style.display = 'block'; }
-
+  // =====================================================================
+  //  Serial port
+  // =====================================================================
+  if (!('serial' in navigator)) $('unsupported').style.display = 'block';
+  const hex = n => n.toString(16).padStart(4, '0');
   async function connect() {
     if (port) return disconnect();
     if (!('serial' in navigator)) { $('unsupported').style.display = 'block'; return; }
@@ -506,38 +861,35 @@
       const id = info.usbVendorId ? ` (USB ${hex(info.usbVendorId)}:${hex(info.usbProductId)})` : '';
       setStatus(`Connected @ ${baudRate} baud${id}`, 'on');
       sys(`connected @ ${baudRate}${id}`);
-      $('connect').textContent = 'Disconnect';
-      $('baud').disabled = true;
-      startedAt ??= now();
+      $('connect').textContent = 'Disconnect'; $('baud').disabled = true;
       port.addEventListener('disconnect', () => { sys('device unplugged'); disconnect(); });
       readLoop();
+      const goodAtConnect = good, bytesAtConnect = bytesIn;
+      // the two most common problems: wrong baud rate, or another program holding the port
+      setTimeout(() => {
+        if (!port || fmt !== 'sb43' || good > goodAtConnect) return;
+        sys(bytesIn > bytesAtConnect
+          ? 'bytes are arriving but no valid records yet. Check the baud rate: copy it from Tera Term (Setup → Serial port)'
+          : 'no bytes received yet. Is the scoreboard sending? Check the cable and baud rate');
+      }, 4000);
     } catch (e) {
-      if (e.name !== 'NotFoundError') sys('connect failed: ' + e.message);
+      if (e.name !== 'NotFoundError') sys('connect failed: ' + e.message + ' (close Tera Term or any other program using the port, then try again)');
       port = null;
     }
   }
-  const hex = n => n.toString(16).padStart(4, '0');
-
   async function readLoop() {
     keepReading = true;
     while (port && port.readable && keepReading) {
-      const decoder = new TextDecoderStream();
+      // byte-for-byte decoding so checksums stay exact
+      const decoder = new TextDecoderStream('iso-8859-1');
       readClosed = port.readable.pipeTo(decoder.writable).catch(() => {});
       reader = decoder.readable.getReader();
       try {
-        for (;;) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          if (value) ingestChunk(value);
-        }
-      } catch (e) {
-        sys('read error: ' + e.message);   // e.g. framing/parity error; loop retries
-      } finally {
-        reader.releaseLock();
-      }
+        for (;;) { const { value, done } = await reader.read(); if (done) break; if (value) ingestChunk(value); }
+      } catch (e) { sys('read error: ' + e.message); }
+      finally { reader.releaseLock(); }
     }
   }
-
   async function disconnect() {
     keepReading = false;
     const p = port; port = null;
@@ -545,16 +897,12 @@
     try { await readClosed; } catch {}
     try { await p?.close(); } catch {}
     reader = null;
-    setStatus('Disconnected');
-    $('connect').textContent = 'Connect';
-    $('baud').disabled = false;
+    setStatus('Disconnected'); $('connect').textContent = 'Connect'; $('baud').disabled = false;
     if (p) sys('disconnected');
   }
-
   async function send() {
     const text = $('sendText').value;
-    const eol = $('eol').value.replace('\\r', '\r').replace('\\n', '\n');
-    if (demoTimer) { logTerm(now(), 'tx', text); $('sendText').value = ''; return; }
+    const eol = { lf: '\n', crlf: '\r\n', cr: '\r', none: '' }[$('eol').value];
     if (!port?.writable) { sys('not connected'); return; }
     const w = port.writable.getWriter();
     try { await w.write(new TextEncoder().encode(text + eol)); logTerm(now(), 'tx', text); $('sendText').value = ''; }
@@ -562,85 +910,116 @@
     finally { w.releaseLock(); }
   }
 
-  // ---------- demo ----------
+  // =====================================================================
+  //  Demo + paste/replay
+  // =====================================================================
   function startDemo() {
     if (port) return;
     if (demoTimer) return stopDemo();
-    setStatus('Demo mode: simulated sensor', 'demo');
-    $('demo').textContent = 'Stop demo';
-    sys('demo started');
-    startedAt ??= now();
-    let k = 0, rpm = 1200;
+    stopDemo();
+    setStatus('Demo: simulated ' + (fmt === 'sb43' ? 'scoreboard' : 'sensor'), 'demo');
+    $('demo').textContent = 'Stop demo'; sys('demo started');
+    let k = 0, clock = 12 * 60, c2 = 35, hs = 23, gs = 21, rpm = 1200;
     demoTimer = setInterval(() => {
-      const t = now(); k++;
-      rpm += (Math.random() - .5) * 60 + (1500 - rpm) * 0.02;
-      const temp = 22 + 3 * Math.sin(t / 6) + Math.random() * .3;
-      const line = k % 3 === 0
-        ? JSON.stringify({ temp: +temp.toFixed(2), rpm: Math.round(rpm), batt: +(4.2 - t * 0.0008).toFixed(3) })
-        : `temp:${temp.toFixed(2)} rpm=${Math.round(rpm)} light:${Math.round(512 + 400 * Math.sin(t * 1.3) + (Math.random() * 40))}`;
-      ingestChunk(line + '\r\n');
-      if (k % 40 === 0) ingestChunk('# heartbeat ok\n');
-    }, 50);
+      k++;
+      if (fmt === 'sb43') {
+        if (k % 4 === 0) { clock = Math.max(0, clock - 1); c2 = c2 > 0 ? c2 - 1 : 35; }
+        if (Math.random() < 0.025) { hs += [1, 2, 2, 3][Math.floor(Math.random() * 4)]; c2 = 35; }
+        if (Math.random() < 0.025) { gs += [1, 2, 2, 3][Math.floor(Math.random() * 4)]; c2 = 35; }
+        let rec = sbMake(fmtClock(clock), 'HOME', 'GUEST', hs, gs, fmtClock(c2));
+        if (k % 150 === 0) rec = rec.slice(0, 41) + '00';   // an occasional corrupted record
+        ingestChunk(rec);
+      } else {
+        const t = now();
+        rpm += (Math.random() - .5) * 60 + (1500 - rpm) * 0.02;
+        ingestChunk(`temp:${(22 + 3 * Math.sin(t / 6) + Math.random() * .3).toFixed(2)} rpm=${Math.round(rpm)}\r\n`);
+      }
+    }, 250);
   }
   function stopDemo() {
+    if (feedTimer) { clearInterval(feedTimer); feedTimer = null; }
     if (!demoTimer) return;
     clearInterval(demoTimer); demoTimer = null;
     setStatus('Disconnected'); $('demo').textContent = 'Demo'; sys('demo stopped');
   }
 
-  // ---------- export ----------
+  // Exactly what the COM1 screenshot shows: records 97:42 down to 97:20
+  const SCREENSHOT = Array.from({ length: 23 }, (_, i) => sbMake('97:' + (42 - i), 'HOME', 'GUEST', 23, 81, '0:33')).join('');
+  $('feedBtn').onclick = () => { if (!$('feedText').value) $('feedText').value = SCREENSHOT; $('feedDlg').showModal(); };
+  $('feedFile').onchange = async e => {
+    const file = e.target.files[0]; if (!file) return;
+    $('feedText').value = new TextDecoder('iso-8859-1').decode(new Uint8Array(await file.arrayBuffer()));
+  };
+  $('feedDlg').addEventListener('close', () => {
+    if ($('feedDlg').returnValue !== 'feed') return;
+    const text = $('feedText').value;
+    stopDemo();
+    sys(`feeding ${text.length.toLocaleString()} chars of pasted data`);
+    if (!$('feedSlow').checked) { ingestChunk(text); return; }
+    let i = 0; const step = fmt === 'sb43' ? SB_LEN : 80;
+    feedTimer = setInterval(() => {
+      ingestChunk(text.slice(i, i + step)); i += step;
+      if (i >= text.length) { clearInterval(feedTimer); feedTimer = null; sys('replay finished'); }
+    }, 200);
+  });
+
+  // =====================================================================
+  //  Export
+  // =====================================================================
   function download(name, text, type) {
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([text], { type }));
-    a.download = name; a.click();
+    a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
   const stamp = () => new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   function toCsv(rows) {
-    const names = [...channels.keys()];
-    const q = s => /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-    const out = ['t_seconds,' + names.map(q).join(',')];
-    for (const r of rows) out.push(r.t.toFixed(3) + ',' + names.map(n => r.values[n] ?? '').join(','));
+    const keys = [...fields.keys()];
+    const q = s => { s = String(s ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const out = ['t_seconds,' + keys.map(k => q(cfg(k).label)).join(',')];
+    for (const r of rows) out.push(r.t.toFixed(3) + ',' + keys.map(k => q(r.values[k])).join(','));
     return out.join('\n');
   }
   $('exportCsv').onclick = () => download(`serial-${stamp()}.csv`, toCsv(samples), 'text/csv');
-  $('exportLog').onclick = () => download(`serial-${stamp()}.log`,
-    rawLog.map(([t, d, s]) => `${t.toFixed(3)}\t${d}\t${s}`).join('\n'), 'text/plain');
+  $('exportLog').onclick = () => download(`serial-${stamp()}.log`, rawLog.map(([t, d, s]) => `${t.toFixed(3)}\t${d}\t${s}`).join('\n'), 'text/plain');
   $('rec').onclick = () => {
     if (recording == null) { recording = samples.length; $('rec').classList.add('on'); $('rec').textContent = '■ Stop'; sys('recording started'); }
     else {
       const rows = samples.slice(recording); recording = null;
-      $('rec').classList.remove('on'); $('rec').textContent = '● Rec'; sys(`recording stopped (${rows.length} samples)`);
+      $('rec').classList.remove('on'); $('rec').textContent = '● Rec'; sys(`recording stopped (${rows.length} records)`);
       if (rows.length) download(`recording-${stamp()}.csv`, toCsv(rows), 'text/csv');
     }
   };
 
-  // ---------- wiring ----------
+  // =====================================================================
+  //  Wiring
+  // =====================================================================
   $('connect').onclick = connect;
   $('demo').onclick = startDemo;
   $('send').onclick = send;
   $('sendText').addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
   $('freeze').onclick = () => { frozenAt = frozenAt == null ? now() : null; $('freeze').textContent = frozenAt == null ? 'Pause' : 'Resume'; };
-  $('resetStats').onclick = () => { for (const c of channels.values()) { c.min = c.max = c.last; c.dirty = true; } };
+  $('resetStats').onclick = () => { for (const f of fields.values()) { f.min = f.max = f.last; f.dirty = true; } };
   $('theme').onclick = () => {
     const r = document.documentElement;
     const dark = r.dataset.theme ? r.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-    r.dataset.theme = dark ? 'light' : 'dark';
-    try { localStorage.setItem('ss-theme', r.dataset.theme); } catch {}
+    r.dataset.theme = dark ? 'light' : 'dark'; store.set('theme', r.dataset.theme);
   };
-  try { const th = localStorage.getItem('ss-theme'); if (th) document.documentElement.dataset.theme = th;
-        const b = localStorage.getItem('ss-baud'); if (b) $('baud').value = b; } catch {}
-  $('baud').addEventListener('change', () => { try { localStorage.setItem('ss-baud', $('baud').value); } catch {} });
+  const th = store.get('theme', null); if (th) document.documentElement.dataset.theme = th;
+  $('baud').value = store.get('baud', '9600');
+  $('baud').addEventListener('change', () => store.set('baud', $('baud').value));
+  $('bClockLbl').onclick = () => openField(getField('clock'));
+  $('bClock2Lbl').onclick = () => openField(getField('clock2'));
 
-  let lastTiles = 0;
+  setFormat(fmt);
+  let lastUi = 0;
   (function frame(ts) {
     drawChart();
-    if (ts - lastTiles > 100) { lastTiles = ts; updateTiles(); flushTerm(); }
+    if (ts - lastUi > 100) { lastUi = ts; updateTiles(); updateBoard(); flushTerm(); }
     requestAnimationFrame(frame);
   })(0);
   updateStats();
 
-  window.__serialScope = { ingestChunk, parseLine };   // handy for testing from devtools
+  window.__serialScope = { ingestChunk, parseLine, sbDecode, sbValid, sbMake, SCREENSHOT };   // for testing from devtools
 })();
 </script>
 </body>
