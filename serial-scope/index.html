@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Serial Scope</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --ink: #14161a; --muted: #6b7280; --line: #e3e5ea;
+    --accent: #2563eb; --ok: #16a34a; --bad: #dc2626; --warn: #d97706;
+    --term-bg: #0f1115; --term-ink: #cfd6e0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d0f13; --panel: #161a20; --ink: #e8ebf0; --muted: #8b93a1; --line: #262b33;
+      --accent: #60a5fa; --ok: #4ade80; --bad: #f87171; --warn: #fbbf24;
+      --term-bg: #0a0c0f; --term-ink: #cfd6e0;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d0f13; --panel: #161a20; --ink: #e8ebf0; --muted: #8b93a1; --line: #262b33;
+    --accent: #60a5fa; --ok: #4ade80; --bad: #f87171; --warn: #fbbf24;
+    --term-bg: #0a0c0f; --term-ink: #cfd6e0;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 5; }
+  h1 { font-size: 16px; margin: 0 12px 0 0; letter-spacing: .02em; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .dot.demo { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+  #status { color: var(--muted); margin-right: auto; font-size: 13px; }
+  button, select, input { font: inherit; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.rec { color: var(--bad); }
+  button.rec.on { background: var(--bad); color: #fff; border-color: var(--bad); }
+  main { padding: 16px; display: grid; gap: 16px; max-width: 1400px; margin: 0 auto; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-width: 0; }
+  .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
+    margin: 0 0 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .panel h2 .sp { flex: 1; }
+  #tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+  .tile { border: 1px solid var(--line); border-left: 5px solid var(--c); border-radius: 10px;
+    padding: 10px 12px; position: relative; background: var(--bg); transition: background .2s; }
+  .tile.alarm { animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { background: color-mix(in srgb, var(--bad) 22%, var(--bg)); } }
+  .tile .name { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 6px; }
+  .tile .name b { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile .val { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; margin: 4px 0; }
+  .tile .mm { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; display: flex; justify-content: space-between; }
+  .tile canvas { width: 100%; height: 34px; display: block; margin-top: 6px; }
+  .tile .tools { display: flex; gap: 4px; }
+  .tile .tools button { padding: 0 6px; font-size: 11px; border-radius: 6px; background: transparent; }
+  .tile.hidden-ch { opacity: .45; }
+  .empty { color: var(--muted); padding: 24px; text-align: center; border: 1px dashed var(--line); border-radius: 10px; }
+  #chartWrap { position: relative; height: 340px; }
+  #chart { width: 100%; height: 100%; display: block; }
+  #term { background: var(--term-bg); color: var(--term-ink); border-radius: 8px; height: 260px; overflow: auto;
+    font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 8px 10px; white-space: pre-wrap; word-break: break-all; }
+  #term .ts { color: #6b7280; }
+  #term .tx { color: #7dd3fc; }
+  #term .sys { color: #fbbf24; }
+  .row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .row input[type=text] { flex: 1; min-width: 160px; }
+  .hint { color: var(--muted); font-size: 12px; }
+  code { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 12px; }
+  .bottom { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .bottom { grid-template-columns: 1fr; } #chartWrap { height: 260px; } }
+  #unsupported { display: none; background: color-mix(in srgb, var(--warn) 18%, var(--panel));
+    border: 1px solid var(--warn); border-radius: 10px; padding: 10px 14px; }
+  dialog { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; }
+  dialog label { display: block; margin: 8px 0 4px; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚡ Serial Scope</h1>
+  <span class="dot" id="dot"></span>
+  <span id="status">Disconnected</span>
+  <select id="baud" title="Baud rate">
+    <option>300</option><option>1200</option><option>2400</option><option>4800</option>
+    <option selected>9600</option><option>19200</option><option>38400</option><option>57600</option>
+    <option>115200</option><option>230400</option><option>460800</option><option>921600</option>
+  </select>
+  <button id="connect" class="primary">Connect</button>
+  <button id="demo" title="Fake sensor data, to try the UI without a device">Demo</button>
+  <button id="rec" class="rec" title="Record parsed values to CSV">● Rec</button>
+  <button id="theme" title="Toggle theme">◐</button>
+</header>
+
+<main>
+  <div id="unsupported">
+    Your browser doesn't have the Web Serial API. Use <b>Chrome</b> or <b>Edge</b> on desktop
+    (opened from <code>file://</code>, <code>localhost</code> or HTTPS). You can still click <b>Demo</b>.
+  </div>
+
+  <section class="panel">
+    <h2>Live values <span class="sp"></span><button id="resetStats" title="Reset min/max">Reset min/max</button></h2>
+    <div id="tiles"><div class="empty">No data yet. Connect a device or start the demo.<br>
+      <span class="hint">Supported lines: <code>23.4</code> · <code>12,45,0.7</code> · <code>temp:23.4 hum=51</code> · <code>{"temp":23.4,"rpm":1200}</code></span></div></div>
+  </section>
+
+  <section class="panel">
+    <h2>Chart
+      <span class="sp"></span>
+      <select id="window" title="Time window">
+        <option value="10">10 s</option><option value="30" selected>30 s</option>
+        <option value="60">1 min</option><option value="300">5 min</option><option value="900">15 min</option>
+      </select>
+      <select id="layout" title="Layout">
+        <option value="lanes">Stacked lanes</option>
+        <option value="overlay">Overlay (one scale)</option>
+      </select>
+      <button id="freeze">Pause</button>
+    </h2>
+    <div id="chartWrap"><canvas id="chart"></canvas></div>
+  </section>
+
+  <div class="bottom">
+    <section class="panel">
+      <h2>Raw console
+        <span class="sp"></span>
+        <input id="filter" type="text" placeholder="filter…" style="width:120px">
+        <label class="hint"><input type="checkbox" id="autoscroll" checked> autoscroll</label>
+        <label class="hint"><input type="checkbox" id="showTs" checked> time</label>
+        <button id="clearTerm">Clear</button>
+      </h2>
+      <div id="term"></div>
+      <div class="row">
+        <input id="sendText" type="text" placeholder="Send to device…">
+        <select id="eol" title="Line ending">
+          <option value="\n">LF</option><option value="\r\n">CRLF</option>
+          <option value="\r">CR</option><option value="">none</option>
+        </select>
+        <button id="send">Send</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Session</h2>
+      <div id="stats" class="hint" style="font-variant-numeric:tabular-nums;line-height:1.9"></div>
+      <div class="row">
+        <button id="exportCsv">Download CSV</button>
+        <button id="exportLog">Download raw log</button>
+      </div>
+      <p class="hint">The CSV holds every parsed sample this session (or only the recording, if you used ● Rec).
+        Click a tile's 🔔 to set an alarm range, and 👁 to hide it from the chart.</p>
+    </section>
+  </div>
+</main>
+
+<dialog id="alarmDlg">
+  <form method="dialog">
+    <b id="alarmTitle">Alarm</b>
+    <label>Alarm when below</label><input id="alarmLo" type="number" step="any" placeholder="(none)">
+    <label>Alarm when above</label><input id="alarmHi" type="number" step="any" placeholder="(none)">
+    <label><input type="checkbox" id="alarmBeep"> Beep</label>
+    <div class="row"><button value="ok" class="primary">Save</button><button value="clear">Clear</button><button value="cancel">Cancel</button></div>
+  </form>
+</dialog>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const PALETTE = ['#2563eb', '#e11d48', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#65a30d', '#ea580c', '#4f46e5'];
+  const MAX_POINTS = 50000;      // per channel
+  const MAX_TERM_LINES = 2000;
+
+  // ---------- state ----------
+  const channels = new Map();    // name -> {name,color,data:[[t,v]],last,min,max,hidden,alarm,el}
+  const samples = [];            // [{t, values:{name:v}}] for CSV
+  const rawLog = [];             // [t, dir, text]
+  let recording = null;          // null or start index into samples
+  let port = null, reader = null, readClosed = null, keepReading = false;
+  let demoTimer = null;
+  let frozenAt = null;
+  let bytesIn = 0, linesIn = 0, startedAt = null, rateCount = 0, rate = 0;
+  const t0 = performance.now();
+  const now = () => (performance.now() - t0) / 1000;
+
+  // ---------- parsing ----------
+  const NUM = /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/;
+  function parseLine(line) {
+    const s = line.trim();
+    if (!s) return null;
+    if (s[0] === '{') {
+      try { const out = {}; flatten(JSON.parse(s), '', out); return Object.keys(out).length ? out : null; } catch {}
+    }
+    // key:value / key=value pairs
+    const kv = [...s.matchAll(/([A-Za-z_][\w.\-\/]*)\s*[:=]\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g)];
+    if (kv.length) { const out = {}; for (const m of kv) out[m[1]] = parseFloat(m[2]); return out; }
+    // bare numbers separated by comma / tab / space / semicolon
+    const parts = s.split(/[\s,;\t]+/).filter(Boolean);
+    if (parts.length && parts.every(p => NUM.test(p))) {
+      const out = {}; parts.forEach((p, i) => out[parts.length === 1 ? 'value' : 'ch' + (i + 1)] = parseFloat(p)); return out;
+    }
+    return null;
+  }
+  function flatten(o, pre, out) {
+    if (typeof o === 'number' && isFinite(o)) out[pre || 'value'] = o;
+    else if (typeof o === 'boolean') out[pre || 'value'] = o ? 1 : 0;
+    else if (typeof o === 'string' && NUM.test(o.trim())) out[pre || 'value'] = parseFloat(o);
+    else if (o && typeof o === 'object') for (const k in o) flatten(o[k], pre ? pre + '.' + k : k, out);
+  }
+
+  // ---------- ingest ----------
+  function ingestLine(line) {
+    linesIn++; rateCount++;
+    const t = now();
+    logTerm(t, 'rx', line);
+    const vals = parseLine(line);
+    if (!vals) return;
+    samples.push({ t, values: vals });
+    for (const [name, v] of Object.entries(vals)) {
+      let ch = channels.get(name);
+      if (!ch) ch = addChannel(name);
+      ch.data.push([t, v]);
+      if (ch.data.length > MAX_POINTS) ch.data.splice(0, ch.data.length - MAX_POINTS);
+      ch.last = v; ch.lastT = t;
+      if (v < ch.min) ch.min = v;
+      if (v > ch.max) ch.max = v;
+      ch.dirty = true;
+    }
+  }
+
+  let lineBuf = '';
+  function ingestChunk(text) {
+    bytesIn += text.length;
+    lineBuf += text;
+    const lines = lineBuf.split(/\r?\n|\r(?!$)/);
+    lineBuf = lines.pop();
+    if (lineBuf.length > 8192) { lines.push(lineBuf); lineBuf = ''; }
+    for (const l of lines) ingestLine(l);
+  }
+
+  // ---------- tiles ----------
+  function addChannel(name) {
+    if (!channels.size) $('tiles').innerHTML = '';
+    const color = PALETTE[channels.size % PALETTE.length];
+    const el = document.createElement('div');
+    el.className = 'tile';
+    el.style.setProperty('--c', color);
+    el.innerHTML = `<div class="name"><b></b><span class="tools">
+        <button data-a="alarm" title="Alarm range">🔔</button><button data-a="hide" title="Hide from chart">👁</button></span></div>
+      <div class="val">–</div><div class="mm"><span class="mn"></span><span class="mx"></span></div><canvas></canvas>`;
+    el.querySelector('b').textContent = name;
+    el.querySelector('b').title = name;
+    $('tiles').appendChild(el);
+    const ch = { name, color, data: [], last: NaN, min: Infinity, max: -Infinity, hidden: false, alarm: null, el,
+      valEl: el.querySelector('.val'), mnEl: el.querySelector('.mn'), mxEl: el.querySelector('.mx'),
+      spark: el.querySelector('canvas'), dirty: true };
+    el.addEventListener('click', e => {
+      const a = e.target.dataset.a;
+      if (a === 'hide') { ch.hidden = !ch.hidden; el.classList.toggle('hidden-ch', ch.hidden); }
+      if (a === 'alarm') openAlarm(ch);
+    });
+    channels.set(name, ch);
+    return ch;
+  }
+
+  const fmt = v => {
+    if (!isFinite(v)) return '–';
+    const a = Math.abs(v);
+    if (a !== 0 && (a >= 1e6 || a < 1e-3)) return v.toExponential(2);
+    return Number.isInteger(v) ? v.toLocaleString() : v.toFixed(a >= 100 ? 1 : a >= 10 ? 2 : 3);
+  };
+
+  let audioCtx = null;
+  function beep() {
+    try {
+      audioCtx = audioCtx || new AudioContext();
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.frequency.value = 880; g.gain.value = 0.08;
+      o.connect(g).connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.12);
+    } catch {}
+  }
+  let lastBeep = 0;
+
+  function updateTiles() {
+    let anyBeep = false;
+    for (const ch of channels.values()) {
+      const a = ch.alarm;
+      const bad = a && isFinite(ch.last) && ((a.lo != null && ch.last < a.lo) || (a.hi != null && ch.last > a.hi));
+      ch.el.classList.toggle('alarm', !!bad);
+      if (bad && a.beep) anyBeep = true;
+      if (!ch.dirty) continue;
+      ch.dirty = false;
+      ch.valEl.textContent = fmt(ch.last);
+      ch.mnEl.textContent = 'min ' + fmt(ch.min);
+      ch.mxEl.textContent = 'max ' + fmt(ch.max);
+      drawSpark(ch);
+    }
+    if (anyBeep && performance.now() - lastBeep > 1000) { lastBeep = performance.now(); beep(); }
+  }
+
+  function drawSpark(ch) {
+    const c = ch.spark, dpr = devicePixelRatio || 1;
+    const w = c.clientWidth, h = c.clientHeight;
+    if (c.width !== w * dpr) { c.width = w * dpr; c.height = h * dpr; }
+    const g = c.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    const pts = ch.data.slice(-120);
+    if (pts.length < 2) return;
+    let lo = Infinity, hi = -Infinity;
+    for (const [, v] of pts) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    if (hi === lo) { hi += 1; lo -= 1; }
+    g.strokeStyle = ch.color; g.lineWidth = 1.5; g.beginPath();
+    pts.forEach(([, v], i) => {
+      const x = (i / (pts.length - 1)) * w, y = h - 2 - ((v - lo) / (hi - lo)) * (h - 4);
+      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    });
+    g.stroke();
+  }
+
+  // ---------- alarm dialog ----------
+  let alarmCh = null;
+  function openAlarm(ch) {
+    alarmCh = ch;
+    $('alarmTitle').textContent = 'Alarm · ' + ch.name;
+    $('alarmLo').value = ch.alarm?.lo ?? '';
+    $('alarmHi').value = ch.alarm?.hi ?? '';
+    $('alarmBeep').checked = !!ch.alarm?.beep;
+    $('alarmDlg').showModal();
+  }
+  $('alarmDlg').addEventListener('close', () => {
+    const r = $('alarmDlg').returnValue;
+    if (!alarmCh) return;
+    if (r === 'clear') alarmCh.alarm = null;
+    if (r === 'ok') {
+      const lo = $('alarmLo').value === '' ? null : parseFloat($('alarmLo').value);
+      const hi = $('alarmHi').value === '' ? null : parseFloat($('alarmHi').value);
+      alarmCh.alarm = (lo == null && hi == null) ? null : { lo, hi, beep: $('alarmBeep').checked };
+    }
+    alarmCh = null;
+  });
+
+  // ---------- main chart ----------
+  const chart = $('chart');
+  function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+
+  function drawChart() {
+    const dpr = devicePixelRatio || 1;
+    const w = chart.clientWidth, h = chart.clientHeight;
+    if (chart.width !== Math.round(w * dpr) || chart.height !== Math.round(h * dpr)) {
+      chart.width = Math.round(w * dpr); chart.height = Math.round(h * dpr);
+    }
+    const g = chart.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    const ink = css('--muted'), line = css('--line');
+    g.font = '11px system-ui, sans-serif';
+
+    const win = +$('window').value;
+    const tEnd = frozenAt ?? now(), tStart = tEnd - win;
+    const visible = [...channels.values()].filter(c => !c.hidden && c.data.length);
+    const padL = 56, padR = 12, padB = 20, padT = 6;
+    const pw = w - padL - padR;
+    const X = t => padL + ((t - tStart) / win) * pw;
+
+    // time grid
+    g.strokeStyle = line; g.fillStyle = ink; g.lineWidth = 1;
+    const step = niceStep(win / 6);
+    for (let s = Math.ceil(tStart / step) * step; s <= tEnd; s += step) {
+      const x = Math.round(X(s)) + .5;
+      g.beginPath(); g.moveTo(x, padT); g.lineTo(x, h - padB); g.stroke();
+      g.textAlign = 'center'; g.fillText('-' + fmtDur(tEnd - s), x, h - 5);
+    }
+
+    if (!visible.length) {
+      g.textAlign = 'center'; g.fillText('waiting for numeric data…', w / 2, h / 2); return;
+    }
+
+    const lanes = $('layout').value === 'lanes' ? visible.map(c => [c]) : [visible];
+    const laneH = (h - padT - padB) / lanes.length;
+
+    lanes.forEach((group, li) => {
+      const top = padT + li * laneH, bot = top + laneH;
+      let lo = Infinity, hi = -Infinity;
+      const segs = group.map(c => {
+        const d = c.data; let i = lowerBound(d, tStart); if (i > 0) i--;
+        const seg = d.slice(i);
+        for (const [t, v] of seg) if (t <= tEnd) { if (v < lo) lo = v; if (v > hi) hi = v; }
+        return seg;
+      });
+      if (!isFinite(lo)) { lo = 0; hi = 1; }
+      if (hi === lo) { hi += Math.abs(hi) * 0.1 || 1; lo -= Math.abs(lo) * 0.1 || 1; }
+      const m = (hi - lo) * 0.08; lo -= m; hi += m;
+      const Y = v => bot - 4 - ((v - lo) / (hi - lo)) * (laneH - 8);
+
+      // lane frame + y labels
+      g.strokeStyle = line;
+      if (li) { g.beginPath(); g.moveTo(padL, top + .5); g.lineTo(w - padR, top + .5); g.stroke(); }
+      g.fillStyle = ink; g.textAlign = 'right';
+      const ticks = laneH > 120 ? 4 : 2;
+      for (let k = 0; k <= ticks; k++) {
+        const f = 0.1 + 0.8 * (k / ticks), v = lo + (hi - lo) * f, y = Y(v);   // keep labels off lane edges
+        g.fillText(fmt(v), padL - 6, y + 4);
+      }
+      if (lanes.length > 1) {
+        g.fillStyle = group[0].color; g.textAlign = 'left'; g.font = '600 11px system-ui, sans-serif';
+        g.fillText(group[0].name, padL + 6, top + 14); g.font = '11px system-ui, sans-serif';
+      }
+
+      g.save(); g.beginPath(); g.rect(padL, top, pw, laneH); g.clip();
+      group.forEach((c, ci) => {
+        const seg = segs[ci];
+        // alarm band
+        if (c.alarm) {
+          g.fillStyle = 'rgba(220,38,38,.08)';
+          if (c.alarm.hi != null) g.fillRect(padL, top, pw, Math.max(0, Y(c.alarm.hi) - top));
+          if (c.alarm.lo != null) { const y = Y(c.alarm.lo); g.fillRect(padL, y, pw, Math.max(0, bot - y)); }
+        }
+        g.strokeStyle = c.color; g.lineWidth = 1.75; g.lineJoin = 'round'; g.beginPath();
+        // decimate: at most ~2 points per pixel column
+        const stride = Math.max(1, Math.floor(seg.length / (pw * 2)));
+        for (let i = 0; i < seg.length; i += stride) {
+          const [t, v] = seg[i], x = X(t), y = Y(v);
+          i ? g.lineTo(x, y) : g.moveTo(x, y);
+        }
+        g.stroke();
+      });
+      g.restore();
+    });
+
+    if (lanes.length === 1 && visible.length > 1) {   // overlay legend
+      let x = padL + 8;
+      g.textAlign = 'left';
+      for (const c of visible) {
+        g.fillStyle = c.color; g.fillRect(x, padT + 6, 10, 3);
+        g.fillStyle = css('--ink'); g.fillText(c.name, x + 14, padT + 11);
+        x += g.measureText(c.name).width + 30;
+      }
+    }
+  }
+  function lowerBound(d, t) { let a = 0, b = d.length; while (a < b) { const m = (a + b) >> 1; d[m][0] < t ? a = m + 1 : b = m; } return a; }
+  function niceStep(x) { const p = Math.pow(10, Math.floor(Math.log10(x))); const n = x / p; return (n < 1.5 ? 1 : n < 3.5 ? 2 : n < 7.5 ? 5 : 10) * p; }
+  function fmtDur(s) { return s >= 60 ? (s / 60).toFixed(s % 60 ? 1 : 0) + 'm' : (+s.toFixed(1)) + 's'; }
+
+  // ---------- terminal ----------
+  const term = $('term');
+  let termQueue = [];
+  function logTerm(t, dir, text) {
+    rawLog.push([t, dir, text]);
+    if (rawLog.length > 200000) rawLog.splice(0, 50000);
+    termQueue.push([t, dir, text]);
+  }
+  function flushTerm() {
+    if (!termQueue.length) return;
+    const f = $('filter').value.toLowerCase(), showTs = $('showTs').checked;
+    const frag = document.createDocumentFragment();
+    for (const [t, dir, text] of termQueue) {
+      if (f && !text.toLowerCase().includes(f)) continue;
+      const div = document.createElement('div');
+      if (dir !== 'rx') div.className = dir;
+      if (showTs) { const s = document.createElement('span'); s.className = 'ts'; s.textContent = t.toFixed(3).padStart(9) + '  '; div.appendChild(s); }
+      div.appendChild(document.createTextNode((dir === 'tx' ? '→ ' : dir === 'sys' ? '• ' : '') + text));
+      frag.appendChild(div);
+    }
+    termQueue = [];
+    term.appendChild(frag);
+    while (term.childElementCount > MAX_TERM_LINES) term.firstChild.remove();
+    if ($('autoscroll').checked) term.scrollTop = term.scrollHeight;
+  }
+  function rebuildTerm() { term.innerHTML = ''; termQueue = rawLog.slice(-MAX_TERM_LINES); flushTerm(); }
+  $('filter').addEventListener('input', rebuildTerm);
+  $('showTs').addEventListener('change', rebuildTerm);
+  $('clearTerm').onclick = () => { term.innerHTML = ''; };
+  const sys = msg => logTerm(now(), 'sys', msg);
+
+  // ---------- status ----------
+  function setStatus(text, mode) {
+    $('status').textContent = text;
+    $('dot').className = 'dot' + (mode ? ' ' + mode : '');
+  }
+  function updateStats() {
+    const el = startedAt == null ? 0 : now() - startedAt;
+    $('stats').innerHTML =
+      `Uptime: <b>${fmtDur(Math.floor(el))}</b><br>` +
+      `Lines: <b>${linesIn.toLocaleString()}</b> · <b>${rate}</b>/s<br>` +
+      `Bytes: <b>${bytesIn.toLocaleString()}</b><br>` +
+      `Channels: <b>${channels.size}</b><br>` +
+      `Samples: <b>${samples.length.toLocaleString()}</b>` +
+      (recording != null ? ` · <span style="color:var(--bad)">recording ${(samples.length - recording).toLocaleString()}</span>` : '');
+  }
+  setInterval(() => { rate = rateCount; rateCount = 0; updateStats(); }, 1000);
+
+  // ---------- serial ----------
+  if (!('serial' in navigator)) { $('unsupported').style.display = 'block'; }
+
+  async function connect() {
+    if (port) return disconnect();
+    if (!('serial' in navigator)) { $('unsupported').style.display = 'block'; return; }
+    stopDemo();
+    try {
+      port = await navigator.serial.requestPort();
+      const baudRate = +$('baud').value;
+      await port.open({ baudRate });
+      const info = port.getInfo();
+      const id = info.usbVendorId ? ` (USB ${hex(info.usbVendorId)}:${hex(info.usbProductId)})` : '';
+      setStatus(`Connected @ ${baudRate} baud${id}`, 'on');
+      sys(`connected @ ${baudRate}${id}`);
+      $('connect').textContent = 'Disconnect';
+      $('baud').disabled = true;
+      startedAt ??= now();
+      port.addEventListener('disconnect', () => { sys('device unplugged'); disconnect(); });
+      readLoop();
+    } catch (e) {
+      if (e.name !== 'NotFoundError') sys('connect failed: ' + e.message);
+      port = null;
+    }
+  }
+  const hex = n => n.toString(16).padStart(4, '0');
+
+  async function readLoop() {
+    keepReading = true;
+    while (port && port.readable && keepReading) {
+      const decoder = new TextDecoderStream();
+      readClosed = port.readable.pipeTo(decoder.writable).catch(() => {});
+      reader = decoder.readable.getReader();
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (value) ingestChunk(value);
+        }
+      } catch (e) {
+        sys('read error: ' + e.message);   // e.g. framing/parity error; loop retries
+      } finally {
+        reader.releaseLock();
+      }
+    }
+  }
+
+  async function disconnect() {
+    keepReading = false;
+    const p = port; port = null;
+    try { await reader?.cancel(); } catch {}
+    try { await readClosed; } catch {}
+    try { await p?.close(); } catch {}
+    reader = null;
+    setStatus('Disconnected');
+    $('connect').textContent = 'Connect';
+    $('baud').disabled = false;
+    if (p) sys('disconnected');
+  }
+
+  async function send() {
+    const text = $('sendText').value;
+    const eol = $('eol').value.replace('\\r', '\r').replace('\\n', '\n');
+    if (demoTimer) { logTerm(now(), 'tx', text); $('sendText').value = ''; return; }
+    if (!port?.writable) { sys('not connected'); return; }
+    const w = port.writable.getWriter();
+    try { await w.write(new TextEncoder().encode(text + eol)); logTerm(now(), 'tx', text); $('sendText').value = ''; }
+    catch (e) { sys('send failed: ' + e.message); }
+    finally { w.releaseLock(); }
+  }
+
+  // ---------- demo ----------
+  function startDemo() {
+    if (port) return;
+    if (demoTimer) return stopDemo();
+    setStatus('Demo mode: simulated sensor', 'demo');
+    $('demo').textContent = 'Stop demo';
+    sys('demo started');
+    startedAt ??= now();
+    let k = 0, rpm = 1200;
+    demoTimer = setInterval(() => {
+      const t = now(); k++;
+      rpm += (Math.random() - .5) * 60 + (1500 - rpm) * 0.02;
+      const temp = 22 + 3 * Math.sin(t / 6) + Math.random() * .3;
+      const line = k % 3 === 0
+        ? JSON.stringify({ temp: +temp.toFixed(2), rpm: Math.round(rpm), batt: +(4.2 - t * 0.0008).toFixed(3) })
+        : `temp:${temp.toFixed(2)} rpm=${Math.round(rpm)} light:${Math.round(512 + 400 * Math.sin(t * 1.3) + (Math.random() * 40))}`;
+      ingestChunk(line + '\r\n');
+      if (k % 40 === 0) ingestChunk('# heartbeat ok\n');
+    }, 50);
+  }
+  function stopDemo() {
+    if (!demoTimer) return;
+    clearInterval(demoTimer); demoTimer = null;
+    setStatus('Disconnected'); $('demo').textContent = 'Demo'; sys('demo stopped');
+  }
+
+  // ---------- export ----------
+  function download(name, text, type) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type }));
+    a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  const stamp = () => new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  function toCsv(rows) {
+    const names = [...channels.keys()];
+    const q = s => /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    const out = ['t_seconds,' + names.map(q).join(',')];
+    for (const r of rows) out.push(r.t.toFixed(3) + ',' + names.map(n => r.values[n] ?? '').join(','));
+    return out.join('\n');
+  }
+  $('exportCsv').onclick = () => download(`serial-${stamp()}.csv`, toCsv(samples), 'text/csv');
+  $('exportLog').onclick = () => download(`serial-${stamp()}.log`,
+    rawLog.map(([t, d, s]) => `${t.toFixed(3)}\t${d}\t${s}`).join('\n'), 'text/plain');
+  $('rec').onclick = () => {
+    if (recording == null) { recording = samples.length; $('rec').classList.add('on'); $('rec').textContent = '■ Stop'; sys('recording started'); }
+    else {
+      const rows = samples.slice(recording); recording = null;
+      $('rec').classList.remove('on'); $('rec').textContent = '● Rec'; sys(`recording stopped (${rows.length} samples)`);
+      if (rows.length) download(`recording-${stamp()}.csv`, toCsv(rows), 'text/csv');
+    }
+  };
+
+  // ---------- wiring ----------
+  $('connect').onclick = connect;
+  $('demo').onclick = startDemo;
+  $('send').onclick = send;
+  $('sendText').addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+  $('freeze').onclick = () => { frozenAt = frozenAt == null ? now() : null; $('freeze').textContent = frozenAt == null ? 'Pause' : 'Resume'; };
+  $('resetStats').onclick = () => { for (const c of channels.values()) { c.min = c.max = c.last; c.dirty = true; } };
+  $('theme').onclick = () => {
+    const r = document.documentElement;
+    const dark = r.dataset.theme ? r.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    r.dataset.theme = dark ? 'light' : 'dark';
+    try { localStorage.setItem('ss-theme', r.dataset.theme); } catch {}
+  };
+  try { const th = localStorage.getItem('ss-theme'); if (th) document.documentElement.dataset.theme = th;
+        const b = localStorage.getItem('ss-baud'); if (b) $('baud').value = b; } catch {}
+  $('baud').addEventListener('change', () => { try { localStorage.setItem('ss-baud', $('baud').value); } catch {} });
+
+  let lastTiles = 0;
+  (function frame(ts) {
+    drawChart();
+    if (ts - lastTiles > 100) { lastTiles = ts; updateTiles(); flushTerm(); }
+    requestAnimationFrame(frame);
+  })(0);
+  updateStats();
+
+  window.__serialScope = { ingestChunk, parseLine };   // handy for testing from devtools
+})();
+</script>
+</body>
+</html>
