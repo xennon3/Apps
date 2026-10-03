@@ -44,4 +44,23 @@ The screenshot's data decodes as: clock **97:42**, **HOME 23 – GUEST 8**, **Q1
 - Console shows one packet per line, color-coded by field, with an option to reveal spaces and SOH/EOT
 - An **Auto** format for ordinary text devices. It switches to the Daktronics format by itself if packets show up.
 
+## 📺 Broadcast overlay (OBS)
+
+Click **📺 Broadcast** to put a live TV-style score bar on your stream. It shows team names and colors, scores,
+quarter, clock, down & distance, ball on, play clock, possession and timeouts. When the score changes it pops a
+TOUCHDOWN / FIELD GOAL / EXTRA POINT banner. You can set the team names and colors shown on the stream there.
+
+**Option 1: OBS Browser Source (best, transparent background)**
+1. In the Broadcast window, click **Choose output folder…** and pick an empty folder.
+2. In OBS: **+** under Sources → **Browser** → tick **Local file** → pick `overlay.html` in that folder.
+3. Width **1200**, Height **150** → OK, then drag it into place.
+
+Keep Serial Scope open in Chrome or Edge. It rewrites `scoreboard.js` in that folder several times a second, and the
+overlay reloads it. The folder also gets one `.txt` file per value (`home_score.txt`, `clock.txt`, `down_distance.txt`, …)
+for OBS **Text (GDI+)** sources with *Read from file* ticked. Next time, click **Resume** to reuse the same folder.
+
+**Option 2: overlay window.** Click **Open overlay window**, then add it to OBS with **Window Capture** plus a **Chroma Key** filter.
+
+The ⛶ button on the scoreboard makes it full screen, for a TV or second monitor.
+
 Settings (format, baud rate, field names, alarms) are saved in the browser.

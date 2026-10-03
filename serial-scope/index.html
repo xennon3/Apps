@@ -129,6 +129,22 @@
   dialog label.f { display: block; margin: 10px 0 4px; font-size: 12px; color: var(--muted); }
   dialog input[type=text], dialog input[type=number] { width: 100%; }
   dialog textarea { width: 100%; height: 160px; font: 12px ui-monospace, Consolas, monospace; }
+
+  /* ---- broadcast + full screen ---- */
+  #board { position: relative; }
+  #board .fs { position: absolute; top: 8px; right: 8px; background: transparent; color: #7b8494; border-color: #2a2f37; padding: 2px 8px; font-size: 16px; }
+  #board:fullscreen { display: flex; flex-direction: column; justify-content: center; border-radius: 0; }
+  #board:fullscreen .score { font-size: 26vh; } #board:fullscreen .clock { font-size: 15vh; }
+  #bcBtn.on { border-color: var(--ok); color: var(--ok); }
+  #bcDlg { width: min(780px, calc(100vw - 32px)); }
+  #bcDlg h3 { font-size: 13px; margin: 18px 0 4px; }
+  #bcDlg ol { margin: 6px 0; padding-left: 20px; line-height: 1.7; }
+  .prevwrap { width: 100%; overflow: hidden; border-radius: 8px; margin: 10px 0; background: #2b2f36; }
+  .prevwrap iframe { width: 1200px; height: 150px; border: 0; transform-origin: 0 0; display: block; }
+  .bcgrid { display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 8px; align-items: end; }
+  .bcgrid label { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
+  .bcgrid input[type=color] { width: 48px; height: 34px; padding: 2px; }
+  @media (max-width: 560px) { .bcgrid { grid-template-columns: 1fr auto; } }
 </style>
 </head>
 <body>
@@ -145,6 +161,7 @@
   <button id="connect" class="primary">Connect</button>
   <button id="demo" title="Simulated data, to try the UI without a device">Demo</button>
   <button id="feedBtn" title="Paste text or load a Tera Term log file">Paste / Load log</button>
+  <button id="bcBtn" title="Score overlay for OBS and live streams">📺 Broadcast</button>
   <button id="rec" class="rec" title="Record values to CSV">● Rec</button>
   <button id="theme" title="Toggle theme">◐</button>
 </header>
@@ -156,6 +173,7 @@
   </div>
 
   <section id="board">
+    <button id="fsBtn" class="fs" title="Full screen scoreboard">⛶</button>
     <div class="grid">
       <div>
         <div class="team"><span class="poss" id="bHomePoss">🏈</span><span id="bHomeName">HOME</span><span class="poss"></span></div>
@@ -270,6 +288,47 @@
       <label class="hint"><input type="checkbox" id="feedSlow" checked> replay slowly (5 packets/s)</label>
     </div>
     <div class="row"><button value="feed" class="primary">Feed it in</button><button value="cancel">Cancel</button></div>
+  </form>
+</dialog>
+
+<dialog id="bcDlg">
+  <form method="dialog">
+    <b>📺 Broadcast overlay for OBS</b>
+    <div class="prevwrap" id="bcPrevWrap"><iframe id="bcPrev" title="Overlay preview"></iframe></div>
+    <div class="bcgrid">
+      <label>Home name on stream<input id="bcHomeName" type="text" placeholder="from the feed"></label>
+      <label>Color<input id="bcHomeColor" type="color"></label>
+      <label>Guest name on stream<input id="bcGuestName" type="text" placeholder="from the feed"></label>
+      <label>Color<input id="bcGuestColor" type="color"></label>
+    </div>
+    <div class="row">
+      <label class="hint"><input type="checkbox" id="bcBanners"> Pop up TOUCHDOWN / FIELD GOAL banners when the score changes</label>
+      <button type="button" id="bcTest">Test banner</button>
+    </div>
+
+    <h3>Option 1 · OBS Browser Source <span class="hint">(best: transparent background)</span></h3>
+    <div class="row">
+      <button type="button" id="bcPick" class="primary">Choose output folder…</button>
+      <button type="button" id="bcResume" hidden>Resume</button>
+      <button type="button" id="bcStop" hidden>Stop writing</button>
+    </div>
+    <p class="hint" id="bcStatus">Not writing files.</p>
+    <ol class="hint">
+      <li>Make a new empty folder (e.g. <i>Documents\Scoreboard Overlay</i>) and choose it above.</li>
+      <li>In OBS: <b>+</b> under Sources → <b>Browser</b> → tick <b>Local file</b> → pick <b>overlay.html</b> in that folder.</li>
+      <li>Width <b>1200</b>, Height <b>150</b> → OK. Drag it where you want it on screen.</li>
+    </ol>
+    <p class="hint">The folder also gets one text file per value (home_score.txt, clock.txt, down_distance.txt…)
+      for OBS <b>Text</b> sources with "Read from file" ticked.</p>
+
+    <h3>Option 2 · Overlay window</h3>
+    <div class="row">
+      <button type="button" id="bcPopup">Open overlay window</button>
+      <label class="hint">Background
+        <select id="bcKey"><option value="green">Green (chroma key)</option><option value="magenta">Magenta</option><option value="black">Black</option></select></label>
+    </div>
+    <p class="hint">In OBS add a <b>Window Capture</b> of that window, then right-click it → Filters → <b>Chroma Key</b>.</p>
+    <div class="row" style="margin-top:14px"><button value="close" class="primary">Done</button></div>
   </form>
 </dialog>
 
@@ -630,6 +689,7 @@
           const d = b - a, what = d > 0 && PLAY_NAMES[d] ? ` · ${PLAY_NAMES[d]}?` : '';
           addEvent(`🏟 <b>${esc(name)}</b> ${a} → <b>${b}</b> (${d > 0 ? '+' : ''}${d})${what}${qs}${at}`, true);
           flashScore(k);
+          if (d > 0) setBanner(k, d);
         }
       }
       if (isFinite(cur.q) && cur.q !== prev.q) addEvent(`⏱ Quarter <b>${cur.q}</b>`, true);
@@ -1094,6 +1154,262 @@
   };
 
   // =====================================================================
+  //  Broadcast: OBS overlay + text files
+  // =====================================================================
+  //  Option 1: pick a folder. We write overlay.html (an OBS Browser Source page with a
+  //  transparent background), scoreboard.js (live data the overlay reloads 4x/s; a <script>
+  //  include works from file:// where fetch() does not), and one .txt per value for Text sources.
+  //  Option 2: a pop-up overlay window on a chroma-key background for Window Capture.
+  const bc = Object.assign({ homeName: '', guestName: '', homeColor: '#b91c1c', guestColor: '#1d4ed8', banners: true, key: 'green' }, store.get('bcast', {}));
+  const BANNERS = { 6: 'TOUCHDOWN', 3: 'FIELD GOAL', 2: '2 POINTS', 1: 'EXTRA POINT' };
+  let banner = null, bannerSeq = 0;
+  function setBanner(team, d) { banner = { id: ++bannerSeq, at: Date.now(), team, text: BANNERS[d] || '+' + d }; }
+
+  function bcState() {
+    const F = k => fields.get(k);
+    const T = k => { const f = F(k); return !f ? '' : f.kind === 'num' && isFinite(f.last) ? String(f.last) : (f.text || ''); };
+    const N = k => F(k)?.last ?? NaN;
+    const q = N('quarter'), down = N('down'), togo = N('toGo'), ball = N('ballOn');
+    return {
+      hn: bc.homeName || T('homeName') || 'HOME', gn: bc.guestName || T('guestName') || 'GUEST',
+      hs: T('home'), gs: T('guest'), clock: T('clock'), play: T('playClock'),
+      q: isFinite(q) && q > 0 ? (q > 4 ? 'OT' : ordinal(q)) : '',
+      dd: isFinite(down) && down > 0 ? ordinal(down) + (isFinite(togo) ? ' & ' + togo : '') : '',
+      ball: isFinite(ball) ? 'Ball on ' + ball : '',
+      poss: hasBall(F('homePoss')?.text) ? 'home' : hasBall(F('guestPoss')?.text) ? 'guest' : '',
+      htol: isFinite(N('homeTOL')) ? N('homeTOL') : null, gtol: isFinite(N('guestTOL')) ? N('guestTOL') : null,
+      hc: bc.homeColor, gc: bc.guestColor, banners: bc.banners, banner,
+    };
+  }
+  function bcTextFiles(s) {
+    const n = v => v == null ? '' : String(v);
+    return {
+      'home_name.txt': s.hn, 'guest_name.txt': s.gn, 'home_score.txt': s.hs, 'guest_score.txt': s.gs,
+      'quarter.txt': s.q, 'clock.txt': s.clock, 'play_clock.txt': s.play, 'down_distance.txt': s.dd,
+      'ball_on.txt': s.ball, 'possession.txt': s.poss === 'home' ? s.hn : s.poss === 'guest' ? s.gn : '',
+      'home_timeouts.txt': n(s.htol), 'guest_timeouts.txt': n(s.gtol),
+    };
+  }
+
+  // The overlay page's own script. It's stringified into the page, so it must not use outside variables.
+  function overlayScript(mode) {
+    const $ = id => document.getElementById(id);
+    let lastBanner = null, hideT = 0;
+    const prev = {};
+    function team(id, name, score, poss, tol, color) {
+      const el = $(id);
+      el.style.setProperty('--c', color);
+      el.querySelector('.name').textContent = name;
+      const sc = el.querySelector('.score');
+      if (prev[id] !== undefined && prev[id] !== score) { sc.classList.remove('pop'); void sc.offsetWidth; sc.classList.add('pop'); }
+      prev[id] = score;
+      sc.textContent = score;
+      el.querySelector('.poss').classList.toggle('on', poss);
+      const t = el.querySelector('.tol'), has = typeof tol === 'number' && tol >= 0;
+      t.style.display = has ? '' : 'none';
+      [...t.children].forEach((i, k) => i.classList.toggle('used', has && k >= tol));
+    }
+    function render(s) {
+      team('home', s.hn, s.hs, s.poss === 'home', s.htol, s.hc);
+      team('guest', s.gn, s.gs, s.poss === 'guest', s.gtol, s.gc);
+      $('q').textContent = s.q ? s.q + (s.q === 'OT' ? '' : ' QTR') : '';
+      $('clock').textContent = s.clock || '';
+      $('dd').textContent = s.dd || '';
+      $('ball').textContent = s.ball || '';
+      $('play').textContent = '';
+      if (s.play) { $('play').append('PLAY '); const b = document.createElement('b'); b.textContent = s.play; $('play').append(b); }
+      $('bug').classList.toggle('nostrip', !s.dd && !s.ball && !s.play);
+      const b = s.banner;
+      if (b && b.id !== lastBanner) {
+        lastBanner = b.id;
+        if (s.banners && Date.now() - b.at < 6000) {
+          const el = $('banner');
+          el.textContent = b.text + '  ·  ' + (b.team === 'home' ? s.hn : s.gn);
+          el.style.setProperty('--c', b.team === 'home' ? s.hc : s.gc);
+          el.classList.add('show'); clearTimeout(hideT);
+          hideT = setTimeout(() => el.classList.remove('show'), 4500);
+        }
+      }
+    }
+    window.render = window.SCOREBOARD = render;
+    if (mode === 'poll') setInterval(() => {
+      const s = document.createElement('script');
+      s.src = 'scoreboard.js?' + Date.now();
+      s.onload = s.onerror = () => s.remove();
+      document.head.appendChild(s);
+    }, 250);
+  }
+  const SC = 'script';
+  function overlayHtml(mode, bg) {
+    return `<!doctype html>
+<html><head><meta charset="utf-8"><title>Scoreboard overlay</title>
+<style>
+  html, body { margin: 0; overflow: hidden; background: transparent; font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
+  body.bg-green { background: #00ff00; } body.bg-magenta { background: #ff00ff; } body.bg-black { background: #000; }
+  body.bg-checker { background: repeating-conic-gradient(#3a3f47 0 25%, #2b2f36 0 50%) 0 0 / 24px 24px; }
+  .bug { position: absolute; left: 10px; top: 10px; width: 1180px; filter: drop-shadow(0 6px 14px rgba(0,0,0,.5)); }
+  .bar { position: relative; display: flex; height: 86px; border-radius: 10px 10px 0 0; overflow: hidden; background: #0d1117; }
+  .nostrip .bar { border-radius: 10px; }
+  .team { flex: 1; display: flex; align-items: center; gap: 12px; padding-left: 20px; color: #fff; position: relative; min-width: 0;
+    background: linear-gradient(180deg, rgba(255,255,255,.14), rgba(0,0,0,.28)), var(--c, #444); }
+  .team + .team { border-left: 3px solid #0d1117; }
+  .name { flex: 1; min-width: 0; font-size: 34px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 2px 4px rgba(0,0,0,.35); }
+  .poss { font-size: 28px; visibility: hidden; } .poss.on { visibility: visible; }
+  .score { align-self: stretch; min-width: 96px; display: grid; place-items: center; font-size: 58px; font-weight: 900;
+    background: rgba(0,0,0,.28); font-variant-numeric: tabular-nums; }
+  .score.pop { animation: pop .9s ease-out; }
+  @keyframes pop { 0% { transform: scale(1.35); background: rgba(255,255,255,.45); } 100% { transform: scale(1); } }
+  .tol { position: absolute; left: 20px; bottom: 9px; display: flex; gap: 6px; }
+  .tol i { width: 24px; height: 5px; border-radius: 3px; background: #ffd34d; }
+  .tol i.used { background: rgba(255,255,255,.25); }
+  .mid { width: 220px; display: grid; place-content: center; text-align: center; color: #fff; background: #0d1117; }
+  #q { font-size: 17px; font-weight: 800; letter-spacing: .16em; color: #ffb020; min-height: 1.2em; }
+  #clock { font-size: 46px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+  .banner { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 50px; font-weight: 900;
+    letter-spacing: .14em; white-space: nowrap; background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(0,0,0,.3)), var(--c, #b91c1c);
+    transform: scaleX(0); transition: transform .35s cubic-bezier(.2,.9,.3,1.2); }
+  .banner.show { transform: scaleX(1); }
+  .strip { height: 40px; display: flex; justify-content: center; align-items: center; gap: 34px; background: #f5f7fa; color: #0d1117;
+    font-size: 22px; font-weight: 800; border-radius: 0 0 10px 10px; }
+  .strip span:empty { display: none; }
+  .strip b { color: #c81e1e; }
+  .nostrip .strip { display: none; }
+</style></head>
+<body class="bg-${bg}">
+<div class="bug nostrip" id="bug">
+  <div class="bar">
+    <div class="team" id="home"><span class="name">HOME</span><span class="poss">🏈</span><span class="score"></span><span class="tol"><i></i><i></i><i></i></span></div>
+    <div class="team" id="guest"><span class="name">GUEST</span><span class="poss">🏈</span><span class="score"></span><span class="tol"><i></i><i></i><i></i></span></div>
+    <div class="mid"><div id="q"></div><div id="clock"></div></div>
+    <div class="banner" id="banner"></div>
+  </div>
+  <div class="strip"><span id="dd"></span><span id="ball"></span><span id="play"></span></div>
+</div>
+<${SC}>(${overlayScript.toString()})(${JSON.stringify(mode)});</${SC}>
+</body></html>`;
+  }
+  const SETUP_TXT = [
+    'Serial Scope -> OBS',
+    '',
+    '1. In OBS, click + under Sources and choose "Browser".',
+    '2. Tick "Local file" and pick overlay.html in this folder.',
+    '3. Set Width 1200 and Height 150, then click OK.',
+    '4. Drag and resize the overlay to where you want it on the stream.',
+    '',
+    'The .txt files hold single values (home_score.txt, clock.txt, ...).',
+    'Use them with a "Text (GDI+)" source: tick "Read from file".',
+    '',
+    'Keep Serial Scope open in Chrome or Edge while streaming. It updates these files several times a second.',
+  ].join('\r\n');
+
+  // ---- folder output ----
+  let outDir = null, lastWritten = {}, writing = false, lastWriteAt = null;
+  function idb(mode, fn) {
+    return new Promise((res, rej) => {
+      const r = indexedDB.open('serialscope', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('kv');
+      r.onerror = () => rej(r.error);
+      r.onsuccess = () => {
+        try {
+          const tx = r.result.transaction('kv', mode), q = fn(tx.objectStore('kv'));
+          tx.oncomplete = () => res(q.result); tx.onerror = () => rej(tx.error);
+        } catch (e) { rej(e); }
+      };
+    });
+  }
+  async function writeFile(name, text) {
+    const fh = await outDir.getFileHandle(name, { create: true });
+    const w = await fh.createWritable();
+    await w.write(text); await w.close();
+  }
+  async function startFolder(h) {
+    outDir = h; lastWritten = {};
+    try {
+      await writeFile('overlay.html', overlayHtml('poll', 'transparent'));
+      await writeFile('OBS-SETUP.txt', SETUP_TXT);
+      sys(`broadcast: writing overlay files to folder "${h.name}"`);
+      try { await idb('readwrite', s => s.put(h, 'outDir')); } catch {}
+    } catch (e) { sys('broadcast: could not write to that folder: ' + e.message); outDir = null; }
+    updateBcUi();
+  }
+  async function pumpFiles() {
+    if (!outDir || writing) return;
+    writing = true;
+    try {
+      const st = bcState();
+      const files = bcTextFiles(st);
+      files['scoreboard.js'] = 'SCOREBOARD(' + JSON.stringify(st) + ');';
+      for (const [name, text] of Object.entries(files)) {
+        if (lastWritten[name] === text) continue;
+        await writeFile(name, text); lastWritten[name] = text;
+      }
+      lastWriteAt = now();
+    } catch (e) { sys('broadcast: writing stopped: ' + e.message); outDir = null; updateBcUi(); }
+    finally { writing = false; }
+  }
+  setInterval(pumpFiles, 250);
+
+  let savedDir = null;
+  idb('readonly', s => s.get('outDir')).then(h => { savedDir = h || null; updateBcUi(); }).catch(() => {});
+  $('bcPick').onclick = async () => {
+    if (!window.showDirectoryPicker) { $('bcStatus').textContent = 'This browser can\'t write to folders. Use Chrome or Edge on a desktop.'; return; }
+    try { await startFolder(await showDirectoryPicker({ id: 'serialscope-obs', mode: 'readwrite' })); }
+    catch (e) { if (e.name !== 'AbortError') sys('broadcast: ' + e.message); }
+  };
+  $('bcResume').onclick = async () => {
+    try { if (await savedDir.requestPermission({ mode: 'readwrite' }) === 'granted') await startFolder(savedDir); }
+    catch (e) { sys('broadcast: ' + e.message); }
+  };
+  $('bcStop').onclick = () => { outDir = null; sys('broadcast: stopped writing files'); updateBcUi(); };
+  function updateBcUi() {
+    $('bcStop').hidden = !outDir;
+    $('bcResume').hidden = !!outDir || !savedDir;
+    if (savedDir) $('bcResume').textContent = `Resume “${savedDir.name}”`;
+    $('bcBtn').classList.toggle('on', !!outDir);
+    if (!outDir) $('bcStatus').textContent = 'Not writing files.';
+  }
+
+  // ---- pop-up window + in-dialog preview ----
+  let popup = null;
+  function openPopup() {
+    popup = window.open('', 'serialscope-overlay', 'width=1220,height=200');
+    if (!popup) { sys('broadcast: the pop-up was blocked. Allow pop-ups for this page'); return; }
+    popup.document.open(); popup.document.write(overlayHtml('push', bc.key)); popup.document.close();
+  }
+  $('bcPopup').onclick = openPopup;
+  function bcPush() {
+    const dlgOpen = $('bcDlg').open;
+    if (outDir) $('bcStatus').textContent = `Writing to “${outDir.name}”` + (lastWriteAt != null ? ` · updated ${fmtDur(Math.max(0, Math.floor(now() - lastWriteAt)))} ago` : '');
+    if (!dlgOpen && !(popup && !popup.closed)) return;
+    const st = bcState();
+    for (const w of [popup && !popup.closed ? popup : null, dlgOpen ? $('bcPrev').contentWindow : null]) {
+      try { w?.render?.(st); } catch {}
+    }
+  }
+  function fitPreview() {
+    const wrap = $('bcPrevWrap'), s = wrap.clientWidth / 1200;
+    $('bcPrev').style.transform = `scale(${s})`; wrap.style.height = 150 * s + 'px';
+  }
+  $('bcBtn').onclick = () => {
+    for (const [id, k] of [['bcHomeName', 'homeName'], ['bcGuestName', 'guestName'], ['bcHomeColor', 'homeColor'], ['bcGuestColor', 'guestColor'], ['bcKey', 'key']]) $(id).value = bc[k];
+    $('bcBanners').checked = bc.banners;
+    if (!$('bcPrev').srcdoc) $('bcPrev').srcdoc = overlayHtml('push', 'checker');
+    $('bcDlg').showModal(); fitPreview();
+  };
+  window.addEventListener('resize', () => { if ($('bcDlg').open) fitPreview(); });
+  for (const [id, k] of [['bcHomeName', 'homeName'], ['bcGuestName', 'guestName'], ['bcHomeColor', 'homeColor'], ['bcGuestColor', 'guestColor'], ['bcKey', 'key'], ['bcBanners', 'banners']])
+    $(id).addEventListener('input', () => {
+      bc[k] = k === 'banners' ? $(id).checked : $(id).value.trim();
+      store.set('bcast', bc);
+      if (k === 'key' && popup && !popup.closed) popup.document.body.className = 'bg-' + bc.key;
+    });
+  $('bcTest').onclick = () => setBanner(Math.random() < .5 ? 'home' : 'guest', [6, 3, 1][Math.floor(Math.random() * 3)]);
+
+  // ---- full-screen scoreboard ----
+  $('fsBtn').onclick = () => document.fullscreenElement ? document.exitFullscreen() : $('board').requestFullscreen?.();
+
+  // =====================================================================
   //  Wiring
   // =====================================================================
   $('connect').onclick = connect;
@@ -1115,7 +1431,7 @@
   let lastUi = 0;
   (function frame(ts) {
     drawChart();
-    if (ts - lastUi > 100) { lastUi = ts; updateTiles(); updateBoard(); flushTerm(); }
+    if (ts - lastUi > 100) { lastUi = ts; updateTiles(); updateBoard(); flushTerm(); bcPush(); }
     requestAnimationFrame(frame);
   })(0);
   updateStats();
