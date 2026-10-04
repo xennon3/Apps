@@ -135,6 +135,11 @@
   #board .fs { position: absolute; top: 8px; right: 8px; background: transparent; color: #7b8494; border-color: #2a2f37; padding: 2px 8px; font-size: 16px; }
   #board:fullscreen { display: flex; flex-direction: column; justify-content: center; border-radius: 0; }
   #board:fullscreen .score { font-size: 26vh; } #board:fullscreen .clock { font-size: 15vh; }
+  #portList { display: grid; gap: 6px; margin-top: 8px; }
+  .portrow { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center; padding: 8px 10px;
+    border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+  .portrow:has(input:checked) { border-color: var(--accent); }
+  .portrow span { grid-column: 2; }
   #bcBtn.on { border-color: var(--ok); color: var(--ok); }
   #bcDlg { width: min(780px, calc(100vw - 32px)); }
   #bcDlg h3 { font-size: 13px; margin: 18px 0 4px; }
@@ -256,6 +261,8 @@
           <button id="exportCsv">Download CSV</button>
           <button id="exportLog">Download raw log</button>
         </div>
+        <label class="hint" style="display:block;margin-top:10px"><input type="checkbox" id="autoConnect" checked>
+          Reconnect to the last port automatically (at startup and when the adapter is plugged back in)</label>
       </section>
     </div>
   </div>
@@ -291,6 +298,17 @@
   </form>
 </dialog>
 
+<dialog id="portDlg">
+  <form method="dialog">
+    <b>Choose a serial port</b>
+    <p class="hint" style="margin:6px 0">The Moxa adapter usually shows up as "MOXA USB Serial Port (COMx)".</p>
+    <div id="portList"></div>
+    <p class="hint" id="portEmpty" hidden>No serial ports found. Plug in the Moxa adapter and check that its driver is installed
+      (it should appear under <i>Ports (COM &amp; LPT)</i> in Device Manager).</p>
+    <div class="row" style="margin-top:12px"><button value="ok" id="portOk" class="primary">Connect</button><button value="cancel">Cancel</button></div>
+  </form>
+</dialog>
+
 <dialog id="bcDlg">
   <form method="dialog">
     <b>📺 Broadcast overlay for OBS</b>
@@ -311,6 +329,7 @@
       <button type="button" id="bcPick" class="primary">Choose output folder…</button>
       <button type="button" id="bcResume" hidden>Resume</button>
       <button type="button" id="bcStop" hidden>Stop writing</button>
+      <button type="button" id="bcOpen" hidden>Open folder</button>
     </div>
     <p class="hint" id="bcStatus">Not writing files.</p>
     <ol class="hint">
@@ -990,15 +1009,23 @@
   async function connect() {
     if (port) return disconnect();
     if (!('serial' in navigator)) { $('unsupported').style.display = 'block'; return; }
+    let p;
+    try { p = await navigator.serial.requestPort(); }
+    catch (e) { if (e.name !== 'NotFoundError') sys('connect failed: ' + e.message); return; }
+    await openPort(p);
+  }
+  async function openPort(p, auto) {
+    if (port) return;
     stopDemo();
     try {
-      port = await navigator.serial.requestPort();
+      port = p;
       const baudRate = +$('baud').value;
       await port.open({ baudRate, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none' });
       const info = port.getInfo();
+      store.set('lastPort', { v: info.usbVendorId ?? null, p: info.usbProductId ?? null });
       const id = info.usbVendorId ? ` (USB ${hex(info.usbVendorId)}:${hex(info.usbProductId)})` : '';
       setStatus(`Connected @ ${baudRate} 8-N-1${id}`, 'on');
-      sys(`connected @ ${baudRate} baud, 8 data bits, no parity, 1 stop bit${id}`);
+      sys(`${auto ? 'reconnected' : 'connected'} @ ${baudRate} baud, 8 data bits, no parity, 1 stop bit${id}`);
       $('connect').textContent = 'Disconnect'; $('baud').disabled = true;
       port.addEventListener('disconnect', () => { sys('adapter unplugged'); disconnect(); });
       readLoop();
@@ -1011,10 +1038,25 @@
           : 'no bytes received yet. Check the cable into the Moxa adapter, and that the controller\'s TV feed output is on');
       }, 4000);
     } catch (e) {
-      if (e.name !== 'NotFoundError') sys('connect failed: ' + e.message + ' (close Tera Term or any other program using the port, then try again)');
+      sys((auto ? 'reconnect' : 'connect') + ' failed: ' + e.message + ' (close Tera Term or any other program using the port, then try again)');
       port = null;
     }
   }
+  // Reconnect to the last-used adapter at startup and whenever it's plugged back in.
+  // getPorts() only returns ports the user already picked once, so this never grabs a stranger's port.
+  const isLastPort = p => {
+    const last = store.get('lastPort', null), i = p.getInfo();
+    return !!last && (i.usbVendorId ?? null) === last.v && (i.usbProductId ?? null) === last.p;
+  };
+  async function autoConnect() {
+    if (port || demoTimer || !$('autoConnect').checked || !navigator.serial?.getPorts) return;
+    const p = (await navigator.serial.getPorts()).find(isLastPort);
+    if (p) { sys('reconnecting to the last serial port…'); openPort(p, true); }
+  }
+  navigator.serial?.addEventListener('connect', e => {
+    if (!port && $('autoConnect').checked && isLastPort(e.target)) { sys('adapter plugged in'); openPort(e.target, true); }
+  });
+
   async function readLoop() {
     keepReading = true;
     while (port && port.readable && keepReading) {
@@ -1046,6 +1088,37 @@
     try { await w.write(new TextEncoder().encode(text + eol)); logTerm(now(), 'tx', text); $('sendText').value = ''; }
     catch (e) { sys('send failed: ' + e.message); }
     finally { w.releaseLock(); }
+  }
+
+  // ---- desktop app: Electron has no built-in port chooser, so show our own ----
+  if (window.native) {
+    window.native.onSerialPorts(ports => {
+      const list = $('portList');
+      list.innerHTML = '';
+      $('portEmpty').hidden = ports.length > 0;
+      $('portOk').disabled = !ports.length;
+      const last = store.get('lastPort', null);
+      const vidOf = pt => pt.vendorId ? parseInt(pt.vendorId, 16) : null;
+      let pick = ports.findIndex(pt => last && last.v != null && vidOf(pt) === last.v);
+      if (pick < 0) pick = ports.findIndex(pt => /moxa/i.test(pt.displayName || ''));
+      if (pick < 0) pick = 0;
+      ports.forEach((pt, i) => {
+        const lab = document.createElement('label');
+        lab.className = 'portrow';
+        const r = document.createElement('input');
+        r.type = 'radio'; r.name = 'port'; r.value = pt.portId;
+        r.checked = i === pick;
+        const name = document.createElement('b'); name.textContent = pt.displayName || pt.portName;
+        const sub = document.createElement('span'); sub.className = 'hint'; sub.textContent = pt.portName + (pt.vendorId ? `  ·  USB ${pt.vendorId}:${pt.productId}` : '');
+        lab.append(r, name, sub);
+        list.appendChild(lab);
+      });
+      $('portDlg').showModal();
+    });
+    $('portDlg').addEventListener('close', () => {
+      const sel = document.querySelector('#portList input:checked');
+      window.native.chooseSerialPort($('portDlg').returnValue === 'ok' && sel ? sel.value : '');
+    });
   }
 
   // =====================================================================
@@ -1304,7 +1377,7 @@
   ].join('\r\n');
 
   // ---- folder output ----
-  let outDir = null, lastWritten = {}, writing = false, lastWriteAt = null;
+  let outDir = null, lastWritten = {}, writing = false, lastWriteAt = null;   // outDir: an output target, see below
   function idb(mode, fn) {
     return new Promise((res, rej) => {
       const r = indexedDB.open('serialscope', 1);
@@ -1318,18 +1391,25 @@
       };
     });
   }
-  async function writeFile(name, text) {
-    const fh = await outDir.getFileHandle(name, { create: true });
-    const w = await fh.createWritable();
-    await w.write(text); await w.close();
-  }
-  async function startFolder(h) {
-    outDir = h; lastWritten = {};
+  // An output target is { name, write(file, text), remember() }: a browser folder handle or, in the desktop app, a path.
+  const handleTarget = h => ({
+    name: h.name,
+    async write(n, t) { const fh = await h.getFileHandle(n, { create: true }); const w = await fh.createWritable(); await w.write(t); await w.close(); },
+    remember: () => idb('readwrite', s => s.put(h, 'outDir')).catch(() => {}),
+  });
+  const pathTarget = dir => ({
+    name: dir.split(/[\\/]/).filter(Boolean).pop() || dir, path: dir,
+    write: (n, t) => window.native.writeFile(dir, n, t),
+    remember: () => store.set('outPath', dir),
+  });
+  async function startFolder(target) {
+    outDir = target; lastWritten = {};
     try {
-      await writeFile('overlay.html', overlayHtml('poll', 'transparent'));
-      await writeFile('OBS-SETUP.txt', SETUP_TXT);
-      sys(`broadcast: writing overlay files to folder "${h.name}"`);
-      try { await idb('readwrite', s => s.put(h, 'outDir')); } catch {}
+      await outDir.write('overlay.html', overlayHtml('poll', 'transparent'));
+      await outDir.write('OBS-SETUP.txt', SETUP_TXT);
+      sys(`broadcast: writing overlay files to folder "${target.name}"`);
+      await target.remember();
+      savedDir = null;
     } catch (e) { sys('broadcast: could not write to that folder: ' + e.message); outDir = null; }
     updateBcUi();
   }
@@ -1342,7 +1422,7 @@
       files['scoreboard.js'] = 'SCOREBOARD(' + JSON.stringify(st) + ');';
       for (const [name, text] of Object.entries(files)) {
         if (lastWritten[name] === text) continue;
-        await writeFile(name, text); lastWritten[name] = text;
+        await outDir.write(name, text); lastWritten[name] = text;
       }
       lastWriteAt = now();
     } catch (e) { sys('broadcast: writing stopped: ' + e.message); outDir = null; updateBcUi(); }
@@ -1350,24 +1430,42 @@
   }
   setInterval(pumpFiles, 250);
 
+  // a folder used before can be resumed: in the desktop app straight away, in the browser after one click (permission)
   let savedDir = null;
-  idb('readonly', s => s.get('outDir')).then(h => { savedDir = h || null; updateBcUi(); }).catch(() => {});
+  if (window.native) {
+    const p = store.get('outPath', null);
+    if (p) window.native.folderExists(p).then(ok => {
+      if (!ok) return;
+      if (store.get('bcAutoResume', true)) startFolder(pathTarget(p));
+      else { savedDir = { name: pathTarget(p).name, resume: () => startFolder(pathTarget(p)) }; updateBcUi(); }
+    });
+  } else {
+    idb('readonly', s => s.get('outDir')).then(h => {
+      if (h) savedDir = { name: h.name, resume: async () => { if (await h.requestPermission({ mode: 'readwrite' }) === 'granted') await startFolder(handleTarget(h)); } };
+      updateBcUi();
+    }).catch(() => {});
+  }
   $('bcPick').onclick = async () => {
-    if (!window.showDirectoryPicker) { $('bcStatus').textContent = 'This browser can\'t write to folders. Use Chrome or Edge on a desktop.'; return; }
-    try { await startFolder(await showDirectoryPicker({ id: 'serialscope-obs', mode: 'readwrite' })); }
-    catch (e) { if (e.name !== 'AbortError') sys('broadcast: ' + e.message); }
+    try {
+      if (window.native) { const dir = await window.native.pickFolder(); if (dir) await startFolder(pathTarget(dir)); return; }
+      if (!window.showDirectoryPicker) { $('bcStatus').textContent = 'This browser can\'t write to folders. Use Chrome or Edge on a desktop.'; return; }
+      await startFolder(handleTarget(await showDirectoryPicker({ id: 'serialscope-obs', mode: 'readwrite' })));
+    } catch (e) { if (e.name !== 'AbortError') sys('broadcast: ' + e.message); }
   };
-  $('bcResume').onclick = async () => {
-    try { if (await savedDir.requestPermission({ mode: 'readwrite' }) === 'granted') await startFolder(savedDir); }
-    catch (e) { sys('broadcast: ' + e.message); }
+  $('bcResume').onclick = async () => { try { await savedDir?.resume(); } catch (e) { sys('broadcast: ' + e.message); } };
+  $('bcStop').onclick = () => {
+    if (window.native && outDir?.path) { savedDir = { name: outDir.name, resume: () => startFolder(pathTarget(outDir.path)) }; store.set('bcAutoResume', false); }
+    outDir = null; sys('broadcast: stopped writing files'); updateBcUi();
   };
-  $('bcStop').onclick = () => { outDir = null; sys('broadcast: stopped writing files'); updateBcUi(); };
+  $('bcOpen').onclick = () => { if (outDir?.path) window.native.openFolder(outDir.path); };
   function updateBcUi() {
     $('bcStop').hidden = !outDir;
+    $('bcOpen').hidden = !(outDir && outDir.path);
     $('bcResume').hidden = !!outDir || !savedDir;
     if (savedDir) $('bcResume').textContent = `Resume “${savedDir.name}”`;
     $('bcBtn').classList.toggle('on', !!outDir);
     if (!outDir) $('bcStatus').textContent = 'Not writing files.';
+    if (outDir && window.native) store.set('bcAutoResume', true);
   }
 
   // ---- pop-up window + in-dialog preview ----
@@ -1427,7 +1525,11 @@
   $('baud').value = store.get('baud', '9600');
   $('baud').addEventListener('change', () => store.set('baud', $('baud').value));
 
+  $('autoConnect').checked = store.get('autoConnect', true);
+  $('autoConnect').addEventListener('change', () => store.set('autoConnect', $('autoConnect').checked));
+
   setFormat(fmt);
+  autoConnect();
   let lastUi = 0;
   (function frame(ts) {
     drawChart();

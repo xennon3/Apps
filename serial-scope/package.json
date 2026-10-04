@@ -1,0 +1,48 @@
+{
+  "name": "serial-scope",
+  "productName": "Serial Scope",
+  "version": "1.0.0",
+  "description": "Live dashboard and OBS overlay for Daktronics scoreboard serial data",
+  "author": "Serial Scope",
+  "private": true,
+  "main": "desktop/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --publish never"
+  },
+  "build": {
+    "appId": "app.serialscope.desktop",
+    "productName": "Serial Scope",
+    "files": [
+      "index.html",
+      "desktop/main.js",
+      "desktop/preload.js",
+      "desktop/build/icon.png"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "desktop/build"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "desktop/build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Serial-Scope-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Serial-Scope-Portable-${version}.${ext}"
+    },
+    "publish": []
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  }
+}

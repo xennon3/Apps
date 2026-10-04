@@ -63,4 +63,31 @@ for OBS **Text (GDI+)** sources with *Read from file* ticked. Next time, click *
 
 The ⛶ button on the scoreboard makes it full screen, for a TV or second monitor.
 
-Settings (format, baud rate, field names, alarms) are saved in the browser.
+## 🖥 Windows app
+
+Serial Scope also comes as a normal Windows program (built with Electron, the same engine as Chrome):
+
+- **Serial-Scope-Setup-x.y.z.exe** installs it with a Start-menu shortcut.
+- **Serial-Scope-Portable-x.y.z.exe** runs without installing (handy on a press-box laptop).
+
+Extras over the browser version:
+- **Connect** opens a list of COM ports by name (e.g. *MOXA USB Serial Port (COM3)*), with the Moxa port pre-selected.
+- The OBS overlay folder is written directly, with no browser permission prompts, and resumes by itself at launch. **Open folder** shows it in Explorer.
+- Its own window and taskbar icon. Only one copy runs at a time.
+
+Reconnecting to the last port (at startup and when the adapter is plugged back in) works in both the app and Chrome/Edge.
+
+**Getting the .exe:** every push that changes `serial-scope/` builds both files on GitHub
+(*Actions → "Serial Scope (Windows app)" → latest run → Artifacts → Serial-Scope-Windows*).
+
+**Building it yourself** (needs Node.js 22):
+```
+cd serial-scope
+npm ci
+npm start        # run it
+npm run dist     # build the Windows installers into dist/
+```
+The app is unsigned, so the first time you run it Windows SmartScreen may say "Windows protected your PC".
+Click **More info → Run anyway**.
+
+Settings (format, baud rate, field names, alarms, overlay folder) are remembered between sessions.
