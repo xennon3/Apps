@@ -9,6 +9,8 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.media.audiofx.AudioEffect
+import android.media.projection.MediaProjectionConfig
+import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
@@ -28,6 +30,8 @@ class MainActivity : Activity() {
 
     private lateinit var settings: SoundSettings
     private lateinit var masterSwitch: Switch
+    private lateinit var engineSwitch: Switch
+    private var syncingEngine = false
     private lateinit var globalSwitch: Switch
     private lateinit var status: TextView
     private lateinit var demoButton: Button
@@ -144,6 +148,24 @@ class MainActivity : Activity() {
         status = text("", 14f, MUTED).withMargin(top = 6)
         masterCard.addView(masterSwitch)
         masterCard.addView(status)
+        engineSwitch = Switch(this).apply {
+            text = "Full room engine for other apps"
+            textSize = 15f
+            setTextColor(WHITE)
+            setOnCheckedChangeListener { _, on ->
+                if (syncingEngine) return@setOnCheckedChangeListener
+                if (on) requestFullEngine() else EffectService.stopCapture(this@MainActivity)
+            }
+        }
+        masterCard.addView(engineSwitch.withMargin(top = 14))
+        masterCard.addView(
+            text(
+                "Plays YouTube and other apps through Venue's own engine, like the demo, so " +
+                    "every room works. Android will ask to share your screen: pick " +
+                    "\"Entire screen\". Only audio is used, nothing is recorded or saved.",
+                12f, MUTED,
+            ).withMargin(top = 2)
+        )
         column.addView(masterCard.withMargin(bottom = 20))
 
         // Rooms
@@ -311,6 +333,11 @@ class MainActivity : Activity() {
 
     private fun refreshStatus() {
         if (!::status.isInitialized) return
+        if (engineSwitch.isChecked != EffectService.capturing) {
+            syncingEngine = true
+            engineSwitch.isChecked = EffectService.capturing
+            syncingEngine = false
+        }
         detectStatus.text = when {
             !SessionScanner.hasPermission(this) -> "Status: not granted yet"
             !EffectService.running -> "Status: ✓ permission granted. Turn Effects on to start scanning"
@@ -378,6 +405,15 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         val uri = data?.data
+        if (requestCode == REQ_CAPTURE) {
+            if (resultCode == RESULT_OK && data != null) {
+                if (!settings.enabled) masterSwitch.isChecked = true
+                EffectService.startCapture(this, resultCode, data)
+            } else {
+                refreshStatus()
+            }
+            return
+        }
         if (requestCode == REQ_SONG && resultCode == RESULT_OK && uri != null) {
             startPreview("song") { FileSource(applicationContext, uri) }
         }
@@ -426,6 +462,38 @@ class MainActivity : Activity() {
             SessionScanner.scan(applicationContext)
             runOnUiThread { refreshStatus() }
         }.start()
+    }
+
+    /** Full engine: microphone-class permission first, then the screen-capture consent. */
+    private fun requestFullEngine() {
+        if (Build.VERSION.SDK_INT < 29) {
+            Toast.makeText(this, "Needs Android 10 or newer", Toast.LENGTH_LONG).show()
+            refreshStatus()
+            return
+        }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_MIC)
+            return
+        }
+        val mpm = getSystemService(MediaProjectionManager::class.java)
+        val intent = if (Build.VERSION.SDK_INT >= 34) {
+            // Whole-display sharing: single-app sharing wouldn't include other apps' audio.
+            mpm.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay())
+        } else {
+            mpm.createScreenCaptureIntent()
+        }
+        startActivityForResult(intent, REQ_CAPTURE)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQ_MIC) return
+        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            requestFullEngine()
+        } else {
+            Toast.makeText(this, "Android needs the audio permission to capture other apps", Toast.LENGTH_LONG).show()
+            refreshStatus()
+        }
     }
 
     private fun phoneEffects(): String = try {
@@ -538,6 +606,8 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQ_SONG = 1
+        private const val REQ_CAPTURE = 3
+        private const val REQ_MIC = 4
         private val BG = Color.parseColor("#0E0B16")
         private val CARD = Color.parseColor("#1B1528")
         private val CARD_SELECTED = Color.parseColor("#2C2045")

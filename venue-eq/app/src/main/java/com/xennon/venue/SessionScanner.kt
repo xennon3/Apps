@@ -21,8 +21,8 @@ import java.util.concurrent.TimeUnit
  */
 class SessionScanner(
     private val context: Context,
-    /** Called on the main thread with session id -> package of every live player. */
-    private val onScan: (Map<Int, String>) -> Unit,
+    /** Called on the main thread with session id -> live player. */
+    private val onScan: (Map<Int, Found>) -> Unit,
 ) {
     private val thread = HandlerThread("venue-scan").apply { start() }
     private val worker = Handler(thread.looper)
@@ -49,6 +49,8 @@ class SessionScanner(
         thread.quitSafely()
     }
 
+    data class Found(val pkg: String, val state: String)
+
     data class Player(val uid: Int, val session: Int, val state: String)
 
     enum class Status { NOT_STARTED, NO_PERMISSION, WORKING, NO_SESSION_IDS, FAILED }
@@ -66,7 +68,7 @@ class SessionScanner(
             private set
 
         /** Runs one scan (blocking; call off the main thread). Returns null if it couldn't run. */
-        fun scan(context: Context): Map<Int, String>? {
+        fun scan(context: Context): Map<Int, Found>? {
             val time = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
             if (!hasPermission(context)) {
                 status = Status.NO_PERMISSION
@@ -84,7 +86,7 @@ class SessionScanner(
             val players = parse(dump, Process.myUid())
             val pm = context.packageManager
             val found = players.associate { p ->
-                p.session to (pm.getPackagesForUid(p.uid)?.firstOrNull() ?: "uid ${p.uid}")
+                p.session to Found(pm.getPackagesForUid(p.uid)?.firstOrNull() ?: "uid ${p.uid}", p.state)
             }
             status = if (dump.contains("u/pid") && players.isEmpty() && !dump.contains("session", true)) {
                 Status.NO_SESSION_IDS
@@ -93,7 +95,7 @@ class SessionScanner(
             }
             lastReport = buildString {
                 append("$time: ${dump.length} chars read, ${players.size} player(s) found")
-                players.forEach { p -> append("\n• ${found[p.session]}  session ${p.session}  ${p.state}") }
+                players.forEach { p -> append("\n• ${found[p.session]?.pkg}  session ${p.session}  ${p.state}") }
                 if (players.isEmpty()) {
                     val samples = dump.lineSequence().filter { "u/pid" in it }.take(2).toList()
                     if (samples.isEmpty()) {

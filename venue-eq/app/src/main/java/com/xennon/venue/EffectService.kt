@@ -13,22 +13,37 @@ import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.media.audiofx.AudioEffect
+import android.media.projection.MediaProjection
+import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 
 /**
  * Keeps effects alive while music plays in other apps.
  *
- * Well-behaved players (Spotify, YouTube Music, Poweramp, VLC, ...) broadcast
- * ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION with their audio session id when playback
- * starts; we attach an [EffectChain] to each one. Optionally we also attach to the
- * legacy global session 0, which some phones still honour for EQ/bass/width.
+ * Sessions come from players that announce them (ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION)
+ * or from [SessionScanner]. Each session is handled one of two ways:
+ *  - Full engine (when capture is on): the app's own output is muted with a [SessionMute]
+ *    and its captured audio plays through [CaptureEngine], so every room works.
+ *  - Built-in effects: an [EffectChain] of the phone's platform effects on the session.
+ * Apps that block capture are detected (capture goes silent while they play) and fall
+ * back to built-in effects.
  */
 class EffectService : Service() {
 
     private lateinit var settings: SoundSettings
     private val chains = LinkedHashMap<Int, EffectChain>()
+    private val mutes = HashMap<Int, SessionMute>()
+    private val mutedSince = HashMap<Int, Long>()
+    private val states = HashMap<Int, String>()
+    /** Packages seen blocking capture during this run; they get built-in effects instead. */
+    private val blocked = HashSet<String>()
+    private var projection: MediaProjection? = null
+    private var capture: CaptureEngine? = null
     private var scanner: SessionScanner? = null
     /** Sessions we found ourselves (vs. ones the player announced). */
     private val scanned = HashSet<Int>()
@@ -84,10 +99,22 @@ class EffectService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            Log.i(TAG, "turned off from the notification")
-            settings.enabled = false
-            stopSelf()
+        when (intent?.action) {
+            ACTION_STOP -> {
+                Log.i(TAG, "turned off from the notification")
+                settings.enabled = false
+                stopSelf()
+            }
+            ACTION_CAPTURE -> {
+                val code = intent.getIntExtra(EXTRA_CODE, 0)
+                val data = if (Build.VERSION.SDK_INT >= 33) {
+                    intent.getParcelableExtra(EXTRA_DATA, Intent::class.java)
+                } else {
+                    @Suppress("DEPRECATION") intent.getParcelableExtra(EXTRA_DATA)
+                }
+                if (data != null) startCapture(code, data)
+            }
+            ACTION_STOP_CAPTURE -> stopCapture()
         }
         return START_STICKY
     }
@@ -100,8 +127,11 @@ class EffectService : Service() {
         scanner?.stop()
         scanner = null
         scanned.clear()
+        stopCapture(reroute = false)
         chains.values.forEach { it.release() }
         chains.clear()
+        mutes.values.forEach { it.release() }
+        mutes.clear()
         attached.clear()
         reports.clear()
         notifyListeners()
@@ -111,25 +141,49 @@ class EffectService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun attach(session: Int, owner: String) {
-        if (chains.containsKey(session)) return
+        if (attached.containsKey(session)) return
+        // Global mode would also process our own capture output, so it pauses meanwhile.
+        if (session == 0 && capture != null) return
+        attached[session] = owner
+        route(session)
+        refresh()
+    }
+
+    /** (Re)builds whatever handles [session]: engine mute or built-in effects. */
+    private fun route(session: Int) {
+        val owner = attached[session] ?: return
+        chains.remove(session)?.release()
+        mutes.remove(session)?.release()
+        mutedSince.remove(session)
+
+        if (Build.VERSION.SDK_INT >= 29 && capture != null && session != 0 && owner !in blocked) {
+            try {
+                mutes[session] = SessionMute(session)
+                mutedSince[session] = SystemClock.elapsedRealtime()
+                Log.i(TAG, "$owner (session $session) -> Venue engine")
+                return
+            } catch (t: Throwable) {
+                // Can't silence the original, so engine routing would play it twice.
+                Log.w(TAG, "couldn't mute $owner (session $session), using built-in effects", t)
+            }
+        }
         try {
             val chain = EffectChain(session) { refresh() }
             chains[session] = chain
-            attached[session] = owner
             chain.apply(settings.snapshot())
-            Log.i(TAG, "attached to $owner (session $session): ${chain.report()}")
+            Log.i(TAG, "$owner (session $session) -> built-in effects: ${chain.report()}")
         } catch (t: Throwable) {
             Log.e(TAG, "couldn't attach to $owner (session $session)", t)
             CrashLog.record(this, "attach to $owner", t)
         }
-        refresh()
     }
 
-    private fun onScan(live: Map<Int, String>) {
-        for ((session, pkg) in live) {
-            if (session !in chains) {
+    private fun onScan(live: Map<Int, SessionScanner.Found>) {
+        for ((session, found) in live) {
+            states[session] = found.state
+            if (session !in attached) {
                 scanned += session
-                attach(session, pkg)
+                attach(session, found.pkg)
             }
         }
         for (session in scanned.toList()) {
@@ -138,18 +192,87 @@ class EffectService : Service() {
                 detach(session)
             }
         }
+        checkForBlockedCapture()
         notifyListeners()
+    }
+
+    /**
+     * Some apps (Chrome, Spotify...) forbid capture. If capture stays silent while a muted
+     * app is playing, that app is blocking us: give it its sound back with built-in effects.
+     */
+    private fun checkForBlockedCapture() {
+        val engine = capture ?: return
+        val now = SystemClock.elapsedRealtime()
+        if (now - engine.lastSoundAt < SILENCE_MS) return
+        var changed = false
+        for ((session, since) in mutedSince.toList()) {
+            if (states[session] == "started" && now - since > SILENCE_MS) {
+                val owner = attached[session] ?: continue
+                Log.i(TAG, "$owner seems to block capture; switching it to built-in effects")
+                blocked += owner
+                route(session)
+                changed = true
+            }
+        }
+        if (changed) refresh()
     }
 
     private fun detach(session: Int) {
         Log.i(TAG, "detached session $session")
         chains.remove(session)?.release()
+        mutes.remove(session)?.release()
+        mutedSince.remove(session)
+        states.remove(session)
         attached.remove(session)
         refresh()
     }
 
+    private fun startCapture(code: Int, data: Intent) {
+        if (capture != null || Build.VERSION.SDK_INT < 29) return
+        try {
+            // Android requires the mediaProjection service type before using the token.
+            goForeground(withProjection = true)
+            val mpm = getSystemService(MediaProjectionManager::class.java)
+            val proj = mpm.getMediaProjection(code, data) ?: error("no media projection")
+            proj.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    Log.i(TAG, "capture permission ended by the system")
+                    if (projection === proj) stopCapture()
+                }
+            }, Handler(Looper.getMainLooper()))
+            projection = proj
+            capture = CaptureEngine(proj).also { it.start(settings.snapshot()) }
+            capturing = true
+            blocked.clear()
+            if (attached.containsKey(0)) detach(0)
+            attached.keys.toList().forEach(::route)
+            Log.i(TAG, "full engine on")
+        } catch (t: Throwable) {
+            Log.e(TAG, "couldn't start capture", t)
+            CrashLog.record(this, "start full engine", t)
+            stopCapture()
+        }
+        refresh()
+    }
+
+    private fun stopCapture(reroute: Boolean = true) {
+        val engine = capture
+        val proj = projection
+        capture = null
+        projection = null
+        capturing = false
+        engine?.release()
+        runCatching { proj?.stop() }
+        if (reroute) {
+            attached.keys.toList().forEach(::route)
+            if (settings.globalMode) attach(0, GLOBAL)
+            refresh()
+        }
+    }
+
     private fun applyAll() {
         val snap = settings.snapshot()
+        capture?.update(snap)
         chains.values.forEach { c ->
             try {
                 c.apply(snap)
@@ -163,6 +286,7 @@ class EffectService : Service() {
     private fun refresh() {
         reports.clear()
         chains.forEach { (id, c) -> reports[id] = c.report() }
+        mutes.keys.forEach { id -> reports[id] = "Venue engine ✓ (full rooms)" }
         try {
             getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification())
         } catch (t: Throwable) {
@@ -171,13 +295,20 @@ class EffectService : Service() {
         notifyListeners()
     }
 
-    private fun goForeground() {
+    private fun goForeground(withProjection: Boolean = false) {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL, "Active effects", NotificationManager.IMPORTANCE_LOW)
         )
         val n = buildNotification()
-        if (Build.VERSION.SDK_INT >= 34) {
+        if (withProjection && Build.VERSION.SDK_INT >= 34) {
+            startForeground(
+                NOTIF_ID, n,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
+            )
+        } else if (withProjection && Build.VERSION.SDK_INT >= 29) {
+            startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+        } else if (Build.VERSION.SDK_INT >= 34) {
             startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
             startForeground(NOTIF_ID, n)
@@ -188,7 +319,9 @@ class EffectService : Service() {
         val room = settings.room
         val apps = attached.count { it.key != 0 }
         val text = when {
+            apps > 0 && capture != null -> "Shaping $apps app${if (apps == 1) "" else "s"} · full engine"
             apps > 0 -> "Shaping $apps app${if (apps == 1) "" else "s"}"
+            capture != null -> "Full engine ready · waiting for music"
             else -> "Waiting for music to start"
         }
         val open = PendingIntent.getActivity(
@@ -215,6 +348,15 @@ class EffectService : Service() {
         private const val CHANNEL = "effects"
         private const val NOTIF_ID = 1
         private const val ACTION_STOP = "com.xennon.venue.STOP"
+        private const val ACTION_CAPTURE = "com.xennon.venue.CAPTURE"
+        private const val ACTION_STOP_CAPTURE = "com.xennon.venue.STOP_CAPTURE"
+        private const val EXTRA_CODE = "code"
+        private const val EXTRA_DATA = "data"
+        private const val SILENCE_MS = 3000L
+
+        /** True while other apps are routed through Venue's own engine. */
+        @Volatile var capturing = false
+            private set
 
         @Volatile var running = false
             private set
@@ -232,6 +374,20 @@ class EffectService : Service() {
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, EffectService::class.java))
+        }
+
+        /** Starts the full engine with the screen-capture consent result. */
+        fun startCapture(context: Context, code: Int, data: Intent) {
+            context.startForegroundService(
+                Intent(context, EffectService::class.java)
+                    .setAction(ACTION_CAPTURE)
+                    .putExtra(EXTRA_CODE, code)
+                    .putExtra(EXTRA_DATA, data)
+            )
+        }
+
+        fun stopCapture(context: Context) {
+            context.startService(Intent(context, EffectService::class.java).setAction(ACTION_STOP_CAPTURE))
         }
 
         fun stop(context: Context) {
