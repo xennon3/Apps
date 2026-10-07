@@ -3,6 +3,8 @@ package com.xennon.venue
 import android.content.Context
 import android.content.SharedPreferences
 import kotlin.math.ln
+import kotlin.math.log10
+import kotlin.math.roundToInt
 
 /** Everything the effect chain needs to configure itself, already resolved. */
 class Snapshot(
@@ -13,6 +15,44 @@ class Snapshot(
     val bass: Int,
     val width: Int,
 )
+
+/** Final reverb values for a [Snapshot], in [android.media.audiofx.EnvironmentalReverb] units. */
+class ReverbParams(
+    val roomLevel: Int,
+    val roomHfLevel: Int,
+    val decayTime: Int,
+    val decayHfRatio: Int,
+    val reflectionsLevel: Int,
+    val reflectionsDelay: Int,
+    val reverbLevel: Int,
+    val reverbDelay: Int,
+    val diffusion: Int,
+    val density: Int,
+)
+
+/**
+ * Resolves the room plus mix and position into concrete reverb values, or null when
+ * there should be no reverb. Shared by the platform effects and the built-in engine.
+ */
+fun Snapshot.reverbParams(): ReverbParams? {
+    val r = room.reverb ?: return null
+    if (mix < 0.01f) return null
+    val p = position
+    return ReverbParams(
+        // Mix maps to the wet level on a dB scale: 1.0 -> 0 mB, 0.1 -> -20 dB.
+        roomLevel = (2000 * log10(mix)).roundToInt().coerceIn(-9000, 0),
+        roomHfLevel = (r.roomHfLevel - 1200 * p).roundToInt().coerceIn(-9000, 0),
+        decayTime = r.decayTime.coerceIn(100, 20000),
+        decayHfRatio = r.decayHfRatio.coerceIn(100, 2000),
+        // Front row: loud early reflections, little tail. Back wall: the opposite.
+        reflectionsLevel = (r.reflectionsLevel - 600 * p).roundToInt().coerceIn(-9000, 1000),
+        reflectionsDelay = (r.reflectionsDelay + 40 * p).roundToInt().coerceIn(0, 300),
+        reverbLevel = (r.reverbLevel + 1200 * (p - 0.5f)).roundToInt().coerceIn(-9000, 2000),
+        reverbDelay = (r.reverbDelay + 30 * p).roundToInt().coerceIn(0, 100),
+        diffusion = r.diffusion.coerceIn(0, 1000),
+        density = r.density.coerceIn(0, 1000),
+    )
+}
 
 /** User settings, persisted in SharedPreferences and shared by the UI and the service. */
 class SoundSettings(context: Context) {

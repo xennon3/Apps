@@ -34,10 +34,20 @@ over old ones without uninstalling first.
 
 ## How it works
 
-All processing uses Android's built-in audio effects (`Equalizer`, `BassBoost`,
-`Virtualizer`, `EnvironmentalReverb`), so it runs with no extra latency and needs no
-root. Rooms are described with I3DL2 reverb parameters in `Rooms.kt`, so it's easy to add
-your own.
+There are two sound paths:
+
+- **Inside the app** (demo beat, "My song"): Venue's own DSP engine in `RoomProcessor.kt`.
+  It covers a 5-band biquad EQ, bass shelf, mid/side width, a Freeverb-style reverb with
+  pre-delay and early reflections, loudness matching and a limiter. It works on every
+  phone, through the speaker too.
+- **Other apps** (Spotify, YouTube Music, ...): Android's built-in effects (`Equalizer`,
+  `BassBoost`, `Virtualizer`, `EnvironmentalReverb`), attached to the player's audio
+  session. Support varies by phone, so the status line shows each one as ✓ working,
+  ⚠ taken over by another audio app (e.g. Dolby), or ✗ not supported.
+
+Rooms are described with I3DL2 reverb parameters in `Rooms.kt`, so it's easy to add your own.
+`./gradlew testReleaseUnitTest` renders the demo through every room into
+`app/build/room-samples/*.wav` so you can listen without a phone.
 
 ## Build
 

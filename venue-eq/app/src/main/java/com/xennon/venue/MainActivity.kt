@@ -8,9 +8,7 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.media.AudioAttributes
-import android.media.MediaPlayer
-import android.net.Uri
+import android.media.audiofx.AudioEffect
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
@@ -42,10 +40,9 @@ class MainActivity : Activity() {
     private lateinit var widthRow: SliderRow
     private val eqRows = ArrayList<SliderRow>()
 
-    // In-app preview player (demo loop or a song from the phone) with its own effects.
-    private var demo: DemoBeat? = null
-    private var song: MediaPlayer? = null
-    private var previewChain: EffectChain? = null
+    // In-app preview (demo loop or a song from the phone), run through Venue's own engine.
+    private var preview: PreviewPlayer? = null
+    private var previewKind: String? = null
 
     private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "enabled" && masterSwitch.isChecked != settings.enabled) {
@@ -150,7 +147,13 @@ class MainActivity : Activity() {
 
         // Preview
         column.addView(section("Try it here"))
-        column.addView(text("Play something right inside the app. Flip Effects on and off to compare.", 14f, MUTED))
+        column.addView(
+            text(
+                "Plays through Venue's own sound engine, so it works on any phone, even on the " +
+                    "speaker. Flip Effects on and off to compare.",
+                14f, MUTED,
+            )
+        )
         val previewRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         demoButton = button("▶  Demo beat") { toggleDemo() }
         songButton = button("🎵  My song") { pickSong() }
@@ -175,6 +178,10 @@ class MainActivity : Activity() {
                     "the app to attach normally.",
                 13f, MUTED,
             ).withMargin(top = 4)
+        )
+        column.addView(
+            text("Audio effects built into this phone:\n" + phoneEffects(), 13f, MUTED)
+                .withMargin(top = 12)
         )
 
         val scroll = ScrollView(this).apply {
@@ -238,16 +245,19 @@ class MainActivity : Activity() {
             !settings.enabled -> "Off. Turn it on, then press play in Spotify, YouTube Music, or any player."
             !EffectService.running -> "Starting…"
             else -> {
-                val apps = EffectService.attached.filterKeys { it != 0 }.values.map(::appLabel)
-                val global = EffectService.attached.containsKey(0)
-                buildString {
-                    if (apps.isEmpty()) {
-                        append("Listening. Start playing music in any app and it will show up here.")
-                    } else {
-                        append("Shaping: ${apps.joinToString(", ")}")
-                    }
-                    if (global) append("\nGlobal mode active")
+                val lines = EffectService.attached.map { (id, pkg) ->
+                    val who = if (id == 0) "Global mode" else appLabel(pkg)
+                    "$who:  ${EffectService.reports[id] ?: "…"}"
                 }
+                buildString {
+                    if (EffectService.attached.keys.none { it != 0 }) {
+                        append("Listening. Start playing music in any app and it will show up here.")
+                    }
+                    lines.forEach { append("\n").append(it) }
+                    if (lines.isNotEmpty()) {
+                        append("\n✓ working  ⚠ another audio app (e.g. Dolby) took over  ✗ phone doesn't support it")
+                    }
+                }.trim()
             }
         }
     }
@@ -271,21 +281,11 @@ class MainActivity : Activity() {
     // ---------------------------------------------------------- Preview
 
     private fun toggleDemo() {
-        if (demo != null) {
-            stopPreview()
-            return
-        }
-        stopPreview()
-        val beat = DemoBeat()
-        demo = beat
-        previewChain = EffectChain(beat.sessionId)
-        applyPreview()
-        beat.start()
-        demoButton.text = "■  Stop"
+        if (previewKind == "demo") stopPreview() else startPreview("demo") { DemoSource() }
     }
 
     private fun pickSong() {
-        if (song != null) {
+        if (previewKind == "song") {
             stopPreview()
             return
         }
@@ -299,50 +299,49 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         val uri = data?.data
-        if (requestCode == REQ_SONG && resultCode == RESULT_OK && uri != null) playSong(uri)
-    }
-
-    private fun playSong(uri: Uri) {
-        stopPreview()
-        try {
-            val mp = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build()
-                )
-                setDataSource(this@MainActivity, uri)
-                isLooping = true
-            }
-            song = mp
-            previewChain = EffectChain(mp.audioSessionId)
-            applyPreview()
-            mp.setOnPreparedListener { it.start() }
-            mp.prepareAsync()
-            songButton.text = "■  Stop"
-        } catch (e: Exception) {
-            stopPreview()
-            Toast.makeText(this, "Couldn't play that file: ${e.message}", Toast.LENGTH_LONG).show()
+        if (requestCode == REQ_SONG && resultCode == RESULT_OK && uri != null) {
+            startPreview("song") { FileSource(applicationContext, uri) }
         }
     }
 
+    private fun startPreview(kind: String, open: () -> AudioSource) {
+        stopPreview()
+        val player = PreviewPlayer(open) { e ->
+            runOnUiThread {
+                if (previewKind == kind) stopPreview()
+                Toast.makeText(this, "Couldn't play that: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+        preview = player
+        previewKind = kind
+        player.start(previewSnapshot())
+        if (kind == "demo") demoButton.text = "■  Stop" else songButton.text = "■  Stop"
+    }
+
     private fun stopPreview() {
-        demo?.release()
-        demo = null
-        song?.release()
-        song = null
-        previewChain?.release()
-        previewChain = null
+        preview?.release()
+        preview = null
+        previewKind = null
         if (::demoButton.isInitialized) {
             demoButton.text = "▶  Demo beat"
             songButton.text = "🎵  My song"
         }
     }
 
+    private fun previewSnapshot(): Snapshot? = if (settings.enabled) settings.snapshot() else null
+
     private fun applyPreview() {
-        val chain = previewChain ?: return
-        if (settings.enabled) chain.apply(settings.snapshot()) else chain.disable()
+        preview?.update(previewSnapshot())
+    }
+
+    private fun phoneEffects(): String = try {
+        AudioEffect.queryEffects()
+            .map { "${it.name} (${it.implementor})" }
+            .distinct()
+            .joinToString("\n") { "• $it" }
+            .ifEmpty { "none reported" }
+    } catch (e: Exception) {
+        "couldn't list: ${e.message}"
     }
 
     // ---------------------------------------------------------- Helpers

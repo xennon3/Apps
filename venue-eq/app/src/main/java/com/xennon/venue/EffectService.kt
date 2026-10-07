@@ -92,6 +92,7 @@ class EffectService : Service() {
         chains.values.forEach { it.release() }
         chains.clear()
         attached.clear()
+        reports.clear()
         notifyListeners()
         super.onDestroy()
     }
@@ -100,7 +101,7 @@ class EffectService : Service() {
 
     private fun attach(session: Int, owner: String) {
         if (chains.containsKey(session)) return
-        val chain = EffectChain(session)
+        val chain = EffectChain(session) { refresh() }
         chains[session] = chain
         attached[session] = owner
         chain.apply(settings.snapshot())
@@ -120,6 +121,8 @@ class EffectService : Service() {
     }
 
     private fun refresh() {
+        reports.clear()
+        chains.forEach { (id, c) -> reports[id] = c.report() }
         getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification())
         notifyListeners()
     }
@@ -173,6 +176,9 @@ class EffectService : Service() {
 
         /** session id -> package name of the app that owns it. Main thread only. */
         val attached = LinkedHashMap<Int, String>()
+
+        /** session id -> [EffectChain.report] health line. Main thread only. */
+        val reports = HashMap<Int, String>()
 
         private val listeners = mutableSetOf<() -> Unit>()
         fun addListener(l: () -> Unit) = listeners.add(l)

@@ -1,8 +1,5 @@
 package com.xennon.venue
 
-import android.media.AudioAttributes
-import android.media.AudioFormat
-import android.media.AudioTrack
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.exp
@@ -13,61 +10,25 @@ import kotlin.random.Random
  * A 4-bar loop synthesised on the fly, so you can hear every room without needing
  * a music app. It ends each loop with a lone snare hit so the reverb tail is exposed.
  */
-class DemoBeat {
-    private val track: AudioTrack
-    @Volatile private var playing = false
-    private var thread: Thread? = null
-    private val pcm: ShortArray = render()
+class DemoSource : AudioSource {
+    override val sampleRate = RATE
+    private val pcm: FloatArray = render()
+    private var pos = 0
 
-    val sessionId: Int get() = track.audioSessionId
-
-    init {
-        val minBuf = AudioTrack.getMinBufferSize(
-            RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT
-        )
-        track = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build()
-            )
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setSampleRate(RATE)
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
-                    .build()
-            )
-            .setBufferSizeInBytes(minBuf * 4)
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .build()
+    override fun read(out: FloatArray, frames: Int): Int {
+        var written = 0
+        while (written < frames) {
+            val n = minOf(frames - written, (pcm.size - pos) / 2)
+            System.arraycopy(pcm, pos, out, written * 2, n * 2)
+            written += n
+            pos = (pos + n * 2) % pcm.size
+        }
+        return frames
     }
 
-    fun start() {
-        if (playing) return
-        playing = true
-        track.play()
-        thread = Thread {
-            var pos = 0
-            val chunk = 4096
-            while (playing) {
-                val n = minOf(chunk, pcm.size - pos)
-                track.write(pcm, pos, n)
-                pos = (pos + n) % pcm.size
-            }
-        }.apply { start() }
-    }
+    override fun release() {}
 
-    fun release() {
-        playing = false
-        thread?.join(500)
-        track.pause()
-        track.flush()
-        track.release()
-    }
-
-    private fun render(): ShortArray {
+    private fun render(): FloatArray {
         val beat = RATE * 60 / BPM
         val frames = beat * 16
         val l = FloatArray(frames)
@@ -138,11 +99,11 @@ class DemoBeat {
         }
 
         val peak = maxOf(l.maxOf { abs(it) }, r.maxOf { abs(it) }, 1e-6f)
-        val gain = 0.8f / peak
-        val out = ShortArray(frames * 2)
+        val gain = 0.7f / peak
+        val out = FloatArray(frames * 2)
         for (i in 0 until frames) {
-            out[2 * i] = (l[i] * gain * Short.MAX_VALUE).toInt().toShort()
-            out[2 * i + 1] = (r[i] * gain * Short.MAX_VALUE).toInt().toShort()
+            out[2 * i] = l[i] * gain
+            out[2 * i + 1] = r[i] * gain
         }
         return out
     }

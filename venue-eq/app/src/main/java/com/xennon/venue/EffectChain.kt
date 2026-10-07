@@ -6,7 +6,6 @@ import android.media.audiofx.EnvironmentalReverb
 import android.media.audiofx.Equalizer
 import android.media.audiofx.Virtualizer
 import android.util.Log
-import kotlin.math.log10
 import kotlin.math.roundToInt
 
 /**
@@ -16,7 +15,7 @@ import kotlin.math.roundToInt
  * Every effect is optional: phones are free to not implement any of them, and
  * individual reverb parameters are sometimes unsupported, so all calls are guarded.
  */
-class EffectChain(val sessionId: Int) {
+class EffectChain(val sessionId: Int, private val onControlChange: () -> Unit = {}) {
     private val eq = create("Equalizer") { Equalizer(PRIORITY, sessionId) }
     private val bassBoost = create("BassBoost") { BassBoost(PRIORITY, sessionId) }
     private val virtualizer = create("Virtualizer") { Virtualizer(PRIORITY, sessionId) }
@@ -27,7 +26,12 @@ class EffectChain(val sessionId: Int) {
         create("EnvironmentalReverb") { EnvironmentalReverb(PRIORITY, sessionId) }
     } else null
 
-    val hasReverb get() = reverb != null
+    init {
+        // Dolby / Moto Audio and other EQ apps can grab a session from us at any time.
+        effects().forEach { e ->
+            guard { e.setControlStatusListener { _, _ -> onControlChange() } }
+        }
+    }
 
     fun apply(s: Snapshot) {
         eq?.let { e ->
@@ -48,28 +52,40 @@ class EffectChain(val sessionId: Int) {
             guard { v.enabled = s.width > 0 }
         }
         reverb?.let { r ->
-            val room = s.room.reverb
-            if (room == null || s.mix < 0.01f) {
+            val p = s.reverbParams()
+            if (p == null) {
                 guard { r.enabled = false }
                 return@let
             }
-            val p = s.position
-            // Mix maps to the wet level on a dB scale: 1.0 -> 0 mB, 0.1 -> -20 dB.
-            val wet = (2000 * log10(s.mix)).roundToInt()
-            guard { r.roomLevel = wet.clamp(-9000, 0).toShort() }
-            guard { r.roomHFLevel = (room.roomHfLevel - 1200 * p).roundToInt().clamp(-9000, 0).toShort() }
-            guard { r.decayTime = room.decayTime.clamp(100, 20000) }
-            guard { r.decayHFRatio = room.decayHfRatio.clamp(100, 2000).toShort() }
-            // Front row: loud early reflections, little tail. Back wall: the opposite.
-            guard { r.reflectionsLevel = (room.reflectionsLevel - 600 * p).roundToInt().clamp(-9000, 1000).toShort() }
-            guard { r.reflectionsDelay = (room.reflectionsDelay + 40 * p).roundToInt().clamp(0, 300) }
-            guard { r.reverbLevel = (room.reverbLevel + 1200 * (p - 0.5f)).roundToInt().clamp(-9000, 2000).toShort() }
-            guard { r.reverbDelay = (room.reverbDelay + 30 * p).roundToInt().clamp(0, 100) }
-            guard { r.diffusion = room.diffusion.clamp(0, 1000).toShort() }
-            guard { r.density = room.density.clamp(0, 1000).toShort() }
+            guard { r.roomLevel = p.roomLevel.toShort() }
+            guard { r.roomHFLevel = p.roomHfLevel.toShort() }
+            guard { r.decayTime = p.decayTime }
+            guard { r.decayHFRatio = p.decayHfRatio.toShort() }
+            guard { r.reflectionsLevel = p.reflectionsLevel.toShort() }
+            guard { r.reflectionsDelay = p.reflectionsDelay }
+            guard { r.reverbLevel = p.reverbLevel.toShort() }
+            guard { r.reverbDelay = p.reverbDelay }
+            guard { r.diffusion = p.diffusion.toShort() }
+            guard { r.density = p.density.toShort() }
             guard { r.enabled = true }
         }
     }
+
+    /**
+     * One-line health check, e.g. "EQ ✓ · Bass ✓ · Width ⚠ · Room ✗".
+     * ✓ working, ⚠ another app (e.g. Dolby) has taken control, ✗ not available on this phone.
+     */
+    fun report(): String = listOf(
+        "EQ" to eq, "Bass" to bassBoost, "Width" to virtualizer, "Room" to reverb,
+    ).filter { (name, _) -> !(name == "Room" && sessionId == 0) }
+        .joinToString(" · ") { (name, e) ->
+            val mark = when {
+                e == null -> "✗"
+                !(runCatching { e.hasControl() }.getOrDefault(false)) -> "⚠"
+                else -> "✓"
+            }
+            "$name $mark"
+        }
 
     fun disable() {
         effects().forEach { guard { it.enabled = false } }
@@ -95,8 +111,6 @@ class EffectChain(val sessionId: Int) {
             Log.w(TAG, "effect call failed on session $sessionId: $t")
         }
     }
-
-    private fun Int.clamp(lo: Int, hi: Int) = coerceIn(lo, hi)
 
     companion object {
         private const val TAG = "VenueEffects"
