@@ -45,6 +45,7 @@ class MainActivity : Activity() {
     private var previewKind: String? = null
     private lateinit var meter: TextView
     private lateinit var detectStatus: TextView
+    private lateinit var detectReport: TextView
     private val meterTick = object : Runnable {
         override fun run() {
             val p = preview ?: return
@@ -240,6 +241,12 @@ class MainActivity : Activity() {
         )
         detectStatus = text("", 13f, WHITE).withMargin(top = 8)
         detectCard.addView(detectStatus)
+        detectReport = text("", 11f, MUTED).apply {
+            typeface = Typeface.MONOSPACE
+            setTextIsSelectable(true)
+        }.withMargin(top = 6)
+        detectCard.addView(detectReport)
+        detectCard.addView(button("Scan now") { scanNow() }.withMargin(top = 8))
         column.addView(detectCard.withMargin(top = 12))
 
         column.addView(
@@ -312,6 +319,7 @@ class MainActivity : Activity() {
             SessionScanner.status == SessionScanner.Status.FAILED -> "Status: ⚠ scan failed, see logcat (VenueScan)"
             else -> "Status: ✓ scanning every 2 seconds"
         }
+        detectReport.text = SessionScanner.lastReport
         status.text = when {
             !settings.enabled -> "Off. Turn it on, then press play in Spotify, YouTube Music, or any player."
             !EffectService.running -> "Starting…"
@@ -409,6 +417,15 @@ class MainActivity : Activity() {
 
     private fun applyPreview() {
         preview?.update(previewSnapshot())
+    }
+
+    /** One scan right now, so you can check detection while YouTube plays. */
+    private fun scanNow() {
+        detectReport.text = "Scanning…"
+        Thread {
+            SessionScanner.scan(applicationContext)
+            runOnUiThread { refreshStatus() }
+        }.start()
     }
 
     private fun phoneEffects(): String = try {

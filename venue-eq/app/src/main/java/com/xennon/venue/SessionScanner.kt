@@ -7,6 +7,9 @@ import android.os.HandlerThread
 import android.os.Looper
 import android.os.Process
 import android.util.Log
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 /**
@@ -25,12 +28,11 @@ class SessionScanner(
     private val worker = Handler(thread.looper)
     private val main = Handler(Looper.getMainLooper())
     @Volatile private var running = false
-    private var loggedSample = false
 
     private val tick = object : Runnable {
         override fun run() {
             if (!running) return
-            val found = scanOnce()
+            val found = scan(context)
             main.post { if (running && found != null) onScan(found) }
             worker.postDelayed(this, INTERVAL_MS)
         }
@@ -47,42 +49,6 @@ class SessionScanner(
         thread.quitSafely()
     }
 
-    private fun scanOnce(): Map<Int, String>? {
-        if (!hasPermission(context)) {
-            status = Status.NO_PERMISSION
-            return null
-        }
-        val dump = try {
-            dumpsys("audio")
-        } catch (e: Exception) {
-            Log.w(TAG, "dumpsys failed", e)
-            status = Status.FAILED
-            return null
-        }
-        val players = parse(dump, Process.myUid())
-        if (players.isEmpty() && !loggedSample) {
-            // Help diagnose an unfamiliar dump format.
-            loggedSample = true
-            dump.lineSequence().filter { "u/pid" in it }.take(3).forEach { Log.i(TAG, "sample: ${it.trim()}") }
-        }
-        status = if (dump.contains("u/pid") && players.isEmpty() && !dump.contains("session", true)) {
-            Status.NO_SESSION_IDS
-        } else {
-            Status.WORKING
-        }
-        val pm = context.packageManager
-        return players.associate { p ->
-            p.session to (pm.getPackagesForUid(p.uid)?.firstOrNull() ?: "uid ${p.uid}")
-        }
-    }
-
-    private fun dumpsys(service: String): String {
-        val proc = ProcessBuilder("dumpsys", service).redirectErrorStream(true).start()
-        val out = proc.inputStream.bufferedReader().use { it.readText() }
-        proc.waitFor(3, TimeUnit.SECONDS)
-        return out
-    }
-
     data class Player(val uid: Int, val session: Int, val state: String)
 
     enum class Status { NOT_STARTED, NO_PERMISSION, WORKING, NO_SESSION_IDS, FAILED }
@@ -94,6 +60,60 @@ class SessionScanner(
 
         @Volatile var status = Status.NOT_STARTED
             private set
+
+        /** Human-readable result of the last scan, shown in the app for troubleshooting. */
+        @Volatile var lastReport = "No scan yet"
+            private set
+
+        /** Runs one scan (blocking; call off the main thread). Returns null if it couldn't run. */
+        fun scan(context: Context): Map<Int, String>? {
+            val time = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
+            if (!hasPermission(context)) {
+                status = Status.NO_PERMISSION
+                lastReport = "$time: permission not granted yet"
+                return null
+            }
+            val dump = try {
+                dumpsys("audio")
+            } catch (e: Exception) {
+                Log.w(TAG, "dumpsys failed", e)
+                status = Status.FAILED
+                lastReport = "$time: couldn't run dumpsys: $e"
+                return null
+            }
+            val players = parse(dump, Process.myUid())
+            val pm = context.packageManager
+            val found = players.associate { p ->
+                p.session to (pm.getPackagesForUid(p.uid)?.firstOrNull() ?: "uid ${p.uid}")
+            }
+            status = if (dump.contains("u/pid") && players.isEmpty() && !dump.contains("session", true)) {
+                Status.NO_SESSION_IDS
+            } else {
+                Status.WORKING
+            }
+            lastReport = buildString {
+                append("$time: ${dump.length} chars read, ${players.size} player(s) found")
+                players.forEach { p -> append("\n• ${found[p.session]}  session ${p.session}  ${p.state}") }
+                if (players.isEmpty()) {
+                    val samples = dump.lineSequence().filter { "u/pid" in it }.take(2).toList()
+                    if (samples.isEmpty()) {
+                        append("\nNo player lines. Start of output:\n" + dump.trim().take(300))
+                    } else {
+                        append("\nPlayer lines look like:")
+                        samples.forEach { append("\n" + it.trim().take(300)) }
+                    }
+                }
+            }
+            Log.i(TAG, lastReport)
+            return found
+        }
+
+        private fun dumpsys(service: String): String {
+            val proc = ProcessBuilder("dumpsys", service).redirectErrorStream(true).start()
+            val out = proc.inputStream.bufferedReader().use { it.readText() }
+            proc.waitFor(3, TimeUnit.SECONDS)
+            return out
+        }
 
         fun hasPermission(context: Context) =
             context.checkSelfPermission("android.permission.DUMP") == PackageManager.PERMISSION_GRANTED
