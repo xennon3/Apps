@@ -1,0 +1,28 @@
+name: Venue EQ (Android APK)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'venue-eq/**'
+      - '.github/workflows/venue-eq-android.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: venue-eq
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew testReleaseUnitTest lintRelease assembleRelease --console=plain
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Venue-EQ-APK
+          path: venue-eq/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
