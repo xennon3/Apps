@@ -81,6 +81,7 @@ class EffectService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            Log.i(TAG, "turned off from the notification")
             settings.enabled = false
             stopSelf()
         }
@@ -88,6 +89,7 @@ class EffectService : Service() {
     }
 
     override fun onDestroy() {
+        Log.i(TAG, "service stopped")
         running = false
         settings.prefs.unregisterOnSharedPreferenceChangeListener(prefListener)
         unregisterReceiver(sessionReceiver)
@@ -103,11 +105,16 @@ class EffectService : Service() {
 
     private fun attach(session: Int, owner: String) {
         if (chains.containsKey(session)) return
-        val chain = EffectChain(session) { refresh() }
-        chains[session] = chain
-        attached[session] = owner
-        chain.apply(settings.snapshot())
-        Log.i(TAG, "attached to $owner (session $session): ${chain.report()}")
+        try {
+            val chain = EffectChain(session) { refresh() }
+            chains[session] = chain
+            attached[session] = owner
+            chain.apply(settings.snapshot())
+            Log.i(TAG, "attached to $owner (session $session): ${chain.report()}")
+        } catch (t: Throwable) {
+            Log.e(TAG, "couldn't attach to $owner (session $session)", t)
+            CrashLog.record(this, "attach to $owner", t)
+        }
         refresh()
     }
 
@@ -120,14 +127,24 @@ class EffectService : Service() {
 
     private fun applyAll() {
         val snap = settings.snapshot()
-        chains.values.forEach { it.apply(snap) }
+        chains.values.forEach { c ->
+            try {
+                c.apply(snap)
+            } catch (t: Throwable) {
+                Log.e(TAG, "apply failed on session ${c.sessionId}", t)
+            }
+        }
         refresh()
     }
 
     private fun refresh() {
         reports.clear()
         chains.forEach { (id, c) -> reports[id] = c.report() }
-        getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification())
+        try {
+            getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification())
+        } catch (t: Throwable) {
+            Log.w(TAG, "notification update failed", t)
+        }
         notifyListeners()
     }
 

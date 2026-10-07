@@ -108,6 +108,26 @@ class MainActivity : Activity() {
         }
 
         column.addView(text("Venue EQ", 30f, WHITE, bold = true))
+        CrashLog.last(this)?.let { report ->
+            val box = card().apply { orientation = LinearLayout.VERTICAL }
+            box.background = rounded(Color.parseColor("#3A1424"), PINK)
+            box.addView(text("⚠ Something went wrong last time", 15f, WHITE, bold = true))
+            box.addView(
+                text(report, 11f, MUTED).apply {
+                    setTextIsSelectable(true)
+                    typeface = Typeface.MONOSPACE
+                }.withMargin(top = 6)
+            )
+            box.addView(
+                text("Long-press to copy and send it to Claude. Tap here to dismiss.", 12f, PINK)
+                    .withMargin(top = 6)
+            )
+            box.setOnClickListener {
+                CrashLog.clear(this)
+                box.visibility = View.GONE
+            }
+            column.addView(box.withMargin(top = 12))
+        }
         column.addView(text("Move your music into a different room.", 15f, MUTED).withMargin(bottom = 16))
 
         // Master switch card
@@ -117,7 +137,7 @@ class MainActivity : Activity() {
             textSize = 20f
             setTextColor(WHITE)
             setTypeface(typeface, Typeface.BOLD)
-            setOnCheckedChangeListener { _, on -> setEnabled(on) }
+            setOnCheckedChangeListener { _, on -> setEffectsOn(on) }
         }
         status = text("", 14f, MUTED).withMargin(top = 6)
         masterCard.addView(masterSwitch)
@@ -283,7 +303,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun setEnabled(on: Boolean) {
+    private fun setEffectsOn(on: Boolean) {
         if (settings.enabled != on) settings.enabled = on
         if (on) {
             if (Build.VERSION.SDK_INT >= 33 &&

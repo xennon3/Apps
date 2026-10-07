@@ -61,7 +61,11 @@ class SoundSettings(context: Context) {
 
     var enabled: Boolean
         get() = prefs.getBoolean("enabled", false)
-        set(v) = prefs.edit().putBoolean("enabled", v).apply()
+        set(v) {
+            // commit(), not apply(): the switch must survive even if the process dies right after.
+            prefs.edit().putBoolean("enabled", v).commit()
+            android.util.Log.i("VenueEffects", "Effects switched ${if (v) "on" else "off"}", Throwable("changed by"))
+        }
 
     var globalMode: Boolean
         get() = prefs.getBoolean("global", false)

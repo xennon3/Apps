@@ -34,12 +34,15 @@ class EffectChain(val sessionId: Int, private val onControlChange: () -> Unit = 
     }
 
     fun apply(s: Snapshot) {
+        // Even the read-only calls throw once another app (e.g. Dolby) owns the effect.
         eq?.let { e ->
-            val (min, max) = e.bandLevelRange.let { it[0].toInt() to it[1].toInt() }
-            for (b in 0 until e.numberOfBands) {
-                val hz = e.getCenterFreq(b.toShort()) / 1000f
-                val mb = (eqGainAt(s.eqDb, hz) * 100).roundToInt().coerceIn(min, max)
-                guard { e.setBandLevel(b.toShort(), mb.toShort()) }
+            guard {
+                val (min, max) = e.bandLevelRange.let { it[0].toInt() to it[1].toInt() }
+                for (b in 0 until e.numberOfBands) {
+                    val hz = e.getCenterFreq(b.toShort()) / 1000f
+                    val mb = (eqGainAt(s.eqDb, hz) * 100).roundToInt().coerceIn(min, max)
+                    guard { e.setBandLevel(b.toShort(), mb.toShort()) }
+                }
             }
             guard { e.enabled = true }
         }
