@@ -44,6 +44,7 @@ class MainActivity : Activity() {
     private var preview: PreviewPlayer? = null
     private var previewKind: String? = null
     private lateinit var meter: TextView
+    private lateinit var detectStatus: TextView
     private val meterTick = object : Runnable {
         override fun run() {
             val p = preview ?: return
@@ -220,6 +221,27 @@ class MainActivity : Activity() {
                 13f, MUTED,
             ).withMargin(top = 4)
         )
+        // Auto-detect for apps that don't announce themselves (YouTube, Chrome, ...)
+        val detectCard = card().apply { orientation = LinearLayout.VERTICAL }
+        detectCard.addView(text("Auto-detect apps", 16f, WHITE, bold = true))
+        detectCard.addView(
+            text(
+                "YouTube, Chrome and many games never tell Android they're playing, so Venue " +
+                    "can't find them on its own. Run this once from a computer with adb and " +
+                    "Venue will spot them automatically:",
+                13f, MUTED,
+            ).withMargin(top = 4)
+        )
+        detectCard.addView(
+            text(SessionScanner.GRANT_COMMAND, 12f, ACCENT).apply {
+                typeface = Typeface.MONOSPACE
+                setTextIsSelectable(true)
+            }.withMargin(top = 8)
+        )
+        detectStatus = text("", 13f, WHITE).withMargin(top = 8)
+        detectCard.addView(detectStatus)
+        column.addView(detectCard.withMargin(top = 12))
+
         column.addView(
             text("Audio effects built into this phone:\n" + phoneEffects(), 13f, MUTED)
                 .withMargin(top = 12)
@@ -282,6 +304,14 @@ class MainActivity : Activity() {
 
     private fun refreshStatus() {
         if (!::status.isInitialized) return
+        detectStatus.text = when {
+            !SessionScanner.hasPermission(this) -> "Status: not granted yet"
+            !EffectService.running -> "Status: ✓ permission granted. Turn Effects on to start scanning"
+            SessionScanner.status == SessionScanner.Status.NO_SESSION_IDS ->
+                "Status: ⚠ this Android version hides session ids, please tell Claude"
+            SessionScanner.status == SessionScanner.Status.FAILED -> "Status: ⚠ scan failed, see logcat (VenueScan)"
+            else -> "Status: ✓ scanning every 2 seconds"
+        }
         status.text = when {
             !settings.enabled -> "Off. Turn it on, then press play in Spotify, YouTube Music, or any player."
             !EffectService.running -> "Starting…"

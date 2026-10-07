@@ -29,6 +29,9 @@ class EffectService : Service() {
 
     private lateinit var settings: SoundSettings
     private val chains = LinkedHashMap<Int, EffectChain>()
+    private var scanner: SessionScanner? = null
+    /** Sessions we found ourselves (vs. ones the player announced). */
+    private val scanned = HashSet<Int>()
 
     private val sessionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -62,6 +65,7 @@ class EffectService : Service() {
         registerSessionReceiver(filter)
         settings.prefs.registerOnSharedPreferenceChangeListener(prefListener)
         if (settings.globalMode) attach(0, GLOBAL)
+        scanner = SessionScanner(this, ::onScan).also { it.start() }
         Log.i(TAG, "service started; room=${settings.room.name}, global=${settings.globalMode}")
 
         running = true
@@ -93,6 +97,9 @@ class EffectService : Service() {
         running = false
         settings.prefs.unregisterOnSharedPreferenceChangeListener(prefListener)
         unregisterReceiver(sessionReceiver)
+        scanner?.stop()
+        scanner = null
+        scanned.clear()
         chains.values.forEach { it.release() }
         chains.clear()
         attached.clear()
@@ -116,6 +123,22 @@ class EffectService : Service() {
             CrashLog.record(this, "attach to $owner", t)
         }
         refresh()
+    }
+
+    private fun onScan(live: Map<Int, String>) {
+        for ((session, pkg) in live) {
+            if (session !in chains) {
+                scanned += session
+                attach(session, pkg)
+            }
+        }
+        for (session in scanned.toList()) {
+            if (session !in live) {
+                scanned -= session
+                detach(session)
+            }
+        }
+        notifyListeners()
     }
 
     private fun detach(session: Int) {
