@@ -32,6 +32,10 @@ class PreviewPlayer(
     @Volatile private var pending: Snapshot? = null
     @Volatile var processor: RoomProcessor? = null
         private set
+
+    /** How much the engine is changing the sound right now (0 = untouched), for the UI meter. */
+    @Volatile var change = 0f
+        private set
     private val thread = Thread(::run, "venue-preview")
 
     fun start(initial: Snapshot?) {
@@ -80,14 +84,36 @@ class PreviewPlayer(
                 .build()
             track = t
             t.play()
+            Log.i(TAG, "playing at ${src.sampleRate} Hz, track state=${t.playState}, engine=${pending?.room?.name ?: "bypass"}")
             val buf = FloatArray(BLOCK * 2)
+            val dry = FloatArray(BLOCK * 2)
+            var inSum = 0.0
+            var diffSum = 0.0
+            var blocks = 0
             while (running) {
                 src.read(buf, BLOCK)
+                System.arraycopy(buf, 0, dry, 0, buf.size)
                 proc.process(buf, BLOCK)
-                t.write(buf, 0, buf.size, AudioTrack.WRITE_BLOCKING)
+                for (i in buf.indices) {
+                    val d = buf[i] - dry[i]
+                    inSum += dry[i] * dry[i]
+                    diffSum += d * d
+                }
+                val written = t.write(buf, 0, buf.size, AudioTrack.WRITE_BLOCKING)
+                if (written < 0) Log.w(TAG, "AudioTrack.write error $written")
+                if (++blocks * BLOCK >= src.sampleRate / 2) {
+                    change = if (inSum > 1e-9) kotlin.math.sqrt(diffSum / inSum).toFloat() else 0f
+                    if (blocks * BLOCK >= src.sampleRate / 2 && (System.nanoTime() / 1_000_000_000L) % 5 == 0L) {
+                        Log.i(TAG, "engine=${pending?.room?.name ?: "bypass"} level=%.3f change=%.0f%%"
+                            .format(kotlin.math.sqrt(inSum / (blocks * BLOCK * 2)), change * 100))
+                    }
+                    inSum = 0.0
+                    diffSum = 0.0
+                    blocks = 0
+                }
             }
         } catch (e: Exception) {
-            Log.e("VenuePreview", "playback failed", e)
+            Log.e(TAG, "playback failed", e)
             if (running) onError(e)
         } finally {
             processor = null
@@ -105,6 +131,7 @@ class PreviewPlayer(
 
     companion object {
         private const val BLOCK = 512
+        private const val TAG = "VenuePreview"
     }
 }
 

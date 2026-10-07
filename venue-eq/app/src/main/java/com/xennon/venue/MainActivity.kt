@@ -43,6 +43,19 @@ class MainActivity : Activity() {
     // In-app preview (demo loop or a song from the phone), run through Venue's own engine.
     private var preview: PreviewPlayer? = null
     private var previewKind: String? = null
+    private lateinit var meter: TextView
+    private val meterTick = object : Runnable {
+        override fun run() {
+            val p = preview ?: return
+            meter.text = when {
+                !settings.enabled -> "Engine: bypassed (Effects off), you're hearing the original"
+                p.processor == null -> "Engine: starting…"
+                else -> "Engine: ${settings.room.emoji} ${settings.room.name} is changing the sound by %.0f%%"
+                    .format(p.change * 100)
+            }
+            meter.postDelayed(this, 400)
+        }
+    }
 
     private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "enabled" && masterSwitch.isChecked != settings.enabled) {
@@ -56,6 +69,12 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         settings = SoundSettings(this)
         setContentView(buildUi())
+        android.util.Log.i(
+            "VenueEffects",
+            "v${packageManager.getPackageInfo(packageName, 0).versionName} on ${Build.MANUFACTURER} ${Build.MODEL} " +
+                "Android ${Build.VERSION.RELEASE}; effects=${settings.enabled}; phone effects: " +
+                phoneEffects().replace("\n", " "),
+        )
         syncControls()
         refreshStatus()
         if (settings.enabled && !EffectService.running) EffectService.start(this)
@@ -159,7 +178,9 @@ class MainActivity : Activity() {
         songButton = button("🎵  My song") { pickSong() }
         previewRow.addView(demoButton, weighted())
         previewRow.addView(songButton, weighted())
-        column.addView(previewRow.withMargin(top = 8, bottom = 20))
+        column.addView(previewRow.withMargin(top = 8))
+        meter = text("", 14f, ACCENT).withMargin(top = 6, bottom = 20)
+        column.addView(meter)
 
         // Advanced
         column.addView(section("Advanced"))
@@ -315,6 +336,8 @@ class MainActivity : Activity() {
         preview = player
         previewKind = kind
         player.start(previewSnapshot())
+        meter.removeCallbacks(meterTick)
+        meter.post(meterTick)
         if (kind == "demo") demoButton.text = "■  Stop" else songButton.text = "■  Stop"
     }
 
@@ -322,6 +345,10 @@ class MainActivity : Activity() {
         preview?.release()
         preview = null
         previewKind = null
+        if (::meter.isInitialized) {
+            meter.removeCallbacks(meterTick)
+            meter.text = ""
+        }
         if (::demoButton.isInitialized) {
             demoButton.text = "▶  Demo beat"
             songButton.text = "🎵  My song"

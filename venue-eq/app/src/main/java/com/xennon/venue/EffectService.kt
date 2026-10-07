@@ -15,6 +15,7 @@ import android.content.pm.ServiceInfo
 import android.media.audiofx.AudioEffect
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 
 /**
  * Keeps effects alive while music plays in other apps.
@@ -61,6 +62,7 @@ class EffectService : Service() {
         registerSessionReceiver(filter)
         settings.prefs.registerOnSharedPreferenceChangeListener(prefListener)
         if (settings.globalMode) attach(0, GLOBAL)
+        Log.i(TAG, "service started; room=${settings.room.name}, global=${settings.globalMode}")
 
         running = true
         notifyListeners()
@@ -105,10 +107,12 @@ class EffectService : Service() {
         chains[session] = chain
         attached[session] = owner
         chain.apply(settings.snapshot())
+        Log.i(TAG, "attached to $owner (session $session): ${chain.report()}")
         refresh()
     }
 
     private fun detach(session: Int) {
+        Log.i(TAG, "detached session $session")
         chains.remove(session)?.release()
         attached.remove(session)
         refresh()
@@ -167,6 +171,7 @@ class EffectService : Service() {
 
     companion object {
         const val GLOBAL = "Global output"
+        private const val TAG = "VenueEffects"
         private const val CHANNEL = "effects"
         private const val NOTIF_ID = 1
         private const val ACTION_STOP = "com.xennon.venue.STOP"
