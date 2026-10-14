@@ -99,22 +99,30 @@ which receives `{type: "scroll", dx, dy}` and `{type: "zoom", factor}` from the 
 
 ## Install
 
-1. Get the APK: download **Dashplay-APK** from the latest run of the
-   *Dashplay (Android APK)* workflow on GitHub Actions, or build it yourself with
-   `./gradlew assembleDebug`.
-2. Install it on your phone (allow installs from your browser or file manager).
-3. Unlock Android Auto developer mode: phone **Settings → Apps → Android Auto →
-   Additional settings in the app**, scroll to the bottom and tap **Version** ten times.
-4. In the ⋮ menu choose **Developer settings** and turn on **Unknown sources**.
-5. Connect to the car. Dashplay appears in the Android Auto app launcher.
+Android Auto only shows apps built with the Android for Cars App Library (Dashplay is one)
+when they come from a trusted source such as Google Play. Its **Unknown sources** developer
+setting does **not** cover these apps, so a plain sideloaded APK never appears in the car.
+The way around it without a public Play listing is Play's **internal app sharing**, which
+has no review:
 
-No car handy? Use Google's **Desktop Head Unit** (Android SDK Manager → SDK Tools →
-*Android Auto Desktop Head Unit Emulator*). In Android Auto's ⋮ menu choose
-**Start head unit server**, run `adb forward tcp:5277 tcp:5277`, then start `desktop-head-unit`.
+1. Get a [Google Play Console](https://play.google.com/console) developer account
+   (one-time US$25 fee) and create an app called Dashplay.
+2. In the Play Console open **Internal app sharing**, upload the APK (download
+   **Dashplay-APK** from the latest *Dashplay (Android APK)* workflow run, or build it with
+   `./gradlew assembleDebug`), and copy the link it gives you. Debug builds are fine there.
+3. On the phone, turn on internal app sharing in the Play Store: **Play Store → profile
+   picture → Settings → About**, tap **Play Store version** seven times, then
+   **Settings → General → Developer options → Internal app sharing**.
+4. Uninstall any copy of Dashplay you installed from a file, since Play signs its copy differently.
+5. Open the link on the phone and install from the Play Store.
+6. Connect to the car. Dashplay appears in the Android Auto launcher. If it doesn't, check
+   **Android Auto settings → Customize launcher**.
+
+For each new version, upload the new APK to internal app sharing and install from the new link.
 
 ## Limits and honest notes
 
-- **Sideload only.** The Play Store won't accept a "navigation" app that isn't one.
+- **Not for the public Play Store.** Play wouldn't approve a "navigation" app that isn't one, so Dashplay is installed through internal app sharing (see Install).
 - **Taps need car API level 5** (Android Auto from about 2022 onward).
 - **Web text boxes have no on-screen keyboard** on the car; use the phone's *Type* box.
 - **The driving lock depends on the car reporting its speed.** The desktop head unit and
