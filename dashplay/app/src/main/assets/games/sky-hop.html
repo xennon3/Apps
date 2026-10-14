@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sky Hop</title>
+<link rel="stylesheet" href="../kit/arcade.css">
+</head>
+<body>
+<script src="../kit/games.js"></script>
+<script src="../kit/arcade.js"></script>
+<script>
+const { rand, roundRect, emoji } = Arcade;
+let bird, posts, scrollX, clouds = [], unit;
+
+const game = Arcade.create({
+  id: 'sky-hop',
+  keys: [['Tap anywhere', 'flap'], ['A', 'gamepad']],
+  resize(W, H) {
+    unit = H / 12;
+    clouds = Array.from({ length: 7 }, () => ({ x: rand(0, W), y: rand(H * 0.05, H * 0.6), s: rand(0.6, 1.4) }));
+  },
+  start() {
+    bird = { x: game.W * 0.25, y: game.H * 0.45, vy: 0, rot: 0 };
+    posts = []; scrollX = 0;
+    for (let i = 0; i < 4; i++) addPost(game.W * 0.75 + i * gap());
+  },
+  tap: flap,
+  key(k) { if (k === 'a' || k === 'up' || k === 'b') flap(); },
+  update(dt) {
+    const H = game.H, speed = unit * (3.2 + Math.min(game.score, 30) * 0.05);
+    bird.vy += unit * 22 * dt;
+    bird.y += bird.vy * dt;
+    bird.rot = Math.max(-0.5, Math.min(1.2, bird.vy / (unit * 12)));
+    posts.forEach(p => {
+      p.x -= speed * dt;
+      if (!p.passed && p.x + p.w < bird.x) { p.passed = true; game.add(1); game.sfx('point'); }
+    });
+    if (posts[0].x + posts[0].w < 0) { posts.shift(); addPost(posts[posts.length - 1].x + gap()); }
+    clouds.forEach(c => { c.x -= speed * 0.2 * c.s * dt; if (c.x < -unit * 3) c.x = game.W + unit * 3; });
+    const r = unit * 0.38;
+    if (bird.y > H - unit * 0.8 - r || bird.y < -unit) return crash();
+    for (const p of posts) {
+      if (bird.x + r > p.x && bird.x - r < p.x + p.w && (bird.y - r < p.gapY || bird.y + r > p.gapY + p.gap)) return crash();
+    }
+  },
+  draw(g, W, H, t) {
+    const sky = g.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0, '#2B2466'); sky.addColorStop(0.65, '#8B7CFF'); sky.addColorStop(1, '#FFB38A');
+    g.fillStyle = sky; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#ffffff20';
+    clouds.forEach(c => { g.beginPath(); g.ellipse(c.x, c.y, unit * 1.6 * c.s, unit * 0.5 * c.s, 0, 0, 7); g.fill(); });
+    (posts || []).forEach(p => drawPost(g, p, H));
+    g.fillStyle = '#2B2F38'; g.fillRect(0, H - unit * 0.8, W, unit * 0.8);
+    g.fillStyle = '#F2F4F8aa';
+    const off = (scrollX = ((scrollX || 0) + (game.state === 'playing' ? 3 : 0.6)) % (unit * 2));
+    for (let x = -off; x < W; x += unit * 2) g.fillRect(x, H - unit * 0.45, unit, 4);
+    const b = bird || { x: W * 0.25, y: H * 0.45 + Math.sin(t / 300) * unit * 0.3, rot: 0 };
+    g.save(); g.translate(b.x, b.y); g.rotate(b.rot); g.scale(-1, 1);
+    emoji(g, '🐦', 0, 0, unit * 0.95); g.restore();
+  },
+});
+
+function gap() { return Math.max(unit * 4.2, game.W * 0.32); }
+
+function addPost(x) {
+  // Gaps start roomy and close in slowly; bumpy roads make for clumsy taps.
+  const gapH = Math.max(unit * 3.3, unit * 4.6 - game.score * 0.05 * unit);
+  const top = rand(unit * 1.2, game.H - unit * 0.8 - gapH - unit * 0.8);
+  posts.push({ x, w: unit * 1.15, gapY: top, gap: gapH, hue: Math.random() < 0.5 ? 'green' : 'blue' });
+}
+
+function flap() { bird.vy = -unit * 7.2; game.sfx('flip', 1.6); }
+
+function crash() { game.sfx('bad'); navigator.vibrate?.(150); game.end(game.score === 1 ? '1 sign cleared' : `${game.score} signs cleared`); }
+
+function drawPost(g, p, H) {
+  const ground = H - unit * 0.8;
+  g.fillStyle = '#5B6475';
+  g.fillRect(p.x + p.w * 0.38, 0, p.w * 0.24, p.gapY);
+  g.fillRect(p.x + p.w * 0.38, p.gapY + p.gap, p.w * 0.24, ground - p.gapY - p.gap);
+  const sign = (y) => {
+    g.fillStyle = p.hue === 'green' ? '#1F7A4D' : '#1F4E99';
+    roundRect(g, p.x - unit * 0.15, y, p.w + unit * 0.3, unit * 0.9, 8); g.fill();
+    g.strokeStyle = '#F2F4F8'; g.lineWidth = 3;
+    roundRect(g, p.x - unit * 0.08, y + 4, p.w + unit * 0.16, unit * 0.9 - 8, 6); g.stroke();
+  };
+  sign(p.gapY - unit * 0.9);
+  sign(p.gapY + p.gap);
+}
+</script>
+</body>
+</html>

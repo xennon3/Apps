@@ -29,6 +29,7 @@ kotlin {
 
 dependencies {
     implementation("androidx.car.app:app:1.7.0")
+    implementation("androidx.activity:activity:1.12.4")
     // CarHardwareManager on Android Auto (used for the speed lock).
     implementation("androidx.car.app:app-projected:1.7.0")
 }

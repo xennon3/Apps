@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mile 2048</title>
+<link rel="stylesheet" href="../kit/arcade.css">
+<style>
+  #stage { display: flex; align-items: center; justify-content: center; gap: max(24px, 5vw); padding-top: 10vh; }
+  .board {
+    --size: min(80vh, 54vw); width: var(--size); height: var(--size); position: relative; padding: 1.2%;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 22px;
+  }
+  .cells, .tiles { position: absolute; inset: 1.2%; }
+  .cells { display: grid; grid-template-columns: repeat(4, 1fr); }
+  .cells i { margin: 4%; border-radius: 14px; background: var(--surface-2); }
+  .tile { position: absolute; width: 25%; height: 25%; transition: left .11s, top .11s; }
+  .tile .face {
+    position: absolute; inset: 4%; border-radius: 14px; display: grid; place-content: center; text-align: center;
+    font-weight: 800; font-size: calc(var(--size) * .085); line-height: 1; color: #fff; box-shadow: inset 0 -4px 0 #0003;
+    animation: appear .16s ease-out;
+  }
+  .tile .face small { display: block; font-size: .3em; letter-spacing: .14em; opacity: .7; margin-bottom: .25em; }
+  .tile.big .face { font-size: calc(var(--size) * .065); }
+  .tile.bump .face { animation: bump .18s ease-out; }
+  @keyframes appear { from { transform: scale(.3); opacity: 0; } }
+  @keyframes bump { 50% { transform: scale(1.14); } }
+  .pad { display: grid; grid-template-columns: repeat(3, max(72px, 14vh)); grid-template-rows: repeat(3, max(72px, 14vh)); gap: 10px; }
+  .pad button {
+    border-radius: 20px; background: var(--surface-2); border: 1px solid var(--line); font-size: max(26px, 5vh); color: var(--text);
+  }
+  .pad button:active { background: var(--accent); color: #111; }
+  .pad [data-d=up] { grid-area: 1 / 2; } .pad [data-d=left] { grid-area: 2 / 1; }
+  .pad [data-d=right] { grid-area: 2 / 3; } .pad [data-d=down] { grid-area: 3 / 2; }
+  @media (max-aspect-ratio: 1/1) {
+    #stage { flex-direction: column; padding-top: 12vh; }
+    .board { --size: min(92vw, 58vh); }
+    .pad { grid-template-columns: repeat(3, 64px); grid-template-rows: repeat(3, 64px); }
+  }
+</style>
+</head>
+<body>
+<script src="../kit/games.js"></script>
+<script src="../kit/arcade.js"></script>
+<script>
+const COLORS = ['#3A4558', '#4F5B70', '#F4A261', '#F08A3E', '#EC6B3E', '#E85D75', '#D24E8E', '#8B7CFF', '#4C8DF0', '#2EC4B6', '#3DDC84', '#FFC24B'];
+let grid, tilesEl, nextId, reached;
+
+const game = Arcade.create({
+  id: 'mile-2048',
+  canvas: false,
+  keys: [['▲ ▼ ◀ ▶', 'slide the board']],
+  start() {
+    grid = [0, 1, 2, 3].map(() => [null, null, null, null]);
+    tilesEl.innerHTML = ''; nextId = 0; reached = false;
+    addRandom(); addRandom();
+  },
+  key(k) { if (['up', 'down', 'left', 'right'].includes(k)) move(k); },
+});
+
+game.stage.innerHTML = `
+  <div class="board"><div class="cells">${'<i></i>'.repeat(16)}</div><div class="tiles"></div></div>
+  <div class="pad">
+    <button data-d="up">▲</button><button data-d="left">◀</button>
+    <button data-d="right">▶</button><button data-d="down">▼</button>
+  </div>`;
+tilesEl = game.stage.querySelector('.tiles');
+game.stage.querySelectorAll('.pad button').forEach(b =>
+  b.addEventListener('pointerdown', e => { e.preventDefault(); if (game.state === 'playing') move(b.dataset.d); }));
+
+function place(t) {
+  t.el.style.left = t.c * 25 + '%';
+  t.el.style.top = t.r * 25 + '%';
+}
+
+function paint(t) {
+  const level = Math.log2(t.v);
+  const face = t.el.firstChild;
+  face.style.background = COLORS[Math.min(level - 1, COLORS.length - 1)];
+  face.style.color = level <= 2 ? '#DDE3EE' : '#fff';
+  face.innerHTML = `<small>MILE</small>${t.v}`;
+  t.el.classList.toggle('big', t.v >= 1024);
+}
+
+function addRandom() {
+  const empty = [];
+  grid.forEach((row, r) => row.forEach((t, c) => !t && empty.push([r, c])));
+  if (!empty.length) return;
+  const [r, c] = empty[Math.floor(Math.random() * empty.length)];
+  const t = { id: nextId++, v: Math.random() < 0.9 ? 2 : 4, r, c, el: document.createElement('div') };
+  t.el.className = 'tile';
+  t.el.innerHTML = '<div class="face"></div>';
+  grid[r][c] = t; place(t); paint(t); tilesEl.append(t.el);
+}
+
+function move(dir) {
+  const [dr, dc] = { up: [-1, 0], down: [1, 0], left: [0, -1], right: [0, 1] }[dir];
+  const rows = dr === 1 ? [3, 2, 1, 0] : [0, 1, 2, 3];
+  const cols = dc === 1 ? [3, 2, 1, 0] : [0, 1, 2, 3];
+  const merged = new Set();
+  let moved = false, gained = 0;
+  for (const r of rows) for (const c of cols) {
+    const t = grid[r][c];
+    if (!t) continue;
+    let nr = r, nc = c, into = null;
+    while (true) {
+      const tr = nr + dr, tc = nc + dc;
+      if (tr < 0 || tr > 3 || tc < 0 || tc > 3) break;
+      const other = grid[tr][tc];
+      if (!other) { nr = tr; nc = tc; continue; }
+      if (other.v === t.v && !merged.has(other)) into = other;
+      break;
+    }
+    grid[r][c] = null;
+    if (into) {
+      // Slide onto the partner, then disappear as the partner doubles.
+      into.v *= 2; merged.add(into); gained += into.v; moved = true;
+      t.r = into.r; t.c = into.c; place(t);
+      setTimeout(() => { t.el.remove(); paint(into); into.el.classList.remove('bump'); void into.el.offsetWidth; into.el.classList.add('bump'); }, 110);
+      if (into.v === 2048 && !reached) { reached = true; setTimeout(() => game.float('2048! Keep going', innerWidth / 2, innerHeight / 2, '#FFC24B'), 150); }
+    } else {
+      grid[nr][nc] = t;
+      if (nr !== r || nc !== c) { t.r = nr; t.c = nc; place(t); moved = true; }
+    }
+  }
+  if (!moved) { game.sfx('flip', 0.6); return; }
+  if (gained) { game.add(gained); game.sfx('point', 0.8 + Math.log2(gained) * 0.06); } else game.sfx('flip');
+  setTimeout(() => { addRandom(); if (!canMove()) game.end('Out of road', { delay: 600 }); }, 120);
+}
+
+function canMove() {
+  for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+    const t = grid[r][c];
+    if (!t) return true;
+    if (c < 3 && grid[r][c + 1]?.v === t.v) return true;
+    if (r < 3 && grid[r + 1][c]?.v === t.v) return true;
+  }
+  return false;
+}
+</script>
+</body>
+</html>

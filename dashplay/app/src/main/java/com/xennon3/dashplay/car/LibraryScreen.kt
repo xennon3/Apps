@@ -10,14 +10,14 @@ import androidx.car.app.model.SectionedItemList
 import androidx.car.app.model.Template
 import com.xennon3.dashplay.BOOKMARKS
 import com.xennon3.dashplay.CarBridge
-import com.xennon3.dashplay.GAMES
+import com.xennon3.dashplay.loadGames
 
 /** Games and bookmarks as a car-friendly list. Picking one returns to the page. */
 class LibraryScreen(carContext: CarContext) : Screen(carContext) {
 
     override fun onGetTemplate(): Template {
         val games = ItemList.Builder()
-        GAMES.forEach { games.addItem(row(it.title, it.blurb, it.url)) }
+        loadGames(carContext).forEach { games.addItem(row("${it.emoji}  ${it.title}", it.blurb, it.url)) }
 
         val web = ItemList.Builder()
         BOOKMARKS.forEach { (title, url) -> web.addItem(row(title, url, url)) }

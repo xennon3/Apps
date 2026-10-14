@@ -1,53 +1,49 @@
 package com.xennon3.dashplay
 
-import android.app.Activity
+import android.annotation.SuppressLint
 import android.os.Bundle
-import android.view.MotionEvent
-import android.view.View
-import android.view.inputmethod.EditorInfo
-import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.TextView
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import org.json.JSONObject
 
-/** The phone half of Dashplay: a remote control for the car screen. */
-class MainActivity : Activity() {
+/**
+ * The phone half of Dashplay: a remote control for the car screen. The interface itself is
+ * assets/remote.html, so it shares its look and its game list with the car pages.
+ */
+class MainActivity : ComponentActivity() {
 
-    private lateinit var status: TextView
-    private val onStatus: (CarBridge.Status) -> Unit = { render(it) }
+    private lateinit var web: WebView
+    private val onStatus: (CarBridge.Status) -> Unit = { push(it) }
 
+    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
-        status = findViewById(R.id.status)
-
-        val url = findViewById<EditText>(R.id.url)
-        val send = { CarBridge.load(CarBridge.normalizeUrl(url.text.toString())) }
-        findViewById<Button>(R.id.send).setOnClickListener { send() }
-        url.setOnEditorActionListener { _, action, _ -> (action == EditorInfo.IME_ACTION_GO).also { if (it) send() } }
-
-        val text = findViewById<EditText>(R.id.text)
-        val type = {
-            CarBridge.type(text.text.toString())
-            text.text.clear()
+        web = WebView(this).apply {
+            setBackgroundColor(getColor(R.color.bg))
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.mediaPlaybackRequiresUserGesture = false
+            addJavascriptInterface(Remote(), "DashplayRemote")
+            loadUrl("file:///android_asset/remote.html")
         }
-        findViewById<Button>(R.id.type).setOnClickListener { type() }
-        text.setOnEditorActionListener { _, action, _ -> (action == EditorInfo.IME_ACTION_SEND).also { if (it) type() } }
-
-        val games = findViewById<LinearLayout>(R.id.games)
-        GAMES.forEach { game ->
-            games.addView(Button(this).apply {
-                this.text = "▶  ${game.title}"
-                setOnClickListener { CarBridge.load(game.url) }
-            })
+        // Keep the page clear of the status bar, navigation bar and keyboard.
+        ViewCompat.setOnApplyWindowInsetsListener(web) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            WindowInsetsCompat.CONSUMED
         }
+        setContentView(web)
 
-        pad(R.id.up, GameKey.UP)
-        pad(R.id.down, GameKey.DOWN)
-        pad(R.id.left, GameKey.LEFT)
-        pad(R.id.right, GameKey.RIGHT)
-        pad(R.id.a, GameKey.A)
-        pad(R.id.b, GameKey.B)
+        // A game opened on the phone goes back to the remote instead of closing the app.
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (web.canGoBack()) web.goBack() else finish()
+            }
+        })
     }
 
     override fun onStart() {
@@ -60,28 +56,32 @@ class MainActivity : Activity() {
         super.onStop()
     }
 
-    /** Fires on touch-down rather than click, so the pad feels instant. */
-    private fun pad(id: Int, key: GameKey) {
-        findViewById<View>(id).setOnTouchListener { v, event ->
-            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-                CarBridge.press(key)
-                v.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
-            }
-            false
-        }
+    override fun onDestroy() {
+        web.destroy()
+        super.onDestroy()
     }
 
-    private fun render(s: CarBridge.Status) {
-        status.text = when {
-            !s.connected -> "Not connected — open Dashplay on the car screen"
-            s.moving -> "● Connected · paused while driving"
-            else -> "● Connected · showing ${pageName(s.url)}"
-        }
-        status.setTextColor(getColor(if (s.connected && !s.moving) R.color.ok else R.color.muted))
+    private fun push(s: CarBridge.Status) {
+        web.evaluateJavascript("window.onCarStatus && onCarStatus(${statusJson(s)})", null)
     }
 
-    private fun pageName(url: String): String {
-        val uri = android.net.Uri.parse(url)
-        return if (uri.scheme == "file") uri.lastPathSegment.orEmpty() else uri.host.orEmpty()
+    private fun statusJson(s: CarBridge.Status) =
+        JSONObject().put("connected", s.connected).put("moving", s.moving).put("url", s.url).toString()
+
+    /** Called from remote.html on a WebView thread; CarBridge hops to the main thread. */
+    private inner class Remote {
+        @JavascriptInterface
+        fun load(url: String) = CarBridge.load(url)
+
+        @JavascriptInterface
+        fun press(key: String) {
+            GameKey.entries.firstOrNull { it.name.equals(key, ignoreCase = true) }?.let(CarBridge::press)
+        }
+
+        @JavascriptInterface
+        fun type(text: String) = CarBridge.type(text)
+
+        @JavascriptInterface
+        fun status(): String = statusJson(CarBridge.status())
     }
 }

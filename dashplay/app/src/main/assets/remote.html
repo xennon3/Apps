@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dashplay Remote</title>
+<link rel="stylesheet" href="kit/arcade.css">
+<style>
+  html, body { overflow: hidden; touch-action: manipulation; }
+  body { display: flex; flex-direction: column; height: 100%; }
+  input { font: inherit; color: inherit; }
+
+  header { display: flex; align-items: center; gap: 10px; padding: 14px 16px 6px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 20px; }
+  .brand i { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; font-style: normal; font-size: 14px; background: #FFC24B; color: #111; }
+  .pill {
+    margin-left: auto; display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--line); font-size: 13px; font-weight: 600; color: var(--muted);
+  }
+  .pill::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #5B6475; }
+  .pill.on { color: var(--text); }
+  .pill.on::before { background: var(--good); box-shadow: 0 0 0 0 var(--good); animation: ping 2s infinite; }
+  .pill.moving::before { background: #FFC24B; }
+  @keyframes ping { 0% { box-shadow: 0 0 0 0 #3DDC8488; } 80%, 100% { box-shadow: 0 0 0 8px #3DDC8400; } }
+
+  /* What the car is showing */
+  .now {
+    margin: 8px 16px 4px; padding: 12px; border-radius: 20px; display: flex; align-items: center; gap: 12px;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--c, #5B6475) 28%, var(--surface)), var(--surface));
+    border: 1px solid color-mix(in srgb, var(--c, #5B6475) 35%, var(--line));
+  }
+  .now .art { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; font-size: 28px; background: #0B0D1266; }
+  .now small { display: block; color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+  .now b { font-size: 17px; display: block; max-width: 52vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .now .home { margin-left: auto; height: 44px; padding: 0 14px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line); font-weight: 700; font-size: 14px; }
+  .now .home[hidden] { display: none; }
+
+  main { flex: 1; min-height: 0; position: relative; }
+  .view { position: absolute; inset: 0; overflow-y: auto; padding: 12px 16px 24px; display: none; touch-action: pan-y; }
+  .view.on { display: block; }
+
+  /* Games */
+  .games { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .game {
+    --c: #FFC24B; position: relative; overflow: hidden; height: 128px; border-radius: 20px; text-align: left; padding: 12px;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    background:
+      radial-gradient(120% 90% at 90% 0%, color-mix(in srgb, var(--c) 55%, transparent), transparent 62%),
+      linear-gradient(160deg, color-mix(in srgb, var(--c) 24%, var(--surface)), var(--surface) 72%);
+    border: 1px solid color-mix(in srgb, var(--c) 30%, var(--line));
+  }
+  .game:active { transform: scale(.97); }
+  .game .art { position: absolute; right: 10px; top: 8px; font-size: 42px; filter: drop-shadow(0 6px 10px #0008); }
+  .game b { font-size: 16px; position: relative; }
+  .game small { color: #C9D0DB; font-size: 12px; position: relative; margin-top: 2px; }
+  .game.playing { outline: 3px solid var(--c); outline-offset: 2px; }
+  .game.playing::after {
+    content: 'ON CAR'; position: absolute; left: 12px; top: 12px; font-size: 10px; font-weight: 800; letter-spacing: .08em;
+    padding: 3px 8px; border-radius: 999px; background: var(--c); color: #111;
+  }
+  .note { color: var(--muted); font-size: 13px; line-height: 1.45; margin: 4px 2px 14px; }
+
+  /* Gamepad */
+  #pad.on { display: flex; flex-direction: column; overflow: hidden; }
+  .controller {
+    flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 14px;
+    border-radius: 32px; background: linear-gradient(160deg, #1A1F29, #11141A); border: 1px solid var(--line);
+    box-shadow: inset 0 1px 0 #ffffff10, 0 20px 50px -20px #000;
+  }
+  .dpad { display: grid; grid-template-columns: repeat(3, var(--k)); grid-template-rows: repeat(3, var(--k)); --k: min(19vw, 15vh, 92px); }
+  .dpad button { background: #2A3140; font-size: calc(var(--k) * .36); color: #C9D0DB; }
+  .dpad [data-k=up] { grid-area: 1 / 2; border-radius: 16px 16px 4px 4px; }
+  .dpad [data-k=down] { grid-area: 3 / 2; border-radius: 4px 4px 16px 16px; }
+  .dpad [data-k=left] { grid-area: 2 / 1; border-radius: 16px 4px 4px 16px; }
+  .dpad [data-k=right] { grid-area: 2 / 3; border-radius: 4px 16px 16px 4px; }
+  .dpad .hub { grid-area: 2 / 2; background: #2A3140; }
+  .ab { position: relative; width: calc(var(--k) * 2.5); height: calc(var(--k) * 2.6); --k: min(19vw, 15vh, 92px); }
+  .ab button {
+    position: absolute; width: calc(var(--k) * 1.3); aspect-ratio: 1; border-radius: 50%; font-size: calc(var(--k) * .45); font-weight: 900;
+    box-shadow: inset 0 -5px 0 #0004, 0 8px 20px -6px #000;
+  }
+  .ab [data-k=a] { right: 0; top: 0; background: #FFC24B; color: #3a2a05; }
+  .ab [data-k=b] { left: 0; bottom: 0; background: #FF5A5F; color: #3d0a0b; }
+  .controller button.hit, .controller button:active { filter: brightness(1.35); transform: scale(.94); }
+  .padnote { text-align: center; color: var(--muted); font-size: 13px; padding: 10px 0 0; }
+
+  /* Web */
+  .field { display: flex; gap: 8px; }
+  .field input {
+    flex: 1; min-width: 0; height: 52px; padding: 0 16px; border-radius: 16px; border: 1px solid var(--line);
+    background: var(--surface); outline: none; font-size: 16px;
+  }
+  .field input:focus { border-color: var(--accent); }
+  .field button { height: 52px; padding: 0 18px; border-radius: 16px; background: var(--accent); color: #111; font-weight: 800; }
+  h3 { margin: 22px 2px 10px; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chips button { height: 40px; padding: 0 14px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); font-weight: 600; font-size: 14px; }
+  details { margin-top: 22px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); padding: 4px 16px; }
+  summary { padding: 12px 0; font-weight: 700; cursor: pointer; }
+  details ol { margin: 0 0 14px; padding-left: 20px; color: #C9D0DB; font-size: 14px; line-height: 1.55; }
+
+  /* Bottom tabs */
+  nav {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 0 12px 12px; padding: 6px; border-radius: 22px;
+    background: var(--surface); border: 1px solid var(--line);
+  }
+  nav button { height: 54px; border-radius: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 12px; font-weight: 700; color: var(--muted); }
+  nav button span { font-size: 20px; line-height: 1; }
+  nav button.on { background: var(--surface-2); color: var(--text); }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 96px; transform: translate(-50%, 20px); opacity: 0; transition: .25s; pointer-events: none;
+    padding: 10px 16px; border-radius: 14px; background: var(--text); color: #111; font-weight: 700; font-size: 14px; white-space: nowrap;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  /* Sideways phone: the pad gets the whole screen. */
+  @media (orientation: landscape) and (max-height: 500px) {
+    header, .now, .padnote { display: none; }
+    body { flex-direction: row-reverse; }
+    nav { grid-template-columns: 1fr; grid-template-rows: repeat(3, 1fr); margin: 10px 10px 10px 0; width: 76px; }
+    .games { grid-template-columns: repeat(3, 1fr); }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand"><i>▶</i>Dashplay</div>
+    <div class="pill" id="pill">Not connected</div>
+  </header>
+
+  <div class="now" id="now">
+    <div class="art" id="nowArt">🚗</div>
+    <div><small id="nowLabel">On the car screen</small><b id="nowTitle">—</b></div>
+    <button class="home" id="homeBtn">⌂ Home</button>
+  </div>
+
+  <main>
+    <section class="view on" id="games">
+      <p class="note" id="gamesNote"></p>
+      <div class="games" id="gameList"></div>
+    </section>
+
+    <section class="view" id="pad">
+      <div class="controller">
+        <div class="dpad">
+          <button data-k="up">▲</button><button data-k="left">◀</button><div class="hub"></div>
+          <button data-k="right">▶</button><button data-k="down">▼</button>
+        </div>
+        <div class="ab"><button data-k="b">B</button><button data-k="a">A</button></div>
+      </div>
+      <div class="padnote">Hand this to a passenger. Turn the phone sideways for a bigger pad.</div>
+    </section>
+
+    <section class="view" id="web">
+      <form class="field" id="urlForm">
+        <input id="url" type="url" inputmode="url" autocomplete="off" autocapitalize="off" placeholder="Web address or search">
+        <button>Send</button>
+      </form>
+      <h3>Quick links</h3>
+      <div class="chips" id="links"></div>
+      <h3>Type on the car</h3>
+      <form class="field" id="typeForm">
+        <input id="text" autocomplete="off" placeholder="Fills the box that's selected on the car">
+        <button>Type</button>
+      </form>
+      <details>
+        <summary>First time in the car?</summary>
+        <ol>
+          <li>Open <b>Settings → Apps → Android Auto</b> on this phone and go to the Android Auto settings.</li>
+          <li>Tap <b>Version</b> at the bottom ten times to unlock developer mode.</li>
+          <li>In the <b>⋮</b> menu choose <b>Developer settings</b> and turn on <b>Unknown sources</b>.</li>
+          <li>Reconnect to the car. Dashplay is in the Android Auto app launcher.</li>
+        </ol>
+      </details>
+    </section>
+  </main>
+
+  <nav>
+    <button data-tab="games" class="on"><span>🎮</span>Games</button>
+    <button data-tab="pad"><span>🕹️</span>Pad</button>
+    <button data-tab="web"><span>🌐</span>Web</button>
+  </nav>
+  <div class="toast" id="toast"></div>
+
+<script src="kit/games.js"></script>
+<script>
+const GAMES = window.DASHPLAY_GAMES;
+const LINKS = [['Wikipedia', 'https://en.m.wikipedia.org'], ['Weather', 'https://wttr.in'], ['Hacker News', 'https://news.ycombinator.com'], ['YouTube', 'https://m.youtube.com']];
+const HOME = 'file:///android_asset/index.html';
+const $ = id => document.getElementById(id);
+
+// Native side (MainActivity). In a plain browser, a stand-in keeps the page usable.
+const remote = window.DashplayRemote || {
+  load: u => console.log('load', u), press: k => console.log('press', k), type: t => console.log('type', t),
+  status: () => JSON.stringify({ connected: false, moving: false, url: HOME }),
+};
+let status = JSON.parse(remote.status());
+
+function buzz(ms = 12) { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} }
+let toastTimer;
+function toast(text) {
+  const t = $('toast'); t.textContent = text; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 1600);
+}
+
+// Tabs
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('on', v.id === b.dataset.tab));
+  buzz(6);
+});
+
+// Games
+function renderGames() {
+  const playing = gameFor(status.url);
+  $('gameList').innerHTML = '';
+  GAMES.forEach(g => {
+    const b = document.createElement('button');
+    b.className = 'game' + (playing === g && status.connected ? ' playing' : '');
+    b.style.setProperty('--c', g.color);
+    b.innerHTML = `<span class="art">${g.emoji}</span><b>${g.title}</b><small>${g.tag}</small>`;
+    b.onclick = () => openGame(g);
+    $('gameList').append(b);
+  });
+  $('gamesNote').textContent = status.connected
+    ? 'Tap a game to start it on the car screen.'
+    : 'Not connected to a car, so games open right here on your phone.';
+}
+
+function openGame(g) {
+  const url = `file:///android_asset/games/${g.id}.html`;
+  buzz();
+  if (status.connected) { remote.load(url); toast(`${g.emoji} ${g.title} is on the car`); }
+  else location.href = `games/${g.id}.html`;
+}
+
+function gameFor(url) { const m = /games\/([\w-]+)\.html/.exec(url || ''); return m && GAMES.find(g => g.id === m[1]); }
+
+// Gamepad: fire on touch-down so it feels instant.
+document.querySelectorAll('.controller button').forEach(b => {
+  b.addEventListener('pointerdown', e => {
+    e.preventDefault(); remote.press(b.dataset.k); buzz(10);
+    b.classList.add('hit'); setTimeout(() => b.classList.remove('hit'), 120);
+  });
+});
+
+// Web
+LINKS.forEach(([name, url]) => {
+  const b = document.createElement('button'); b.textContent = name;
+  b.onclick = () => send(url);
+  $('links').append(b);
+});
+$('urlForm').onsubmit = e => { e.preventDefault(); if ($('url').value.trim()) send(normalize($('url').value)); };
+$('typeForm').onsubmit = e => {
+  e.preventDefault();
+  if (!$('text').value) return;
+  remote.type($('text').value); $('text').value = ''; toast('Typed on the car');
+};
+function normalize(t) {
+  t = t.trim();
+  if (t.includes('://')) return t;
+  if (t.includes(' ') || !t.includes('.')) return 'https://duckduckgo.com/?q=' + encodeURIComponent(t);
+  return 'https://' + t;
+}
+function send(url) {
+  if (!status.connected) { toast('Connect to the car first'); return; }
+  remote.load(url); buzz(); toast('Sent to the car');
+}
+
+$('homeBtn').onclick = () => { remote.load(HOME); buzz(); };
+
+// Status, pushed by MainActivity whenever the car connects, moves or changes page.
+window.onCarStatus = s => { status = s; render(); };
+function render() {
+  const pill = $('pill');
+  pill.className = 'pill' + (status.connected ? ' on' : '') + (status.moving ? ' moving' : '');
+  pill.textContent = !status.connected ? 'Not connected' : status.moving ? 'Paused · driving' : 'Connected';
+  const g = gameFor(status.url);
+  const now = $('now');
+  now.style.setProperty('--c', g ? g.color : '#5B6475');
+  $('nowLabel').textContent = status.connected ? 'On the car screen' : 'Waiting for Android Auto';
+  $('nowArt').textContent = !status.connected ? '🚗' : g ? g.emoji : status.url === HOME ? '🏠' : '🌐';
+  $('nowTitle').textContent = !status.connected ? 'Open Dashplay on the car' : g ? g.title : status.url === HOME ? 'Home' : host(status.url);
+  $('homeBtn').hidden = !status.connected;
+  renderGames();
+}
+function host(url) { try { return new URL(url).host || url; } catch (e) { return url; } }
+render();
+</script>
+</body>
+</html>

@@ -60,7 +60,7 @@ object CarBridge {
         statusListeners -= listener
     }
 
-    private fun status() = Status(car != null, moving, currentUrl)
+    fun status() = Status(car != null, moving, currentUrl)
 
     private fun publish() {
         val s = status()

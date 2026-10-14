@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pothole Patrol</title>
+<link rel="stylesheet" href="../kit/arcade.css">
+</head>
+<body>
+<script src="../kit/games.js"></script>
+<script src="../kit/arcade.js"></script>
+<script>
+const { rand, pick, emoji, roundRect } = Arcade;
+let spots, lives, elapsed, nextSpawn, cursor, cols, rows;
+
+const game = Arcade.create({
+  id: 'pothole-patrol',
+  keys: [['Tap', 'patch a pothole'], ['🦆', 'don\'t tap'], ['Arrows + A', 'gamepad']],
+  resize(W, H) {
+    cols = W / H > 1.3 ? 4 : 3; rows = W / H > 1.3 ? 2 : 3;
+    const cw = Math.min(W * 0.84 / cols, (H * 0.78) / rows * 1.25), ch = cw / 1.25;
+    const ox = (W - cw * cols) / 2, oy = H * 0.14 + (H * 0.84 - ch * rows) / 2;
+    const old = spots || [];
+    spots = Array.from({ length: cols * rows }, (_, i) => ({
+      x: ox + (i % cols + 0.5) * cw, y: oy + (Math.floor(i / cols) + 0.5) * ch, r: Math.min(cw, ch * 1.25) * 0.36,
+      kind: old[i]?.kind || null, t: old[i]?.t || 0, life: old[i]?.life || 0, fx: null,
+    }));
+  },
+  start() {
+    spots.forEach(s => { s.kind = null; s.fx = null; });
+    lives = 3; elapsed = 0; nextSpawn = 0.6; cursor = 0;
+  },
+  tap(x, y) {
+    let best = null, bd = Infinity;
+    spots.forEach(s => { const d = Math.hypot(x - s.x, (y - s.y) * 1.25); if (d < bd) { bd = d; best = s; } });
+    // Generous hit area: anywhere in the spot's cell counts.
+    if (best && bd < best.r * 1.6) whack(best);
+  },
+  key(k) {
+    const moves = { left: -1, right: 1, up: -cols, down: cols };
+    if (k in moves) cursor = (cursor + moves[k] + spots.length) % spots.length;
+    if (k === 'a' || k === 'b') whack(spots[cursor]);
+  },
+  update(dt) {
+    elapsed += dt;
+    nextSpawn -= dt;
+    if (nextSpawn <= 0) {
+      const free = spots.filter(s => !s.kind);
+      if (free.length) {
+        const s = pick(free);
+        s.kind = Math.random() < 0.2 ? 'duck' : 'hole';
+        s.t = 0; s.life = Math.max(0.85, 1.9 - elapsed * 0.02) * (s.kind === 'duck' ? 1.3 : 1);
+      }
+      nextSpawn = Math.max(0.32, 0.95 - elapsed * 0.012) * rand(0.7, 1.2);
+    }
+    spots.forEach(s => {
+      if (s.fx) { s.fx.t += dt; if (s.fx.t > 0.5) s.fx = null; }
+      if (!s.kind) return;
+      s.t += dt;
+      if (s.t < s.life) return;
+      if (s.kind === 'hole') { loseLife(s, 'missed'); }
+      s.kind = null;
+    });
+  },
+  draw(g, W, H, t) {
+    g.fillStyle = '#2B2F38'; g.fillRect(0, 0, W, H);
+    // Faint road texture so it reads as asphalt.
+    g.fillStyle = '#ffffff08';
+    for (let i = 0; i < 90; i++) { const x = (i * 197) % W, y = (i * 113) % H; g.fillRect(x, y, 3, 3); }
+    g.fillStyle = '#FFC24B55';
+    for (let x = 0; x < W; x += H * 0.16) g.fillRect(x, H * 0.135, H * 0.08, 5);
+    if (!spots) return;
+    spots.forEach((s, i) => {
+      g.fillStyle = '#23262E'; g.beginPath(); g.ellipse(s.x, s.y, s.r, s.r * 0.62, 0, 0, 7); g.fill();
+      if (game.state === 'playing' && i === cursor && usedPad) {
+        g.strokeStyle = '#F2F4F8'; g.lineWidth = 4; g.beginPath(); g.ellipse(s.x, s.y, s.r * 1.15, s.r * 0.78, 0, 0, 7); g.stroke();
+      }
+      if (s.kind === 'hole') {
+        const k = Math.min(1, s.t / 0.15), left = 1 - s.t / s.life;
+        g.fillStyle = '#0B0D12'; g.beginPath(); g.ellipse(s.x, s.y, s.r * 0.9 * k, s.r * 0.55 * k, 0.2, 0, 7); g.fill();
+        g.strokeStyle = '#5B6475'; g.lineWidth = 3; g.beginPath();
+        for (let a = 0; a < 5; a++) { const ang = a * 1.3 + 0.4; g.moveTo(s.x + Math.cos(ang) * s.r * 0.8 * k, s.y + Math.sin(ang) * s.r * 0.5 * k); g.lineTo(s.x + Math.cos(ang) * s.r * 1.1 * k, s.y + Math.sin(ang) * s.r * 0.72 * k); }
+        g.stroke();
+        // A ring that drains shows how long until a car hits it.
+        g.strokeStyle = left > 0.35 ? '#FF8C42' : '#FF5A5F'; g.lineWidth = 6;
+        g.beginPath(); g.ellipse(s.x, s.y, s.r * 1.08, s.r * 0.7, 0, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * left); g.stroke();
+      }
+      if (s.kind === 'duck') {
+        const bob = Math.sin(t / 120) * s.r * 0.06;
+        emoji(g, '🦆', s.x, s.y - s.r * 0.15 + bob, s.r * 1.2);
+      }
+      if (s.fx) {
+        g.globalAlpha = 1 - s.fx.t / 0.5;
+        emoji(g, s.fx.icon, s.x, s.y - s.fx.t * s.r, s.r * 1.1);
+        g.globalAlpha = 1;
+      }
+    });
+    if (game.state === 'playing' || game.state === 'paused') {
+      g.textAlign = 'right';
+      emoji(g, '🚗'.repeat(lives) || ' ', W - W * 0.17, H * 0.07, H * 0.06);
+    }
+  },
+});
+let usedPad = false;
+addEventListener('keydown', () => usedPad = true);
+
+function whack(s) {
+  if (s.kind === 'hole') {
+    const fast = s.t < s.life * 0.4;
+    game.add(fast ? 2 : 1); game.sfx('point', fast ? 1.3 : 1);
+    game.float(fast ? '+2' : '+1', s.x, s.y - s.r, '#FFC24B');
+    s.fx = { icon: '🚧', t: 0 }; s.kind = null;
+  } else if (s.kind === 'duck') {
+    s.fx = { icon: '💢', t: 0 }; s.kind = null;
+    loseLife(s, 'duck');
+  }
+}
+
+function loseLife(s, why) {
+  lives--; game.sfx('bad'); navigator.vibrate?.(120);
+  game.float(why === 'duck' ? 'Not the duck!' : 'Missed!', s.x, s.y - s.r, '#FF5A5F');
+  if (lives <= 0) game.end(why === 'duck' ? 'You bopped a duck' : 'The road fell apart');
+}
+</script>
+</body>
+</html>

@@ -17,9 +17,11 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.car.app.SurfaceContainer
 import com.xennon3.dashplay.GameKey
+import com.xennon3.dashplay.R
 import org.json.JSONObject
 
 /**
@@ -179,7 +181,7 @@ class WebSurface(private val context: Context, private val onPageChanged: (Strin
     @SuppressLint("SetJavaScriptEnabled")
     private fun buildContent(ctx: Context): View {
         val wv = WebView(ctx).apply {
-            setBackgroundColor(Color.parseColor("#0E1116"))
+            setBackgroundColor(Color.parseColor("#0B0D12"))
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false
@@ -193,21 +195,33 @@ class WebSurface(private val context: Context, private val onPageChanged: (Strin
             }
         }
         webView = wv
-        val cover = TextView(ctx).apply {
-            text = "Paused while driving\nPark to keep playing"
-            textAlignment = View.TEXT_ALIGNMENT_CENTER
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 28f)
-            setBackgroundColor(Color.parseColor("#E60E1116"))
-            visibility = if (locked) View.VISIBLE else View.GONE
-            isClickable = true
-        }
+        val cover = buildLockCover(ctx)
         lockCover = cover
         return FrameLayout(ctx).apply {
             root = this
             addView(wv, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
             addView(cover, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        }
+    }
+
+    /** Covers the page while the car is moving. */
+    private fun buildLockCover(ctx: Context): View {
+        fun text(value: String, sp: Float, color: String, bold: Boolean) = TextView(ctx).apply {
+            text = value
+            gravity = Gravity.CENTER
+            setTextColor(Color.parseColor(color))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
+            if (bold) typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        return LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.parseColor("#F00B0D12"))
+            visibility = if (locked) View.VISIBLE else View.GONE
+            isClickable = true
+            addView(text("🅿️", 64f, "#FFFFFF", false))
+            addView(text(ctx.getString(R.string.lock_title), 30f, "#F2F4F8", true).apply { setPadding(0, 24, 0, 8) })
+            addView(text(ctx.getString(R.string.lock_body), 18f, "#8B95A7", false))
         }
     }
 }

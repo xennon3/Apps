@@ -4,39 +4,176 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dashplay</title>
+<link rel="stylesheet" href="kit/arcade.css">
 <style>
-  :root { --bg:#0E1116; --panel:#1A1F27; --text:#EEF1F5; --muted:#8A94A3; --accent:#FFB547; }
-  * { box-sizing:border-box; }
-  html,body { margin:0; height:100%; background:var(--bg); color:var(--text);
-    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
-  body { display:flex; flex-direction:column; padding:4vh 4vw; gap:3vh; }
-  header { display:flex; align-items:baseline; gap:1.2vw; }
-  h1 { margin:0; font-size:clamp(22px,5vh,40px); }
-  header span { color:var(--muted); font-size:clamp(13px,2.6vh,18px); }
-  .grid { flex:1; display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:2.5vw; }
-  a.tile { display:flex; flex-direction:column; justify-content:flex-end; gap:.6vh; padding:3vh 2vw;
-    border-radius:20px; background:var(--panel); color:inherit; text-decoration:none;
-    position:relative; overflow:hidden; min-height:140px; }
-  a.tile:active { outline:3px solid var(--accent); }
-  .art { position:absolute; inset:0; display:grid; place-items:center; font-size:clamp(48px,14vh,110px);
-    opacity:.9; padding-bottom:7vh; }
-  .tile b { font-size:clamp(17px,3.6vh,26px); position:relative; }
-  .tile small { color:var(--muted); font-size:clamp(12px,2.4vh,16px); position:relative; }
-  footer { color:var(--muted); font-size:clamp(12px,2.4vh,16px); }
+  body { display: grid; grid-template-columns: minmax(220px, min(27vw, 380px)) 1fr; gap: max(16px, 2.4vw); padding: max(14px, 3vh) max(16px, 2.4vw); }
+
+  /* Left rail */
+  .rail { display: flex; flex-direction: column; gap: 2.4vh; min-height: 0; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: clamp(16px, 3.4vh, 22px); }
+  .brand i {
+    width: 1.7em; height: 1.7em; border-radius: 10px; display: grid; place-items: center; font-style: normal; font-size: .8em;
+    background: #FFC24B; color: #111;
+  }
+  .clock { font-size: clamp(44px, 15vh, 112px); font-weight: 800; letter-spacing: -.03em; line-height: .9; }
+  .date { color: var(--muted); font-size: clamp(14px, 3vh, 20px); margin-top: .6vh; }
+  .status {
+    display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; padding: 8px 14px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--line); font-size: clamp(13px, 2.5vh, 16px); font-weight: 600;
+  }
+  .status::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--good); box-shadow: 0 0 10px var(--good); }
+  .continue {
+    margin-top: auto; display: flex; align-items: center; gap: 14px; padding: 14px; border-radius: var(--radius);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--c) 30%, var(--surface)), var(--surface));
+    border: 1px solid color-mix(in srgb, var(--c) 40%, var(--line)); text-align: left;
+  }
+  .continue .art { font-size: max(34px, 8vh); }
+  .continue small { display: block; color: var(--muted); font-size: clamp(12px, 2.3vh, 15px); font-weight: 600; }
+  .continue b { font-size: clamp(16px, 3.4vh, 22px); }
+  .continue .go { margin-left: auto; width: max(44px, 8vh); aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; background: var(--c); color: #111; font-size: max(16px, 3vh); }
+
+  /* Game grid, paged so it never needs scrolling on a car screen */
+  .main { display: flex; flex-direction: column; gap: 2vh; min-height: 0; }
+  .grid { flex: 1; display: grid; gap: max(12px, 1.6vw); min-height: 0; }
+  .tile {
+    --c: #FFC24B; position: relative; overflow: hidden; border-radius: var(--radius); text-align: left; min-height: 0;
+    display: flex; flex-direction: column; justify-content: flex-end; padding: max(12px, 2.2vh) max(14px, 1.4vw);
+    background:
+      radial-gradient(120% 90% at 85% 10%, color-mix(in srgb, var(--c) 55%, transparent), transparent 60%),
+      linear-gradient(160deg, color-mix(in srgb, var(--c) 26%, var(--surface)), var(--surface) 70%);
+    border: 1px solid color-mix(in srgb, var(--c) 30%, var(--line));
+    transition: transform .12s;
+    animation: in .35s both;
+    container-type: size;
+  }
+  .tile:active { transform: scale(.97); }
+  .tile.focus { outline: 4px solid var(--text); outline-offset: 3px; }
+  .tile .art {
+    position: absolute; right: 7%; top: 9%; font-size: min(40cqh, 30cqw); line-height: 1;
+    filter: drop-shadow(0 10px 18px #0008); transform: rotate(-6deg);
+  }
+  .tile .tag {
+    position: absolute; left: max(12px, 1.4vw); top: max(12px, 2.2vh); padding: 4px 10px; border-radius: 999px;
+    font-size: clamp(11px, 2vh, 13px); font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    background: #0B0D1299; color: color-mix(in srgb, var(--c) 70%, #fff);
+  }
+  .tile b { position: relative; font-size: clamp(16px, 3.8vh, 26px); line-height: 1.1; }
+  .tile small { position: relative; color: #C9D0DB; font-size: clamp(12px, 2.3vh, 15px); margin-top: 4px; }
+  @container (max-height: 175px) {
+    .tile small.blurb { display: none; }
+    .tile .art { font-size: min(46cqh, 30cqw); }
+  }
+  @keyframes in { from { opacity: 0; transform: translateY(10px); } }
+
+  .pager { display: flex; align-items: center; justify-content: center; gap: 14px; }
+  .pager button {
+    width: max(56px, 10vh); height: max(48px, 8.5vh); border-radius: 16px; background: var(--surface-2);
+    border: 1px solid var(--line); font-size: max(20px, 4vh);
+  }
+  .pager button:disabled { opacity: .3; }
+  .dots { display: flex; gap: 8px; }
+  .dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--line); transition: width .2s; }
+  .dots i.on { width: 26px; border-radius: 6px; background: var(--text); }
+
+  @media (max-aspect-ratio: 1/1) {
+    body { grid-template-columns: 1fr; grid-template-rows: auto 1fr; overflow: auto; }
+    .rail { flex-direction: row; flex-wrap: wrap; align-items: flex-end; }
+    .clock { font-size: 13vw; }
+    .continue { margin-top: 0; width: 100%; }
+  }
 </style>
 </head>
 <body>
-  <header><h1>Dashplay</h1><span id="clock"></span></header>
-  <div class="grid">
-    <a class="tile" href="games/bubble-pop.html"><div class="art">🫧</div><b>Bubble Pop</b><small>Tap bubbles before they float away</small></a>
-    <a class="tile" href="games/turn-snake.html"><div class="art">🐍</div><b>Turn Snake</b><small>Tap left or right to steer</small></a>
-    <a class="tile" href="games/memory-lane.html"><div class="art">🛑</div><b>Memory Lane</b><small>Find the matching road signs</small></a>
-  </div>
-  <footer>Send any web page from the Dashplay app on your phone, or tap 🔍 to type an address.</footer>
+  <section class="rail">
+    <div class="brand"><i>▶</i>Dashplay</div>
+    <div><div class="clock num" id="clock"></div><div class="date" id="date"></div></div>
+    <div class="status">Parked · ready to play</div>
+    <button class="continue" id="continue" hidden></button>
+  </section>
+  <section class="main">
+    <div class="grid" id="grid"></div>
+    <div class="pager" id="pager">
+      <button id="prev" aria-label="Previous page">‹</button>
+      <div class="dots" id="dots"></div>
+      <button id="next" aria-label="Next page">›</button>
+    </div>
+  </section>
+<script src="kit/games.js"></script>
 <script>
-  const clock = document.getElementById('clock');
-  const tick = () => clock.textContent = new Date().toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
-  tick(); setInterval(tick, 10000);
+const GAMES = window.DASHPLAY_GAMES;
+const read = k => { try { return JSON.parse(localStorage.getItem('dashplay.' + k)); } catch (e) { return null; } };
+const grid = document.getElementById('grid'), dots = document.getElementById('dots');
+let page = 0, perPage = 6, cols = 3, focus = -1;
+
+function tick() {
+  const now = new Date();
+  document.getElementById('clock').textContent = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s?[AP]M/i, '');
+  document.getElementById('date').textContent = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+}
+tick(); setInterval(tick, 5000);
+
+const open = g => location.href = `games/${g.id}.html`;
+
+const last = GAMES.find(g => g.id === read('last'));
+if (last) {
+  const c = document.getElementById('continue');
+  c.hidden = false; c.style.setProperty('--c', last.color);
+  c.innerHTML = `<span class="art">${last.emoji}</span><span><small>Continue</small><b>${last.title}</b></span><span class="go">▶</span>`;
+  c.onclick = () => open(last);
+}
+
+// Fit as many big cards as the screen allows, then page through the rest.
+function layout() {
+  const r = grid.getBoundingClientRect();
+  cols = Math.max(2, Math.min(4, Math.floor(r.width / 230)));
+  const rows = Math.max(1, Math.min(3, Math.floor((r.height + 12) / 170)));
+  perPage = cols * rows;
+  grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+  page = Math.min(page, pages() - 1);
+  render();
+}
+const pages = () => Math.ceil(GAMES.length / perPage);
+
+function render() {
+  grid.innerHTML = '';
+  GAMES.slice(page * perPage, (page + 1) * perPage).forEach((g, i) => {
+    const t = document.createElement('button');
+    t.className = 'tile' + (i === focus ? ' focus' : '');
+    t.style.setProperty('--c', g.color);
+    t.style.animationDelay = i * 30 + 'ms';
+    const best = read('bestText.' + g.id);
+    t.innerHTML = `<span class="tag">${g.tag}</span><span class="art">${g.emoji}</span><b>${g.title}</b>${best ? `<small>Best ${best}</small>` : `<small class="blurb">${g.blurb}</small>`}`;
+    t.onclick = () => open(g);
+    grid.append(t);
+  });
+  dots.innerHTML = Array.from({ length: pages() }, (_, i) => `<i class="${i === page ? 'on' : ''}"></i>`).join('');
+  document.getElementById('pager').style.visibility = pages() > 1 ? 'visible' : 'hidden';
+  document.getElementById('prev').disabled = page === 0;
+  document.getElementById('next').disabled = page >= pages() - 1;
+}
+
+function go(d) { page = Math.max(0, Math.min(pages() - 1, page + d)); render(); }
+document.getElementById('prev').onclick = () => go(-1);
+document.getElementById('next').onclick = () => go(1);
+
+// Phone gamepad: arrows move a highlight across pages, A opens.
+addEventListener('keydown', e => {
+  const onPage = Math.min(perPage, GAMES.length - page * perPage);
+  if (focus < 0 && e.key.startsWith('Arrow')) { focus = 0; render(); return; }
+  const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -cols, ArrowDown: cols }[e.key];
+  if (step) {
+    let i = page * perPage + focus + step;
+    i = Math.max(0, Math.min(GAMES.length - 1, i));
+    page = Math.floor(i / perPage); focus = i % perPage;
+    render();
+  } else if ((e.key === ' ' || e.key === 'Enter') && focus >= 0 && focus < onPage) {
+    open(GAMES[page * perPage + focus]);
+  }
+});
+
+addEventListener('resize', layout);
+layout();
 </script>
 </body>
 </html>

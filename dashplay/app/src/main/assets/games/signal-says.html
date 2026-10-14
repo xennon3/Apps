@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signal Says</title>
+<link rel="stylesheet" href="../kit/arcade.css">
+<style>
+  #stage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4vh; padding-top: 10vh; }
+  .status { font-size: clamp(20px, 5vh, 36px); font-weight: 700; min-height: 1.2em; }
+  .status.go { color: var(--accent); }
+  .housing {
+    display: flex; gap: max(14px, 2.6vw); padding: max(16px, 3vh) max(18px, 3vw); border-radius: 999px;
+    background: linear-gradient(#1B1F28, #12151C); border: 2px solid var(--line); box-shadow: 0 20px 60px -20px #000;
+  }
+  .light {
+    --c: #fff; width: min(30vh, 19vw); aspect-ratio: 1; border-radius: 50%; position: relative;
+    background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--c) 35%, #222) 0%, color-mix(in srgb, var(--c) 18%, #0B0D12) 70%);
+    box-shadow: inset 0 6px 14px #000a; transition: filter .08s, box-shadow .08s, background .08s;
+  }
+  .light.on {
+    background: radial-gradient(circle at 35% 30%, #fff 0%, var(--c) 45%, color-mix(in srgb, var(--c) 70%, #000) 100%);
+    box-shadow: 0 0 60px 6px var(--c), inset 0 -6px 14px #0004;
+  }
+  .light span { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; opacity: .28; font-size: clamp(18px, 6vh, 40px); }
+  .light.on span { opacity: 0; }
+  .dots { display: flex; gap: 8px; min-height: 12px; }
+  .dots i { width: 12px; height: 12px; border-radius: 50%; background: var(--line); }
+  .dots i.done { background: var(--accent); }
+  @media (max-aspect-ratio: 1/1) {
+    .housing { flex-wrap: wrap; justify-content: center; border-radius: 40px; width: 80vw; }
+    .light { width: 30vw; }
+  }
+</style>
+</head>
+<body>
+<script src="../kit/games.js"></script>
+<script src="../kit/arcade.js"></script>
+<script>
+const LIGHTS = [
+  { c: '#FF5A5F', key: 'left', label: '◀', note: 329.6 },
+  { c: '#FFC24B', key: 'up', label: '▲', note: 392.0 },
+  { c: '#3DDC84', key: 'down', label: '▼', note: 493.9 },
+  { c: '#4C8DF0', key: 'right', label: '▶', note: 587.3 },
+];
+let seq, pos, listening, timers = [];
+
+const game = Arcade.create({
+  id: 'signal-says',
+  canvas: false,
+  keys: [['Tap the lights', 'repeat the order'], ['◀ ▲ ▼ ▶', 'gamepad']],
+  start() { seq = []; nextRound(); },
+  // After a pause, replay the whole sequence so nobody has to remember a half-shown one.
+  resume() {
+    timers.forEach(clearTimeout); timers = [];
+    lights.forEach(l => l.classList.remove('on'));
+    seq.pop(); nextRound();
+  },
+  key(k) { const i = LIGHTS.findIndex(l => l.key === k); if (i >= 0) press(i); },
+});
+
+game.stage.innerHTML = `<div class="status">&nbsp;</div><div class="housing">${
+  LIGHTS.map((l, i) => `<div class="light" data-i="${i}" style="--c:${l.c}"><span>${l.label}</span></div>`).join('')
+}</div><div class="dots"></div>`;
+const status = game.stage.querySelector('.status'), dots = game.stage.querySelector('.dots');
+const lights = [...game.stage.querySelectorAll('.light')];
+lights.forEach((el, i) => el.addEventListener('pointerdown', e => { e.preventDefault(); press(i); }));
+
+function flash(i, ms) {
+  lights[i].classList.add('on'); game.sfx(LIGHTS[i].note);
+  timers.push(setTimeout(() => lights[i].classList.remove('on'), ms));
+}
+
+function say(text, go) { status.textContent = text; status.classList.toggle('go', !!go); }
+
+function renderDots() { dots.innerHTML = seq.map((_, i) => `<i class="${i < pos ? 'done' : ''}"></i>`).join(''); }
+
+function nextRound() {
+  seq.push(Math.floor(Math.random() * 4));
+  pos = 0; listening = false; renderDots();
+  say('Watch…');
+  // Faster playback as the sequence grows, but never frantic.
+  const step = Math.max(330, 640 - seq.length * 22);
+  seq.forEach((i, n) => timers.push(setTimeout(() => flash(i, step * 0.62), 650 + n * step)));
+  timers.push(setTimeout(() => { listening = true; say('Your turn', true); }, 650 + seq.length * step));
+}
+
+function press(i) {
+  if (game.state !== 'playing' || !listening) return;
+  flash(i, 220);
+  if (i !== seq[pos]) {
+    listening = false; say('Wrong light!');
+    lights[seq[pos]].classList.add('on');
+    timers.push(setTimeout(() => lights.forEach(l => l.classList.remove('on')), 900));
+    const n = seq.length - 1;
+    game.end(n ? `${n} signal${n === 1 ? '' : 's'} remembered` : 'Wrong light', { delay: 900 });
+    return;
+  }
+  pos++; renderDots();
+  if (pos === seq.length) {
+    listening = false; game.set(seq.length); say('✓ Nice', true);
+    timers.push(setTimeout(nextRound, 750));
+  }
+}
+
+</script>
+</body>
+</html>

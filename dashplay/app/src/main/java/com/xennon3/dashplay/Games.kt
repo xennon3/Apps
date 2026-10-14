@@ -1,15 +1,22 @@
 package com.xennon3.dashplay
 
-/** Games bundled in assets/games. Each one is a single web page. */
-data class Game(val title: String, val blurb: String, val file: String) {
-    val url get() = "file:///android_asset/games/$file"
+import android.content.Context
+import org.json.JSONArray
+
+/** A game bundled in assets/games. Each one is a single web page. */
+data class Game(val id: String, val title: String, val emoji: String, val blurb: String) {
+    val url get() = "file:///android_asset/games/$id.html"
 }
 
-val GAMES = listOf(
-    Game("Bubble Pop", "Tap bubbles before they float away", "bubble-pop.html"),
-    Game("Turn Snake", "Tap left or right to steer", "turn-snake.html"),
-    Game("Memory Lane", "Find the matching road signs", "memory-lane.html"),
-)
+/** Reads the shared list in assets/kit/games.js, the same one the web pages use. */
+fun loadGames(context: Context): List<Game> {
+    val source = context.assets.open("kit/games.js").bufferedReader().use { it.readText() }
+    val json = JSONArray(source.substring(source.indexOf('=') + 1).trim().removeSuffix(";"))
+    return (0 until json.length()).map {
+        val g = json.getJSONObject(it)
+        Game(g.getString("id"), g.getString("title"), g.getString("emoji"), g.getString("blurb"))
+    }
+}
 
 /** Quick links shown on the car's library screen. */
 val BOOKMARKS = listOf(

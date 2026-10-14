@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Noughts &amp; Crosses</title>
+<link rel="stylesheet" href="../kit/arcade.css">
+<style>
+  #stage { display: flex; align-items: center; justify-content: center; gap: max(28px, 6vw); padding-top: 10vh; }
+  .board { --size: min(76vh, 56vw); width: var(--size); height: var(--size); display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: 10px; }
+  .cell {
+    border-radius: 20px; background: var(--surface); border: 1px solid var(--line); display: grid; place-items: center;
+    font-size: calc(var(--size) * .2); font-weight: 900; line-height: 1; min-height: 0; overflow: hidden;
+  }
+  .cell.x { color: var(--accent); } .cell.o { color: #FF5A5F; }
+  .cell.win { background: color-mix(in srgb, var(--accent) 22%, var(--surface)); }
+  .cell.o.win { background: color-mix(in srgb, #FF5A5F 22%, var(--surface)); }
+  .cell.cursor { outline: 4px solid var(--text); outline-offset: -4px; }
+  .cell span { animation: pop .25s cubic-bezier(.3, 1.6, .5, 1); }
+  .side { display: flex; flex-direction: column; gap: 2vh; width: min(32vw, 340px); }
+  .turn { font-size: clamp(22px, 5.5vh, 40px); font-weight: 800; }
+  .vs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .vs div { padding: 2vh 14px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); }
+  .vs b { display: block; font-size: clamp(26px, 7vh, 48px); }
+  .vs small { color: var(--muted); font-size: clamp(12px, 2.4vh, 16px); }
+  .vs .you b { color: var(--accent); }
+  @media (max-aspect-ratio: 1/1) { #stage { flex-direction: column-reverse; } .board { --size: min(90vw, 56vh); } .side { width: 90vw; } }
+</style>
+</head>
+<body>
+<script src="../kit/games.js"></script>
+<script src="../kit/arcade.js"></script>
+<script>
+const LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+let board, youStart, busy, cursor = 4, wins, draws;
+
+const game = Arcade.create({
+  id: 'noughts',
+  canvas: false,
+  keys: [['Tap a square', 'you are ✕'], ['Arrows + A', 'gamepad']],
+  start() { wins = 0; draws = 0; youStart = true; newRound(); },
+  key(k) {
+    const step = { left: -1, right: 1, up: -3, down: 3 }[k];
+    if (step) { cursor = (cursor + step + 9) % 9; render(); }
+    if (k === 'a' || k === 'b') play(cursor);
+  },
+});
+
+game.stage.innerHTML = `<div class="board">${'<button class="cell"></button>'.repeat(9)}</div>
+  <div class="side"><div class="turn"></div>
+  <div class="vs"><div class="you"><b class="w">0</b><small>Your streak</small></div><div><b class="d">0</b><small>Draws</small></div></div></div>`;
+const cells = [...game.stage.querySelectorAll('.cell')];
+const turnEl = game.stage.querySelector('.turn');
+cells.forEach((c, i) => c.addEventListener('pointerdown', e => { e.preventDefault(); play(i); }));
+let usedPad = false;
+addEventListener('keydown', () => usedPad = true);
+
+function render(win = []) {
+  cells.forEach((c, i) => {
+    const v = board?.[i];
+    c.className = 'cell' + (v ? ' ' + v : '') + (win.includes(i) ? ' win' : '') + (usedPad && i === cursor && game.state === 'playing' ? ' cursor' : '');
+    const want = v === 'x' ? '✕' : v === 'o' ? '◯' : '';
+    if (c.textContent !== want) c.innerHTML = want ? `<span>${want}</span>` : '';
+  });
+  game.stage.querySelector('.w').textContent = wins ?? 0;
+  game.stage.querySelector('.d').textContent = draws ?? 0;
+}
+
+function winner(b) {
+  for (const l of LINES) if (b[l[0]] && b[l[0]] === b[l[1]] && b[l[0]] === b[l[2]]) return { who: b[l[0]], line: l };
+  return b.every(Boolean) ? { who: 'draw', line: [] } : null;
+}
+
+function newRound() {
+  board = Array(9).fill(null); busy = false; render();
+  if (youStart) turnEl.textContent = 'Your move';
+  else { turnEl.textContent = 'The car goes first…'; busy = true; setTimeout(carMove, 600); }
+  youStart = !youStart;
+}
+
+function play(i) {
+  if (game.state !== 'playing' || busy || board[i]) return;
+  board[i] = 'x'; game.sfx('tap'); render();
+  if (finish()) return;
+  busy = true; turnEl.textContent = 'The car is thinking…';
+  setTimeout(carMove, 450 + Math.random() * 350);
+}
+
+function carMove() {
+  if (game.state !== 'playing') return;
+  board[choose()] = 'o'; game.sfx('flip'); render();
+  busy = false;
+  if (!finish()) turnEl.textContent = 'Your move';
+}
+
+// The car plays perfectly most of the time, so a streak takes real work but is possible.
+function choose() {
+  const free = board.map((v, i) => v ? null : i).filter(i => i != null);
+  const sloppy = Math.random() < Math.max(0.12, 0.35 - wins * 0.04);
+  if (sloppy) return free[Math.floor(Math.random() * free.length)];
+  let best = -Infinity, move = free[0];
+  for (const i of free) {
+    board[i] = 'o'; const s = minimax(false, 0); board[i] = null;
+    if (s > best) { best = s; move = i; }
+  }
+  return move;
+}
+
+function minimax(carTurn, depth) {
+  const w = winner(board);
+  if (w) return w.who === 'o' ? 10 - depth : w.who === 'x' ? depth - 10 : 0;
+  let best = carTurn ? -Infinity : Infinity;
+  for (let i = 0; i < 9; i++) {
+    if (board[i]) continue;
+    board[i] = carTurn ? 'o' : 'x';
+    const s = minimax(!carTurn, depth + 1);
+    board[i] = null;
+    best = carTurn ? Math.max(best, s) : Math.min(best, s);
+  }
+  return best;
+}
+
+function finish() {
+  const w = winner(board);
+  if (!w) return false;
+  busy = true; render(w.line);
+  if (w.who === 'x') {
+    wins++; game.set(wins); game.sfx('big'); turnEl.textContent = 'You win! 🎉'; render(w.line);
+    setTimeout(newRound, 1300);
+  } else if (w.who === 'draw') {
+    draws++; game.sfx('flip', 0.7); turnEl.textContent = 'Draw — streak lives on'; render();
+    setTimeout(newRound, 1300);
+  } else {
+    turnEl.textContent = 'The car wins';
+    game.end(wins ? `Streak of ${wins}` : 'The car wins', { delay: 1100 });
+  }
+  return true;
+}
+</script>
+</body>
+</html>

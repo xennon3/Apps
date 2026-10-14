@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Green Light</title>
+<link rel="stylesheet" href="../kit/arcade.css">
+<style>
+  #stage { display: flex; align-items: center; justify-content: center; gap: max(28px, 6vw); padding-top: 8vh; cursor: pointer; }
+  .pole {
+    display: flex; flex-direction: column; gap: 2.4vh; padding: 2.6vh; border-radius: 40px;
+    background: linear-gradient(#1B1F28, #12151C); border: 2px solid var(--line);
+  }
+  .lamp { width: 19vh; aspect-ratio: 1; border-radius: 50%; background: #1E2430; box-shadow: inset 0 6px 14px #000a; transition: background .05s, box-shadow .05s; }
+  .lamp.red.on { background: radial-gradient(circle at 35% 30%, #ffd6d6, #FF5A5F 45%, #a3262a); box-shadow: 0 0 60px 4px #FF5A5F; }
+  .lamp.amber.on { background: radial-gradient(circle at 35% 30%, #fff1cc, #FFC24B 45%, #a6741a); box-shadow: 0 0 60px 4px #FFC24B; }
+  .lamp.green.on { background: radial-gradient(circle at 35% 30%, #eaffd0, #A3E635 45%, #4f7a12); box-shadow: 0 0 70px 8px #A3E635; }
+  .side { display: flex; flex-direction: column; gap: 2.4vh; min-width: min(46vw, 460px); }
+  .say { font-size: clamp(26px, 7.5vh, 56px); font-weight: 800; line-height: 1.05; }
+  .hint { color: var(--muted); font-size: clamp(14px, 3vh, 20px); }
+  .rounds { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  .rounds div {
+    height: max(56px, 11vh); border-radius: 16px; background: var(--surface); border: 1px solid var(--line);
+    display: grid; place-content: center; text-align: center; font-weight: 800; font-size: clamp(14px, 3.2vh, 22px);
+  }
+  .rounds div small { display: block; color: var(--muted); font-weight: 600; font-size: .6em; }
+  .rounds .now { border-color: var(--accent); }
+  .rounds .bad { color: var(--bad); }
+  @media (max-aspect-ratio: 1/1) { #stage { flex-direction: column; } .lamp { width: 12vh; } .pole { flex-direction: row; } }
+</style>
+</head>
+<body>
+<script src="../kit/games.js"></script>
+<script src="../kit/arcade.js"></script>
+<script>
+const ROUNDS = 5, PENALTY = 1000;
+let results, phase, greenAt, timer;
+
+const game = Arcade.create({
+  id: 'green-light',
+  canvas: false,
+  lowerIsBetter: true,
+  format: n => (n ? Math.round(n) + ' ms' : '—'),
+  keys: [['Tap anywhere', 'when it turns green'], ['A', 'gamepad']],
+  start() { results = []; arm(); },
+  resume() { arm(); },
+  tap: hit,
+  key(k) { if (k === 'a' || k === 'b') hit(); },
+});
+
+game.stage.innerHTML = `
+  <div class="pole"><div class="lamp red"></div><div class="lamp amber"></div><div class="lamp green"></div></div>
+  <div class="side"><div class="say">Ready?</div><div class="hint">Your average over five lights is your score.</div><div class="rounds"></div></div>`;
+const lamps = {}; ['red', 'amber', 'green'].forEach(c => lamps[c] = game.stage.querySelector('.lamp.' + c));
+const say = game.stage.querySelector('.say'), hint = game.stage.querySelector('.hint'), roundsEl = game.stage.querySelector('.rounds');
+renderRounds();
+
+function light(c) { Object.entries(lamps).forEach(([k, el]) => el.classList.toggle('on', k === c || (c === 'both' && k !== 'green'))); }
+
+function renderRounds() {
+  roundsEl.innerHTML = Array.from({ length: ROUNDS }, (_, i) => {
+    const r = results?.[i];
+    const cls = r == null ? (results && i === results.length ? 'now' : '') : (r.early ? 'bad' : '');
+    return `<div class="${cls}">${r == null ? '·' : r.early ? 'Early' : r.ms}<small>${r == null || r.early ? '' : 'ms'}</small></div>`;
+  }).join('');
+}
+
+function arm() {
+  clearTimeout(timer);
+  phase = 'wait'; light('red'); renderRounds();
+  say.textContent = 'Wait for green…'; hint.textContent = `Light ${results.length + 1} of ${ROUNDS}`;
+  timer = setTimeout(() => {
+    light('both'); game.sfx('flip');
+    timer = setTimeout(() => {
+      phase = 'go'; light('green'); greenAt = performance.now(); game.sfx(880);
+      say.textContent = 'GO!';
+    }, 500 + Math.random() * 2400);
+  }, 700);
+}
+
+function hit() {
+  if (game.state !== 'playing' || phase === 'done') return;
+  if (phase === 'wait') {
+    clearTimeout(timer);
+    results.push({ ms: PENALTY, early: true }); game.sfx('bad');
+    say.textContent = 'Jumped the light!'; hint.textContent = `That counts as ${PENALTY} ms.`;
+  } else {
+    const ms = Math.round(performance.now() - greenAt);
+    results.push({ ms }); game.sfx('point');
+    say.textContent = ms + ' ms'; hint.textContent = verdict(ms);
+  }
+  phase = 'done'; light(null);
+  const avg = results.reduce((a, r) => a + r.ms, 0) / results.length;
+  game.set(avg); renderRounds();
+  if (results.length === ROUNDS) game.end(verdict(avg), { delay: 900 });
+  else timer = setTimeout(arm, 1300);
+}
+
+function verdict(ms) {
+  if (ms < 200) return 'Lightning reflexes';
+  if (ms < 260) return 'Quick off the line';
+  if (ms < 340) return 'Solid start';
+  if (ms < 500) return 'A little sleepy';
+  return 'Honk honk!';
+}
+</script>
+</body>
+</html>

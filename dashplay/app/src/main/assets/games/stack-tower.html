@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stack Tower</title>
+<link rel="stylesheet" href="../kit/arcade.css">
+</head>
+<body>
+<script src="../kit/games.js"></script>
+<script src="../kit/arcade.js"></script>
+<script>
+const { roundRect } = Arcade;
+let floors, mover, falling, camY, perfectRun, unit;
+
+const game = Arcade.create({
+  id: 'stack-tower',
+  keys: [['Tap anywhere', 'drop'], ['A', 'gamepad']],
+  resize(W, H) { unit = H / 14; },
+  start() {
+    const w = Math.min(game.W * 0.36, unit * 7);
+    floors = [{ x: game.W / 2 - w / 2, w, hue: 40 }];
+    falling = []; camY = 0; perfectRun = 0;
+    spawn();
+  },
+  tap: drop,
+  key(k) { if (k === 'a' || k === 'b' || k === 'down') drop(); },
+  update(dt) {
+    const speed = unit * (5 + Math.min(floors.length, 40) * 0.22);
+    mover.x += mover.dir * speed * dt;
+    const top = floors[floors.length - 1];
+    const reach = Math.max(top.w, unit * 3) * 1.2;
+    if (mover.x + mover.w > top.x + top.w + reach) mover.dir = -1;
+    if (mover.x < top.x - reach) mover.dir = 1;
+    // Keep the top of the tower around the middle of the screen.
+    const want = Math.max(0, floors.length - 6) * unit;
+    camY += (want - camY) * Math.min(1, dt * 4);
+    falling.forEach(f => { f.vy += unit * 30 * dt; f.y += f.vy * dt; f.x += f.vx * dt; });
+    falling = falling.filter(f => f.y < game.H + 200);
+  },
+  draw(g, W, H, t) {
+    const sky = g.createLinearGradient(0, 0, 0, H);
+    const n = floors ? floors.length : 0;
+    sky.addColorStop(0, `hsl(${230 - Math.min(n, 60) * 2.5},45%,${9 + Math.min(n, 60) * 0.25}%)`);
+    sky.addColorStop(1, '#151922');
+    g.fillStyle = sky; g.fillRect(0, 0, W, H);
+    if (!floors) { block(g, W / 2 - unit * 3.5, H - unit * 2, unit * 7, 40, 0); return; }
+    const base = H - unit * 2 + camY;
+    g.fillStyle = '#2A3140'; g.fillRect(0, base + unit, W, H);
+    floors.forEach((f, i) => block(g, f.x, base - i * unit, f.w, f.hue, i));
+    falling.forEach(f => block(g, f.x, f.y, f.w, f.hue, -1, 0.7));
+    if (game.state === 'playing') block(g, mover.x, base - floors.length * unit, mover.w, mover.hue, floors.length);
+  },
+});
+
+function spawn() {
+  const top = floors[floors.length - 1];
+  const fromLeft = floors.length % 2 === 1;
+  mover = { w: top.w, x: fromLeft ? top.x - top.w * 1.1 : top.x + top.w * 1.1, dir: fromLeft ? 1 : -1, hue: (top.hue + 14) % 360 };
+}
+
+function drop() {
+  if (game.state !== 'playing') return;
+  const top = floors[floors.length - 1];
+  const y = game.H - unit * 2 + camY - floors.length * unit;
+  let left = Math.max(top.x, mover.x), right = Math.min(top.x + top.w, mover.x + mover.w);
+  if (right - left <= 0) {
+    falling.push({ ...mover, y, vx: mover.dir * unit * 2, vy: 0 });
+    game.end(floors.length - 1 === 1 ? '1 floor' : `${floors.length - 1} floors`);
+    return;
+  }
+  // Close enough counts as perfect, and a streak of perfects grows the floor back.
+  if (Math.abs(mover.x - top.x) < unit * 0.18) {
+    left = top.x; right = top.x + top.w; perfectRun++;
+    const grow = perfectRun >= 3 ? Math.min(unit * 0.5, game.W * 0.4 - top.w) : 0;
+    if (grow > 0) { left -= grow / 2; right += grow / 2; }
+    game.sfx('big', 1 + Math.min(perfectRun, 8) * 0.06);
+    game.float(perfectRun > 1 ? `Perfect ×${perfectRun}` : 'Perfect!', game.W / 2, y - unit, '#FFC24B');
+    game.add(2);
+  } else {
+    perfectRun = 0;
+    const cut = mover.x < left
+      ? { x: mover.x, w: left - mover.x }
+      : { x: right, w: mover.x + mover.w - right };
+    falling.push({ ...cut, hue: mover.hue, y, vx: (mover.x < left ? -1 : 1) * unit * 2, vy: 0 });
+    game.sfx('tap', 0.8 + floors.length * 0.01);
+    game.add(1);
+  }
+  floors.push({ x: left, w: right - left, hue: mover.hue });
+  spawn();
+}
+
+function block(g, x, y, w, hue, i, alpha = 1) {
+  g.globalAlpha = alpha;
+  g.fillStyle = `hsl(${hue},75%,58%)`; roundRect(g, x, y, w, unit, 6); g.fill();
+  g.fillStyle = `hsl(${hue},80%,72%)`; g.fillRect(x + 4, y + 3, w - 8, unit * 0.18);
+  // Windows, so it reads as a building.
+  g.fillStyle = `hsla(${hue},60%,20%,.55)`;
+  const win = unit * 0.36, gap = unit * 0.3;
+  for (let wx = x + gap; wx + win < x + w - gap / 2; wx += win + gap) g.fillRect(wx, y + unit * 0.38, win, unit * 0.36);
+  g.globalAlpha = 1;
+}
+</script>
+</body>
+</html>

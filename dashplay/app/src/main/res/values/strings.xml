@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">Dashplay</string>
-    <string name="setup">First time in the car:\n1. Open the Android Auto settings on this phone and tap the version number 10 times to unlock developer mode.\n2. In the ⋮ menu choose Developer settings and turn on Unknown sources.\n3. Reconnect to the car. Dashplay shows up in the app launcher.\n\nGames and video pause on their own when the car reports it is moving.</string>
+    <string name="lock_title">Paused while driving</string>
+    <string name="lock_body">Your game is waiting. Park to keep playing.</string>
 </resources>
