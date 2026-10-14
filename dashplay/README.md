@@ -120,6 +120,23 @@ has no review:
 
 For each new version, upload the new APK to internal app sharing and install from the new link.
 
+### Release builds (app bundle)
+
+Play Console asks for an Android App Bundle signed with your upload key. Keep the key
+(`upload.jks`) and its password somewhere safe and out of git, describe it in a properties file:
+
+```properties
+storeFile=/path/to/upload.jks
+storePassword=...
+keyAlias=upload
+keyPassword=...
+```
+
+then build with `DASHPLAY_SIGNING=/path/to/that.properties ./gradlew bundleRelease`
+(or name the file `keystore.properties` in this folder, which git ignores). The bundle is
+`app/build/outputs/bundle/release/app-release.aab`. Raise `versionCode` in
+`app/build.gradle.kts` for each upload after the first.
+
 ## Limits and honest notes
 
 - **Not for the public Play Store.** Play wouldn't approve a "navigation" app that isn't one, so Dashplay is installed through internal app sharing (see Install).

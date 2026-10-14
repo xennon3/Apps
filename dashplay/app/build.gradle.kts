@@ -1,7 +1,16 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+// Release signing (the Play upload key). The key and its passwords never go in git: point
+// DASHPLAY_SIGNING at a properties file, or put keystore.properties in the project root.
+// Expected keys: storeFile, storePassword, keyAlias, keyPassword.
+val signing = (System.getenv("DASHPLAY_SIGNING") ?: rootProject.file("keystore.properties").path)
+    .let(::File).takeIf { it.exists() }
+    ?.let { file -> Properties().apply { file.inputStream().use { load(it) } } }
 
 android {
     namespace = "com.xennon3.dashplay"
@@ -13,6 +22,23 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+    }
+
+    signingConfigs {
+        if (signing != null) {
+            create("upload") {
+                storeFile = file(signing.getProperty("storeFile"))
+                storePassword = signing.getProperty("storePassword")
+                keyAlias = signing.getProperty("keyAlias")
+                keyPassword = signing.getProperty("keyPassword")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.findByName("upload")
+        }
     }
 
     compileOptions {
