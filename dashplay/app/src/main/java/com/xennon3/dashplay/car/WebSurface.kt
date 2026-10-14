@@ -28,6 +28,8 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.car.app.SurfaceContainer
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import com.xennon3.dashplay.CarBridge
 import com.xennon3.dashplay.GameKey
 import com.xennon3.dashplay.History
@@ -52,6 +54,8 @@ class WebSurface(private val context: Context, private val listener: Listener) {
     interface Listener {
         fun onPageChanged(url: String, title: String)
         fun onAddressRequested()
+        /** The player tapped a text box on a page; [field] describes it (see kit/keys.js). */
+        fun onTextFieldTapped(field: JSONObject)
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -274,6 +278,14 @@ class WebSurface(private val context: Context, private val listener: Listener) {
         )
     }
 
+    /**
+     * Types into the text box the player last tapped, replacing what's there, and presses
+     * Enter if [submit]. The text comes from the car keyboard screen (TypeScreen).
+     */
+    fun fillField(text: String, submit: Boolean) {
+        js("window.__dashplayFill && __dashplayFill(${JSONObject.quote(text)}, $submit)")
+    }
+
     private fun event(detail: String) = "window.dispatchEvent(new CustomEvent('dashplay',{detail:$detail}));"
 
     private fun js(code: String) {
@@ -373,6 +385,18 @@ class WebSurface(private val context: Context, private val listener: Listener) {
         @JavascriptInterface fun hide() { main.post { setToolbarHidden(true) } }
     }
 
+    /** kit/keys.js, injected into every page so tapped text boxes can use the car keyboard. */
+    private val keysScript by lazy { context.assets.open("kit/keys.js").bufferedReader().use { it.readText() } }
+
+    /** Called by kit/keys.js. Any page may call it; all it can do is open the keyboard screen. */
+    private inner class KeysApi {
+        @JavascriptInterface
+        fun open(json: String) {
+            val field = runCatching { JSONObject(json) }.getOrNull() ?: return
+            main.post { if (!locked) listener.onTextFieldTapped(field) }
+        }
+    }
+
     /**
      * For Dashplay's own pages (the start page). Websites load into the same WebView, so
      * every call checks that the current page is one of ours before doing anything.
@@ -409,6 +433,12 @@ class WebSurface(private val context: Context, private val listener: Listener) {
             // Sites with a dark mode use it; the rest are darkened to match the car UI.
             if (Build.VERSION.SDK_INT >= 33) settings.isAlgorithmicDarkeningAllowed = true
             addJavascriptInterface(CarPageApi(), "DashplayCar")
+            addJavascriptInterface(KeysApi(), "DashplayKeys")
+            // Run keys.js before each page's own scripts where the WebView supports it;
+            // otherwise onPageFinished adds it.
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                WebViewCompat.addDocumentStartJavaScript(this, keysScript, setOf("*"))
+            }
             addJavascriptInterface(Store.Api(context, { pageUrl }, { js -> webView?.evaluateJavascript(js, null) }), "DashplayStore")
             webChromeClient = object : WebChromeClient() {
                 override fun onProgressChanged(view: WebView, newProgress: Int) {
@@ -443,6 +473,7 @@ class WebSurface(private val context: Context, private val listener: Listener) {
                 }
 
                 override fun onPageFinished(view: WebView, url: String) {
+                    view.evaluateJavascript(keysScript, null)
                     pageLoading = false
                     updateToolbar()
                     val title = view.title.orEmpty()

@@ -141,7 +141,7 @@ then build with `DASHPLAY_SIGNING=/path/to/that.properties ./gradlew bundleRelea
 
 - **Not for the public Play Store.** Play wouldn't approve a "navigation" app that isn't one, so Dashplay is installed through internal app sharing (see Install).
 - **Taps need car API level 5** (Android Auto from about 2022 onward).
-- **Web text boxes have no on-screen keyboard** on the car; use the phone's *Type* box.
+- **Typing into web pages uses the car's own keyboard.** Tapping a text box (YouTube search, say) opens Android Auto's keyboard, and what you type goes into the page as you type. Android Auto hides that keyboard while driving; the phone's *Type* box always works.
 - **The driving lock depends on the car reporting its speed.** The desktop head unit and
   some cars don't, and then the lock never engages. The driver should only play or browse while parked.
 - **Android Auto hides the car keyboard while driving**, whatever the driving lock says. Use the phone's Web tab instead.

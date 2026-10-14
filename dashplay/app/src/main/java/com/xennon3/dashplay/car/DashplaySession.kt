@@ -19,6 +19,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.xennon3.dashplay.CarBridge
+import org.json.JSONObject
 import com.xennon3.dashplay.GameKey
 import com.xennon3.dashplay.Store
 
@@ -64,6 +65,20 @@ class DashplaySession : Session(), CarBridge.CarScreen, WebSurface.Listener {
     /** The home screen lists installed tools, so show a new install or removal right away. */
     private val onStoreChanged: () -> Unit = {
         if (CarBridge.currentUrl.startsWith(CarBridge.HOME_URL)) surface.nav("reload")
+    }
+
+    override fun onTextFieldTapped(field: JSONObject) {
+        val screens = carContext.getCarService(ScreenManager::class.java)
+        if (screens.top is TypeScreen) return
+        screens.push(
+            TypeScreen(
+                carContext,
+                label = field.optString("label"),
+                initial = field.optString("value"),
+                password = field.optBoolean("password"),
+                fill = surface::fillField,
+            )
+        )
     }
 
     override fun onAddressRequested() {
