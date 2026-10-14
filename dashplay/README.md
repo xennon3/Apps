@@ -30,9 +30,10 @@ run on the dashboard.
 
 ### Driving lock
 
-On by default. A passenger can switch it off in the phone app's **Settings** tab after a
-confirmation. Switching it off lasts only until the car disconnects: every new connection
-starts with the lock on again, so it is never left off by accident.
+On by default. It can be switched off in the phone app's **Settings** tab after a
+confirmation. A second switch, **Turn back on every drive** (on by default), makes every new
+connection start with the lock on again, so it is never left off by accident. Turn that
+switch off to have the lock keep its setting between drives. Both settings are saved.
 
 ### Games
 

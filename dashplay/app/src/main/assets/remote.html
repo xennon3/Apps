@@ -34,8 +34,9 @@
   .now .art .icon { --icon: 48px; box-shadow: none; }
   .now .art { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; font-size: 28px; background: #0B0D1266; }
   .now small { display: block; color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
-  .now b { font-size: 17px; display: block; max-width: 52vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .now .home { margin-left: auto; height: 44px; padding: 0 14px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line); font-weight: 700; font-size: 14px; white-space: nowrap; flex: none; }
+  .now > div:not(.art) { flex: 1; min-width: 0; }
+  .now b { font-size: 17px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .now .home { height: 44px; padding: 0 14px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line); font-weight: 700; font-size: 14px; white-space: nowrap; flex: none; }
   .now .home[hidden] { display: none; }
 
   main { flex: 1; min-height: 0; position: relative; }
@@ -239,6 +240,10 @@
         <div><b>Driving lock</b><p>Covers the car screen and pauses games while the car is moving.</p></div>
         <button class="switch" id="lockSwitch" role="switch" aria-label="Driving lock"></button>
       </div>
+      <div class="setting" style="margin-top:10px">
+        <div><b>Turn back on every drive</b><p>Each new connection to the car starts with the driving lock on.</p></div>
+        <button class="switch" id="resetSwitch" role="switch" aria-label="Turn back on every drive"></button>
+      </div>
       <p class="lockstate" id="lockState"></p>
       <details>
         <summary>First time in the car?</summary>
@@ -262,7 +267,7 @@
     <div class="card">
       <h2>Turn off the driving lock?</h2>
       <p>Only do this when a <b>passenger</b> is using the screen. The driver should never play or browse while driving.</p>
-      <p>The lock switches itself back on the next time you connect to the car.</p>
+      <p id="sheetNote"></p>
       <div class="row"><button class="btn" id="keepLock">Keep it on</button><button class="btn danger" id="dropLock">Turn off</button></div>
     </div>
   </div>
@@ -281,7 +286,8 @@ const $ = id => document.getElementById(id);
 const remote = window.DashplayRemote || {
   load: u => console.log('load', u), press: k => console.log('press', k), type: t => console.log('type', t),
   nav: a => console.log('nav', a), history: () => '[]', setDrivingLock: on => console.log('lock', on),
-  status: () => JSON.stringify({ connected: false, moving: false, url: HOME, title: '', drivingLock: true }),
+  setLockResetsEachDrive: on => console.log('reset', on),
+  status: () => JSON.stringify({ connected: false, moving: false, url: HOME, title: '', drivingLock: true, lockResetsEachDrive: true }),
 };
 let status = JSON.parse(remote.status());
 
@@ -368,12 +374,25 @@ function renderWeb() {
 
 // Settings: switching the lock off needs a second, deliberate tap.
 $('lockSwitch').onclick = () => {
-  if (status.drivingLock) $('sheet').classList.add('show');
+  if (status.drivingLock) {
+    $('sheetNote').textContent = status.lockResetsEachDrive
+      ? 'The lock switches itself back on the next time you connect to the car.'
+      : 'It stays off on every drive until you turn it back on here.';
+    $('sheet').classList.add('show');
+  }
   else { remote.setDrivingLock(true); toast('Driving lock is on'); }
   buzz();
 };
 $('keepLock').onclick = () => $('sheet').classList.remove('show');
-$('dropLock').onclick = () => { $('sheet').classList.remove('show'); remote.setDrivingLock(false); toast('Driving lock is off for this drive'); };
+$('dropLock').onclick = () => {
+  $('sheet').classList.remove('show'); remote.setDrivingLock(false);
+  toast(status.lockResetsEachDrive ? 'Driving lock is off for this drive' : 'Driving lock is off');
+};
+$('resetSwitch').onclick = () => {
+  const on = !status.lockResetsEachDrive;
+  remote.setLockResetsEachDrive(on); buzz();
+  toast(on ? 'The lock will turn back on each drive' : 'The lock keeps its setting between drives');
+};
 $('sheet').onclick = e => { if (e.target.id === 'sheet') $('sheet').classList.remove('show'); };
 function renderSettings() {
   const sw = $('lockSwitch');
@@ -381,9 +400,14 @@ function renderSettings() {
   sw.setAttribute('aria-checked', status.drivingLock);
   const st = $('lockState');
   st.className = 'lockstate' + (status.drivingLock ? '' : ' off');
+  const rs = $('resetSwitch');
+  rs.classList.toggle('on', status.lockResetsEachDrive);
+  rs.setAttribute('aria-checked', status.lockResetsEachDrive);
   st.textContent = status.drivingLock
-    ? 'On. Turning it off lasts until the car disconnects.'
-    : '⚠️ Off for this drive. The car screen keeps working while moving. It turns back on next time you connect.';
+    ? (status.lockResetsEachDrive ? 'On. Turning it off lasts until the car disconnects.' : 'On.')
+    : status.lockResetsEachDrive
+      ? '⚠️ Off for this drive. The car screen keeps working while moving. It turns back on next time you connect.'
+      : '⚠️ Off on every drive. The car screen keeps working while moving until you turn the lock back on.';
 }
 
 $('urlForm').onsubmit = e => { e.preventDefault(); if ($('url').value.trim()) send(normalize($('url').value)); };

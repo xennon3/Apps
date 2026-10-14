@@ -27,8 +27,8 @@ class DashplaySession : Session(), CarBridge.CarScreen, WebSurface.Listener {
     override fun onCreateScreen(intent: Intent): Screen {
         surface = WebSurface(carContext, this)
         surface.load(CarBridge.currentUrl)
-        // A fresh drive always starts with the lock on, even if a passenger turned it off last time.
-        CarBridge.drivingLock = true
+        CarBridge.init(carContext)
+        CarBridge.onDriveStarted()
         carContext.getCarService(AppManager::class.java).setSurfaceCallback(surfaceCallback)
         watchSpeed()
         CarBridge.car = this

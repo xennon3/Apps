@@ -1,5 +1,7 @@
 package com.xennon3.dashplay
 
+import android.content.Context
+import android.content.SharedPreferences
 import android.os.Handler
 import android.os.Looper
 
@@ -28,9 +30,20 @@ object CarBridge {
         val url: String,
         val title: String,
         val drivingLock: Boolean,
+        val lockResetsEachDrive: Boolean,
     )
 
     private val main = Handler(Looper.getMainLooper())
+    private var prefs: SharedPreferences? = null
+
+    /** Loads the saved lock settings. Called by both the phone screen and the car session. */
+    fun init(context: Context) {
+        if (prefs != null) return
+        val p = context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        prefs = p
+        lockResetsEachDrive = p.getBoolean("lockResetsEachDrive", true)
+        drivingLock = p.getBoolean("drivingLock", true)
+    }
     private val statusListeners = mutableSetOf<(Status) -> Unit>()
 
     var car: CarScreen? = null
@@ -46,17 +59,33 @@ object CarBridge {
             publish()
         }
 
-    /**
-     * Cover the car screen while moving. Every new car session turns it back on, so switching
-     * it off for a passenger never carries over to the next drive.
-     */
+    /** Cover the car screen while moving. */
     var drivingLock = true
         set(value) {
             if (field == value) return
             field = value
+            prefs?.edit()?.putBoolean("drivingLock", value)?.apply()
             car?.onDrivingLockChanged()
             publish()
         }
+
+    /**
+     * When true (the default), every new car session turns the lock back on, so switching it
+     * off for a passenger never carries over to the next drive. When false, the lock keeps
+     * whatever setting it had.
+     */
+    var lockResetsEachDrive = true
+        set(value) {
+            if (field == value) return
+            field = value
+            prefs?.edit()?.putBoolean("lockResetsEachDrive", value)?.apply()
+            publish()
+        }
+
+    /** A car session started. */
+    fun onDriveStarted() {
+        if (lockResetsEachDrive) drivingLock = true
+    }
 
     var currentUrl = HOME_URL
         private set
@@ -83,6 +112,8 @@ object CarBridge {
 
     fun switchDrivingLock(on: Boolean) = onMain { drivingLock = on }
 
+    fun switchLockResetsEachDrive(on: Boolean) = onMain { lockResetsEachDrive = on }
+
     fun observe(listener: (Status) -> Unit) {
         statusListeners += listener
         listener(status())
@@ -92,7 +123,7 @@ object CarBridge {
         statusListeners -= listener
     }
 
-    fun status() = Status(car != null, moving, currentUrl, currentTitle, drivingLock)
+    fun status() = Status(car != null, moving, currentUrl, currentTitle, drivingLock, lockResetsEachDrive)
 
     private fun publish() {
         val s = status()

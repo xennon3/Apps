@@ -22,6 +22,7 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CarBridge.init(this)
         web = WebView(this).apply {
             setBackgroundColor(getColor(R.color.bg))
             settings.javaScriptEnabled = true
@@ -67,7 +68,8 @@ class MainActivity : ComponentActivity() {
 
     private fun statusJson(s: CarBridge.Status) =
         JSONObject().put("connected", s.connected).put("moving", s.moving).put("url", s.url)
-            .put("title", s.title).put("drivingLock", s.drivingLock).toString()
+            .put("title", s.title).put("drivingLock", s.drivingLock)
+            .put("lockResetsEachDrive", s.lockResetsEachDrive).toString()
 
     /** Called from remote.html on a WebView thread; CarBridge hops to the main thread. */
     private inner class Remote {
@@ -90,6 +92,9 @@ class MainActivity : ComponentActivity() {
 
         @JavascriptInterface
         fun setDrivingLock(on: Boolean) = CarBridge.switchDrivingLock(on)
+
+        @JavascriptInterface
+        fun setLockResetsEachDrive(on: Boolean) = CarBridge.switchLockResetsEachDrive(on)
 
         @JavascriptInterface
         fun status(): String = statusJson(CarBridge.status())
