@@ -10,13 +10,12 @@ import com.xennon3.dashplay.CarBridge
 import com.xennon3.dashplay.R
 
 /** The full-screen web page, with a few buttons floating over it. */
-class PlayerScreen(carContext: CarContext, private val surface: WebSurface) : Screen(carContext) {
+class PlayerScreen(carContext: CarContext) : Screen(carContext) {
 
     override fun onGetTemplate(): Template {
         val actions = ActionStrip.Builder()
             .addAction(button(R.drawable.ic_library) { screenManager.push(LibraryScreen(carContext)) })
             .addAction(button(R.drawable.ic_search) { screenManager.push(AddressScreen(carContext)) })
-            .addAction(button(R.drawable.ic_back) { surface.back() })
             .addAction(button(R.drawable.ic_home) { CarBridge.load(CarBridge.HOME_URL) })
             .build()
         // Pan mode makes the host forward drag gestures, which scroll the page.

@@ -20,11 +20,19 @@ run on the dashboard.
 | --- | --- |
 | `car/WebSurface.kt` | Wraps the car's surface in a private `VirtualDisplay`, shows a `Presentation` with a WebView on it, and replays car taps as touch events. |
 | `car/DashplaySession.kt` | Wires up the surface callbacks and the **driving lock**: when the car reports a speed over ~7 km/h, the page is covered and its timers pause. |
-| `car/PlayerScreen.kt` | The page itself, with buttons for Library, Address, Back and Home. Pan mode scrolls the page. |
+| `car/PlayerScreen.kt` | The page itself, with buttons for Library, Address and Home. Pan mode scrolls the page. |
+| `assets/chrome.html` | The **browser toolbar** above web pages: back, forward, reload/stop, address pill with lock icon, loading bar, text size and start page. It is a second small WebView, driven by `WebSurface`. |
+| `assets/browser.html`, `assets/offline.html` | The browser start page (search, quick-access sites, recent pages) and a friendly "can't reach this page" screen. Web pages are shown in dark mode where possible. |
 | `car/LibraryScreen.kt`, `car/AddressScreen.kt` | Pick a game or bookmark, or type an address on the car's keyboard. |
-| `MainActivity.kt` + `assets/remote.html` | The phone remote: start games on the car, a full-screen **gamepad** for a passenger, and sending web pages or text. With no car connected, games open on the phone. |
+| `MainActivity.kt` + `assets/remote.html` | The phone remote: start games on the car, a full-screen **gamepad** for a passenger, control the car's browser (back/forward/reload, quick sites, recent pages, typing), and **Settings**. With no car connected, games open on the phone. |
 | `assets/index.html` | The car home screen: clock, "continue" card, and a paged grid of games (no scrolling needed). |
-| `assets/kit/` | What every game shares: `games.js` (the one list of games), `arcade.css` (the look) and `arcade.js` (start/pause/game-over cards, best scores, input, sound). |
+| `assets/kit/` | Shared by every page: `games.js` and `sites.js` (the game and quick-access lists), `arcade.css` (the look), `arcade.js` (start/pause/game-over cards, best scores, input, sound) and `browser.js` (site icons). |
+
+### Driving lock
+
+On by default. A passenger can switch it off in the phone app's **Settings** tab after a
+confirmation. Switching it off lasts only until the car disconnects: every new connection
+starts with the lock on again, so it is never left off by accident.
 
 ### Games
 
@@ -91,5 +99,6 @@ No car handy? Use Google's **Desktop Head Unit** (Android SDK Manager → SDK To
 - **Taps need car API level 5** (Android Auto from about 2022 onward).
 - **Web text boxes have no on-screen keyboard** on the car; use the phone's *Type* box.
 - **The driving lock depends on the car reporting its speed.** The desktop head unit and
-  some cars don't, and then the lock never engages. Play only while parked.
+  some cars don't, and then the lock never engages. The driver should only play or browse while parked.
+- **Android Auto hides the car keyboard while driving**, whatever the driving lock says. Use the phone's Web tab instead.
 - Sound from pages should come out of the car speakers the same way phone media does.

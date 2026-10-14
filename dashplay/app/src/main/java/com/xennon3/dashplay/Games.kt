@@ -8,19 +8,22 @@ data class Game(val id: String, val title: String, val emoji: String, val blurb:
     val url get() = "file:///android_asset/games/$id.html"
 }
 
+/** A quick-access site from the browser start page. */
+data class Site(val name: String, val url: String)
+
 /** Reads the shared list in assets/kit/games.js, the same one the web pages use. */
-fun loadGames(context: Context): List<Game> {
-    val source = context.assets.open("kit/games.js").bufferedReader().use { it.readText() }
-    val json = JSONArray(source.substring(source.indexOf('=') + 1).trim().removeSuffix(";"))
-    return (0 until json.length()).map {
-        val g = json.getJSONObject(it)
-        Game(g.getString("id"), g.getString("title"), g.getString("emoji"), g.getString("blurb"))
-    }
+fun loadGames(context: Context): List<Game> = readAssetList(context, "kit/games.js").map {
+    Game(it.getString("id"), it.getString("title"), it.getString("emoji"), it.getString("blurb"))
 }
 
-/** Quick links shown on the car's library screen. */
-val BOOKMARKS = listOf(
-    "Wikipedia" to "https://en.m.wikipedia.org",
-    "Weather" to "https://wttr.in",
-    "Hacker News" to "https://news.ycombinator.com",
-)
+/** Reads assets/kit/sites.js. */
+fun loadSites(context: Context): List<Site> = readAssetList(context, "kit/sites.js").map {
+    Site(it.getString("name"), it.getString("url"))
+}
+
+/** The kit files are `window.X = [ ...JSON... ];`, so everything after the "=" is JSON. */
+private fun readAssetList(context: Context, path: String): List<org.json.JSONObject> {
+    val source = context.assets.open(path).bufferedReader().use { it.readText() }
+    val json = JSONArray(source.substring(source.indexOf('=') + 1).trim().removeSuffix(";"))
+    return (0 until json.length()).map { json.getJSONObject(it) }
+}

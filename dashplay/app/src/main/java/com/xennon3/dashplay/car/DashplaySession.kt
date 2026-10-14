@@ -5,6 +5,7 @@ import android.graphics.Rect
 import androidx.car.app.AppManager
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
+import androidx.car.app.ScreenManager
 import androidx.car.app.Session
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
@@ -18,14 +19,16 @@ import androidx.lifecycle.LifecycleOwner
 import com.xennon3.dashplay.CarBridge
 import com.xennon3.dashplay.GameKey
 
-class DashplaySession : Session(), CarBridge.CarScreen {
+class DashplaySession : Session(), CarBridge.CarScreen, WebSurface.Listener {
 
     private lateinit var surface: WebSurface
     private var speedListener: OnCarDataAvailableListener<Speed>? = null
 
     override fun onCreateScreen(intent: Intent): Screen {
-        surface = WebSurface(carContext) { url -> CarBridge.currentUrl = url }
+        surface = WebSurface(carContext, this)
         surface.load(CarBridge.currentUrl)
+        // A fresh drive always starts with the lock on, even if a passenger turned it off last time.
+        CarBridge.drivingLock = true
         carContext.getCarService(AppManager::class.java).setSurfaceCallback(surfaceCallback)
         watchSpeed()
         CarBridge.car = this
@@ -38,12 +41,25 @@ class DashplaySession : Session(), CarBridge.CarScreen {
                 surface.release()
             }
         })
-        return PlayerScreen(carContext, surface)
+        return PlayerScreen(carContext)
     }
 
     override fun load(url: String) = surface.load(url)
     override fun press(key: GameKey) = surface.press(key)
     override fun type(text: String) = surface.type(text)
+    override fun nav(action: String) = surface.nav(action)
+    override fun onDrivingLockChanged() = applyLock()
+
+    override fun onPageChanged(url: String, title: String) = CarBridge.setPage(url, title)
+
+    override fun onAddressRequested() {
+        val screens = carContext.getCarService(ScreenManager::class.java)
+        if (screens.top !is AddressScreen) screens.push(AddressScreen(carContext))
+    }
+
+    private fun applyLock() {
+        surface.locked = CarBridge.moving && CarBridge.drivingLock
+    }
 
     private val surfaceCallback = object : SurfaceCallback {
         override fun onSurfaceAvailable(container: SurfaceContainer) = surface.attach(container)
@@ -64,13 +80,12 @@ class DashplaySession : Session(), CarBridge.CarScreen {
             val metersPerSecond = value.value
             if (value.status != CarValue.STATUS_SUCCESS || metersPerSecond == null) return@OnCarDataAvailableListener
             // Two thresholds so crawling in traffic doesn't flicker the lock on and off.
-            val moving = when {
+            CarBridge.moving = when {
                 metersPerSecond > MOVING_MPS -> true
                 metersPerSecond < PARKED_MPS -> false
-                else -> surface.locked
+                else -> CarBridge.moving
             }
-            surface.locked = moving
-            CarBridge.moving = moving
+            applyLock()
         }
         try {
             carContext.getCarService(CarHardwareManager::class.java).carInfo

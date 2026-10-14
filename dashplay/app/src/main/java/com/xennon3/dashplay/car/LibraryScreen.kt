@@ -8,11 +8,11 @@ import androidx.car.app.model.ListTemplate
 import androidx.car.app.model.Row
 import androidx.car.app.model.SectionedItemList
 import androidx.car.app.model.Template
-import com.xennon3.dashplay.BOOKMARKS
 import com.xennon3.dashplay.CarBridge
 import com.xennon3.dashplay.loadGames
+import com.xennon3.dashplay.loadSites
 
-/** Games and bookmarks as a car-friendly list. Picking one returns to the page. */
+/** Games and websites as a car-friendly list. Picking one returns to the page. */
 class LibraryScreen(carContext: CarContext) : Screen(carContext) {
 
     override fun onGetTemplate(): Template {
@@ -20,7 +20,8 @@ class LibraryScreen(carContext: CarContext) : Screen(carContext) {
         loadGames(carContext).forEach { games.addItem(row("${it.emoji}  ${it.title}", it.blurb, it.url)) }
 
         val web = ItemList.Builder()
-        BOOKMARKS.forEach { (title, url) -> web.addItem(row(title, url, url)) }
+        web.addItem(row("🌐  Start page", "Search, quick access and recent pages", CarBridge.START_URL))
+        loadSites(carContext).forEach { web.addItem(row(it.name, it.url.removePrefix("https://"), it.url)) }
 
         return ListTemplate.Builder()
             .setTitle("Library")

@@ -22,6 +22,13 @@
     background: var(--surface); border: 1px solid var(--line); font-size: clamp(13px, 2.5vh, 16px); font-weight: 600;
   }
   .status::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--good); box-shadow: 0 0 10px var(--good); }
+  .web {
+    display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 18px; text-align: left;
+    background: var(--surface); border: 1px solid var(--line); font-size: clamp(15px, 3vh, 19px);
+  }
+  .web span { font-size: 1.4em; }
+  .web i { margin-left: auto; font-style: normal; color: var(--muted); font-size: 1.4em; }
+  .web:active { background: var(--surface-2); }
   .continue {
     margin-top: auto; display: flex; align-items: center; gap: 14px; padding: 14px; border-radius: var(--radius);
     background: linear-gradient(135deg, color-mix(in srgb, var(--c) 30%, var(--surface)), var(--surface));
@@ -79,7 +86,14 @@
     body { grid-template-columns: 1fr; grid-template-rows: auto 1fr; overflow: auto; }
     .rail { flex-direction: row; flex-wrap: wrap; align-items: flex-end; }
     .clock { font-size: 13vw; }
-    .continue { margin-top: 0; width: 100%; }
+    .web {
+    display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 18px; text-align: left;
+    background: var(--surface); border: 1px solid var(--line); font-size: clamp(15px, 3vh, 19px);
+  }
+  .web span { font-size: 1.4em; }
+  .web i { margin-left: auto; font-style: normal; color: var(--muted); font-size: 1.4em; }
+  .web:active { background: var(--surface-2); }
+  .continue { margin-top: 0; width: 100%; }
   }
 </style>
 </head>
@@ -88,6 +102,7 @@
     <div class="brand"><i>▶</i>Dashplay</div>
     <div><div class="clock num" id="clock"></div><div class="date" id="date"></div></div>
     <div class="status">Parked · ready to play</div>
+    <button class="web" id="web"><span>🌐</span><b>Web browser</b><i>›</i></button>
     <button class="continue" id="continue" hidden></button>
   </section>
   <section class="main">
@@ -113,6 +128,7 @@ function tick() {
 tick(); setInterval(tick, 5000);
 
 const open = g => location.href = `games/${g.id}.html`;
+document.getElementById('web').onclick = () => location.href = 'browser.html';
 
 const last = GAMES.find(g => g.id === read('last'));
 if (last) {

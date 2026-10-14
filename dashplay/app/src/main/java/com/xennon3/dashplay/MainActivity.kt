@@ -66,7 +66,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun statusJson(s: CarBridge.Status) =
-        JSONObject().put("connected", s.connected).put("moving", s.moving).put("url", s.url).toString()
+        JSONObject().put("connected", s.connected).put("moving", s.moving).put("url", s.url)
+            .put("title", s.title).put("drivingLock", s.drivingLock).toString()
 
     /** Called from remote.html on a WebView thread; CarBridge hops to the main thread. */
     private inner class Remote {
@@ -80,6 +81,15 @@ class MainActivity : ComponentActivity() {
 
         @JavascriptInterface
         fun type(text: String) = CarBridge.type(text)
+
+        @JavascriptInterface
+        fun nav(action: String) = CarBridge.nav(action)
+
+        @JavascriptInterface
+        fun history(): String = History.json(this@MainActivity)
+
+        @JavascriptInterface
+        fun setDrivingLock(on: Boolean) = CarBridge.switchDrivingLock(on)
 
         @JavascriptInterface
         fun status(): String = statusJson(CarBridge.status())

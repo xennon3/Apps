@@ -21,6 +21,7 @@
   .pill.on { color: var(--text); }
   .pill.on::before { background: var(--good); box-shadow: 0 0 0 0 var(--good); animation: ping 2s infinite; }
   .pill.moving::before { background: #FFC24B; }
+  .pill.unlocked::before { background: var(--bad); }
   @keyframes ping { 0% { box-shadow: 0 0 0 0 #3DDC8488; } 80%, 100% { box-shadow: 0 0 0 8px #3DDC8400; } }
 
   /* What the car is showing */
@@ -29,10 +30,12 @@
     background: linear-gradient(135deg, color-mix(in srgb, var(--c, #5B6475) 28%, var(--surface)), var(--surface));
     border: 1px solid color-mix(in srgb, var(--c, #5B6475) 35%, var(--line));
   }
+  [hidden] { display: none !important; }
+  .now .art .icon { --icon: 48px; box-shadow: none; }
   .now .art { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; font-size: 28px; background: #0B0D1266; }
   .now small { display: block; color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
   .now b { font-size: 17px; display: block; max-width: 52vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .now .home { margin-left: auto; height: 44px; padding: 0 14px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line); font-weight: 700; font-size: 14px; }
+  .now .home { margin-left: auto; height: 44px; padding: 0 14px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line); font-weight: 700; font-size: 14px; white-space: nowrap; flex: none; }
   .now .home[hidden] { display: none; }
 
   main { flex: 1; min-height: 0; position: relative; }
@@ -92,16 +95,71 @@
   }
   .field input:focus { border-color: var(--accent); }
   .field button { height: 52px; padding: 0 18px; border-radius: 16px; background: var(--accent); color: #111; font-weight: 800; }
+  .carweb { padding: 14px; border-radius: 22px; background: var(--surface); border: 1px solid var(--line); margin-bottom: 14px; }
+  .cw-top { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .cw-top .icon { --icon: 44px; box-shadow: none; flex: none; }
+  .cw-top div { min-width: 0; }
+  .cw-top small { display: block; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  .cw-top b, .cw-top div > span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cw-top b { font-size: 16px; }
+  .cw-top div > span { color: var(--muted); font-size: 13px; }
+  .cw-btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+  .cw-btns button, .cw-open {
+    height: 48px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line); font-weight: 700; font-size: 14px;
+  }
+  .cw-btns button:active, .cw-open:active { background: var(--line); }
+  .cw-open { width: 100%; margin-top: 12px; background: var(--accent); color: #111; border: 0; }
+  .field.search { position: relative; }
+  .field.search svg { position: absolute; left: 16px; top: 16px; width: 20px; height: 20px; fill: var(--muted); pointer-events: none; }
+  .field.search input { padding-left: 46px; }
+  .dial { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px 6px; }
+  .site { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 4px 0; }
+  .site .icon { --icon: 54px; }
+  .site b { font-size: 12px; font-weight: 600; color: #C9D0DB; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .site:active .icon { transform: scale(.94); }
+  .recent { display: flex; flex-direction: column; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); overflow: hidden; }
+  .recent button { display: flex; align-items: center; gap: 12px; padding: 10px 14px; text-align: left; min-width: 0; }
+  .recent button + button { border-top: 1px solid var(--line); }
+  .recent button:active { background: var(--surface-2); }
+  .recent .icon { --icon: 36px; border-radius: 10px; box-shadow: none; flex: none; }
+  .recent div { min-width: 0; }
+  .recent b, .recent small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .recent b { font-size: 14px; }
+  .recent small { color: var(--muted); font-size: 12px; }
+
+  /* Settings */
+  .setting {
+    display: flex; align-items: center; gap: 14px; padding: 16px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);
+  }
+  .setting b { font-size: 16px; }
+  .setting p { margin: 4px 0 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+  .switch { flex: none; width: 56px; height: 34px; border-radius: 999px; background: var(--line); position: relative; transition: background .2s; }
+  .switch::after { content: ''; position: absolute; left: 4px; top: 4px; width: 26px; height: 26px; border-radius: 50%; background: #fff; transition: transform .2s; }
+  .switch.on { background: var(--good); }
+  .switch.on::after { transform: translateX(22px); }
+  .switch:disabled { opacity: .4; }
+  .lockstate { margin: 10px 4px 0; font-size: 13px; line-height: 1.45; color: var(--muted); }
+  .lockstate.off { color: #FFC24B; }
+  .sheet {
+    position: fixed; inset: 0; z-index: 20; display: none; align-items: flex-end; padding: 12px;
+    background: #0B0D12b3; backdrop-filter: blur(4px);
+  }
+  .sheet.show { display: flex; }
+  .sheet .card { width: 100%; display: block; padding: 22px; border-radius: 26px; transform: none; }
+  .sheet h2 { margin: 0 0 8px; font-size: 21px; }
+  .sheet p { margin: 0 0 8px; color: #C9D0DB; font-size: 14px; line-height: 1.5; }
+  .sheet .row { display: flex; gap: 10px; margin-top: 16px; }
+  .sheet .btn { height: 54px; font-size: 16px; }
+  .sheet .btn.danger { background: var(--bad); color: #fff; border: 0; }
+
   h3 { margin: 22px 2px 10px; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
-  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
-  .chips button { height: 40px; padding: 0 14px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); font-weight: 600; font-size: 14px; }
   details { margin-top: 22px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); padding: 4px 16px; }
   summary { padding: 12px 0; font-weight: 700; cursor: pointer; }
   details ol { margin: 0 0 14px; padding-left: 20px; color: #C9D0DB; font-size: 14px; line-height: 1.55; }
 
   /* Bottom tabs */
   nav {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 0 12px 12px; padding: 6px; border-radius: 22px;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 0 12px 12px; padding: 6px; border-radius: 22px;
     background: var(--surface); border: 1px solid var(--line);
   }
   nav button { height: 54px; border-radius: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 12px; font-weight: 700; color: var(--muted); }
@@ -118,7 +176,7 @@
   @media (orientation: landscape) and (max-height: 500px) {
     header, .now, .padnote { display: none; }
     body { flex-direction: row-reverse; }
-    nav { grid-template-columns: 1fr; grid-template-rows: repeat(3, 1fr); margin: 10px 10px 10px 0; width: 76px; }
+    nav { grid-template-columns: 1fr; grid-template-rows: repeat(4, 1fr); margin: 10px 10px 10px 0; width: 76px; }
     .games { grid-template-columns: repeat(3, 1fr); }
   }
 </style>
@@ -153,17 +211,35 @@
     </section>
 
     <section class="view" id="web">
-      <form class="field" id="urlForm">
-        <input id="url" type="url" inputmode="url" autocomplete="off" autocapitalize="off" placeholder="Web address or search">
+      <div class="carweb" id="carweb">
+        <div class="cw-top"><span id="cwIcon"></span><div><small id="cwLabel">Car browser</small><b id="cwTitle"></b><span id="cwHost"></span></div></div>
+        <div class="cw-btns" id="cwBtns">
+          <button data-nav="back">◀ Back</button><button data-nav="forward">Forward ▶</button><button data-nav="reload">↻ Reload</button>
+        </div>
+        <button class="cw-open" id="cwOpen">Open the browser on the car</button>
+      </div>
+      <form class="field search" id="urlForm">
+        <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        <input id="url" type="url" inputmode="url" autocomplete="off" autocapitalize="off" placeholder="Search or web address">
         <button>Send</button>
       </form>
-      <h3>Quick links</h3>
-      <div class="chips" id="links"></div>
+      <h3>Quick access</h3>
+      <div class="dial" id="dial"></div>
+      <h3 id="recentTitle" hidden>Recent on the car</h3>
+      <div class="recent" id="recent"></div>
       <h3>Type on the car</h3>
       <form class="field" id="typeForm">
         <input id="text" autocomplete="off" placeholder="Fills the box that's selected on the car">
         <button>Type</button>
       </form>
+    </section>
+
+    <section class="view" id="settings">
+      <div class="setting">
+        <div><b>Driving lock</b><p>Covers the car screen and pauses games while the car is moving.</p></div>
+        <button class="switch" id="lockSwitch" role="switch" aria-label="Driving lock"></button>
+      </div>
+      <p class="lockstate" id="lockState"></p>
       <details>
         <summary>First time in the car?</summary>
         <ol>
@@ -180,20 +256,32 @@
     <button data-tab="games" class="on"><span>🎮</span>Games</button>
     <button data-tab="pad"><span>🕹️</span>Pad</button>
     <button data-tab="web"><span>🌐</span>Web</button>
+    <button data-tab="settings"><span>⚙️</span>Settings</button>
   </nav>
+  <div class="sheet" id="sheet">
+    <div class="card">
+      <h2>Turn off the driving lock?</h2>
+      <p>Only do this when a <b>passenger</b> is using the screen. The driver should never play or browse while driving.</p>
+      <p>The lock switches itself back on the next time you connect to the car.</p>
+      <div class="row"><button class="btn" id="keepLock">Keep it on</button><button class="btn danger" id="dropLock">Turn off</button></div>
+    </div>
+  </div>
   <div class="toast" id="toast"></div>
 
 <script src="kit/games.js"></script>
+<script src="kit/sites.js"></script>
+<script src="kit/browser.js"></script>
 <script>
 const GAMES = window.DASHPLAY_GAMES;
-const LINKS = [['Wikipedia', 'https://en.m.wikipedia.org'], ['Weather', 'https://wttr.in'], ['Hacker News', 'https://news.ycombinator.com'], ['YouTube', 'https://m.youtube.com']];
 const HOME = 'file:///android_asset/index.html';
+const START = 'file:///android_asset/browser.html';
 const $ = id => document.getElementById(id);
 
 // Native side (MainActivity). In a plain browser, a stand-in keeps the page usable.
 const remote = window.DashplayRemote || {
   load: u => console.log('load', u), press: k => console.log('press', k), type: t => console.log('type', t),
-  status: () => JSON.stringify({ connected: false, moving: false, url: HOME }),
+  nav: a => console.log('nav', a), history: () => '[]', setDrivingLock: on => console.log('lock', on),
+  status: () => JSON.stringify({ connected: false, moving: false, url: HOME, title: '', drivingLock: true }),
 };
 let status = JSON.parse(remote.status());
 
@@ -246,11 +334,58 @@ document.querySelectorAll('.controller button').forEach(b => {
 });
 
 // Web
-LINKS.forEach(([name, url]) => {
-  const b = document.createElement('button'); b.textContent = name;
-  b.onclick = () => send(url);
-  $('links').append(b);
+window.DASHPLAY_SITES.forEach(site => {
+  const b = document.createElement('button');
+  b.className = 'site';
+  b.innerHTML = `${Browser.icon(site.url, site.color, site.name)}<b>${site.name}</b>`;
+  b.onclick = () => send(site.url);
+  $('dial').append(b);
 });
+document.querySelectorAll('[data-nav]').forEach(b => b.onclick = () => { remote.nav(b.dataset.nav); buzz(); });
+$('cwOpen').onclick = () => send(START);
+
+const isWeb = url => /^https?:/.test(url || '');
+function renderWeb() {
+  const web = status.connected && isWeb(status.url);
+  $('cwIcon').innerHTML = web ? Browser.icon(status.url) : '<span class="icon" style="--c:#8B95A7"><i>🌐</i></span>';
+  $('cwLabel').textContent = web ? 'Open on the car' : 'Car browser';
+  $('cwTitle').textContent = web ? (status.title || Browser.host(status.url)) : status.connected ? 'No web page open' : 'Not connected';
+  $('cwHost').textContent = web ? Browser.host(status.url) : 'Send a site below, or open the start page';
+  $('cwBtns').hidden = !web;
+  $('cwOpen').hidden = web || !status.connected;
+  const pages = JSON.parse(remote.history()).slice(0, 8);
+  $('recentTitle').hidden = !pages.length;
+  $('recent').hidden = !pages.length;
+  $('recent').innerHTML = '';
+  pages.forEach(p => {
+    const b = document.createElement('button');
+    b.innerHTML = `${Browser.icon(p.url)}<div><b></b><small>${Browser.host(p.url)}</small></div>`;
+    b.querySelector('b').textContent = p.title;
+    b.onclick = () => send(p.url);
+    $('recent').append(b);
+  });
+}
+
+// Settings: switching the lock off needs a second, deliberate tap.
+$('lockSwitch').onclick = () => {
+  if (status.drivingLock) $('sheet').classList.add('show');
+  else { remote.setDrivingLock(true); toast('Driving lock is on'); }
+  buzz();
+};
+$('keepLock').onclick = () => $('sheet').classList.remove('show');
+$('dropLock').onclick = () => { $('sheet').classList.remove('show'); remote.setDrivingLock(false); toast('Driving lock is off for this drive'); };
+$('sheet').onclick = e => { if (e.target.id === 'sheet') $('sheet').classList.remove('show'); };
+function renderSettings() {
+  const sw = $('lockSwitch');
+  sw.classList.toggle('on', status.drivingLock);
+  sw.setAttribute('aria-checked', status.drivingLock);
+  const st = $('lockState');
+  st.className = 'lockstate' + (status.drivingLock ? '' : ' off');
+  st.textContent = status.drivingLock
+    ? 'On. Turning it off lasts until the car disconnects.'
+    : '⚠️ Off for this drive. The car screen keeps working while moving. It turns back on next time you connect.';
+}
+
 $('urlForm').onsubmit = e => { e.preventDefault(); if ($('url').value.trim()) send(normalize($('url').value)); };
 $('typeForm').onsubmit = e => {
   e.preventDefault();
@@ -274,16 +409,23 @@ $('homeBtn').onclick = () => { remote.load(HOME); buzz(); };
 window.onCarStatus = s => { status = s; render(); };
 function render() {
   const pill = $('pill');
-  pill.className = 'pill' + (status.connected ? ' on' : '') + (status.moving ? ' moving' : '');
-  pill.textContent = !status.connected ? 'Not connected' : status.moving ? 'Paused · driving' : 'Connected';
+  const unlocked = status.connected && !status.drivingLock;
+  pill.className = 'pill' + (status.connected ? ' on' : '') + (status.moving ? ' moving' : '') + (unlocked ? ' unlocked' : '');
+  pill.textContent = !status.connected ? 'Not connected'
+    : status.moving ? (status.drivingLock ? 'Paused · driving' : 'Moving · lock off')
+    : unlocked ? 'Connected · lock off' : 'Connected';
   const g = gameFor(status.url);
   const now = $('now');
   now.style.setProperty('--c', g ? g.color : '#5B6475');
   $('nowLabel').textContent = status.connected ? 'On the car screen' : 'Waiting for Android Auto';
   $('nowArt').textContent = !status.connected ? '🚗' : g ? g.emoji : status.url === HOME ? '🏠' : '🌐';
-  $('nowTitle').textContent = !status.connected ? 'Open Dashplay on the car' : g ? g.title : status.url === HOME ? 'Home' : host(status.url);
+  $('nowTitle').textContent = !status.connected ? 'Open Dashplay on the car' : g ? g.title
+    : status.url === HOME ? 'Home' : status.url === START ? 'Start page' : (status.title || host(status.url));
+  if (isWeb(status.url) && status.connected) $('nowArt').innerHTML = Browser.icon(status.url);
   $('homeBtn').hidden = !status.connected;
   renderGames();
+  renderWeb();
+  renderSettings();
 }
 function host(url) { try { return new URL(url).host || url; } catch (e) { return url; } }
 render();

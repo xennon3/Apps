@@ -10,15 +10,25 @@ import android.os.Looper
 object CarBridge {
 
     const val HOME_URL = "file:///android_asset/index.html"
+    const val START_URL = "file:///android_asset/browser.html"
 
     interface CarScreen {
         fun load(url: String)
         fun press(key: GameKey)
         fun type(text: String)
+        /** "back", "forward" or "reload" in the car's browser. */
+        fun nav(action: String)
+        fun onDrivingLockChanged()
     }
 
     /** What the phone screen shows about the car. */
-    data class Status(val connected: Boolean, val moving: Boolean, val url: String)
+    data class Status(
+        val connected: Boolean,
+        val moving: Boolean,
+        val url: String,
+        val title: String,
+        val drivingLock: Boolean,
+    )
 
     private val main = Handler(Looper.getMainLooper())
     private val statusListeners = mutableSetOf<(Status) -> Unit>()
@@ -29,27 +39,49 @@ object CarBridge {
             publish()
         }
 
+    /** Whether the car reports it is moving, whatever the lock setting. */
     var moving = false
         set(value) {
             field = value
             publish()
         }
 
-    var currentUrl = HOME_URL
+    /**
+     * Cover the car screen while moving. Every new car session turns it back on, so switching
+     * it off for a passenger never carries over to the next drive.
+     */
+    var drivingLock = true
         set(value) {
+            if (field == value) return
             field = value
+            car?.onDrivingLockChanged()
             publish()
         }
 
+    var currentUrl = HOME_URL
+        private set
+    var currentTitle = ""
+        private set
+
+    fun setPage(url: String, title: String) {
+        currentUrl = url
+        currentTitle = title
+        publish()
+    }
+
     /** Remembered so the car opens on the last page the phone sent, even before it connects. */
     fun load(url: String) = onMain {
-        currentUrl = url
+        setPage(url, "")
         car?.load(url)
     }
 
     fun press(key: GameKey) = onMain { car?.press(key) }
 
     fun type(text: String) = onMain { car?.type(text) }
+
+    fun nav(action: String) = onMain { car?.nav(action) }
+
+    fun switchDrivingLock(on: Boolean) = onMain { drivingLock = on }
 
     fun observe(listener: (Status) -> Unit) {
         statusListeners += listener
@@ -60,7 +92,7 @@ object CarBridge {
         statusListeners -= listener
     }
 
-    fun status() = Status(car != null, moving, currentUrl)
+    fun status() = Status(car != null, moving, currentUrl, currentTitle, drivingLock)
 
     private fun publish() {
         val s = status()
@@ -75,7 +107,7 @@ object CarBridge {
     fun normalizeUrl(input: String): String {
         val text = input.trim()
         return when {
-            text.isEmpty() -> HOME_URL
+            text.isEmpty() -> START_URL
             text.contains("://") -> text
             text.contains(' ') || !text.contains('.') ->
                 "https://duckduckgo.com/?q=" + android.net.Uri.encode(text)

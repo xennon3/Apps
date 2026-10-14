@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Start page</title>
+<link rel="stylesheet" href="kit/arcade.css">
+<style>
+  html, body { overflow: auto; touch-action: pan-y; }
+  body { display: flex; flex-direction: column; gap: 3.2vh; padding: max(14px, 3vh) max(18px, 4vw) 4vh; min-height: 100%; }
+  .top { display: flex; align-items: center; gap: 12px; }
+  .top .chip { cursor: pointer; }
+  .top .tip { margin-left: auto; color: var(--muted); font-size: clamp(12px, 2.4vh, 15px); }
+  .search {
+    display: flex; align-items: center; gap: 16px; width: min(880px, 100%); align-self: center;
+    height: max(60px, 12vh); padding: 0 max(18px, 2.4vw); border-radius: 999px; text-align: left;
+    background: var(--surface); border: 1px solid var(--line); box-shadow: 0 18px 50px -24px #000;
+    font-size: clamp(16px, 3.6vh, 22px); color: var(--muted); font-weight: 600;
+  }
+  .search:active { border-color: #FFC24B; }
+  .search svg { width: 1.3em; height: 1.3em; fill: #FFC24B; flex: none; }
+  .search kbd {
+    margin-left: auto; font: inherit; font-size: .7em; padding: 4px 10px; border-radius: 999px;
+    background: var(--surface-2); color: var(--muted); border: 1px solid var(--line);
+  }
+  h2 { margin: 0 0 -1vh; font-size: clamp(12px, 2.3vh, 14px); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; }
+  h2 button { margin-left: auto; font-size: inherit; letter-spacing: inherit; color: var(--muted); padding: 6px 10px; border-radius: 10px; }
+  .dial { display: grid; grid-template-columns: repeat(auto-fill, minmax(max(110px, 12vw), 1fr)); gap: max(10px, 1.4vw); }
+  .site {
+    display: flex; flex-direction: column; align-items: center; gap: 1.2vh; padding: max(12px, 2.4vh) 8px;
+    border-radius: 20px; background: var(--surface); border: 1px solid transparent;
+  }
+  .site:active { border-color: var(--line); background: var(--surface-2); }
+  .site b { font-size: clamp(13px, 2.6vh, 16px); font-weight: 600; text-align: center; }
+  .recent { display: grid; grid-template-columns: repeat(auto-fill, minmax(max(220px, 26vw), 1fr)); gap: max(10px, 1.4vw); }
+  .page {
+    display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 18px; text-align: left; min-width: 0;
+    background: var(--surface); border: 1px solid var(--line);
+  }
+  .page .icon { width: max(40px, 7vh); border-radius: 12px; box-shadow: none; }
+  .page .icon i { font-size: max(16px, 3vh); }
+  .page div { min-width: 0; }
+  .page b, .page small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .page b { font-size: clamp(14px, 2.7vh, 17px); }
+  .page small { color: var(--muted); font-size: clamp(12px, 2.2vh, 14px); margin-top: 2px; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <button class="chip" id="home">‹ Dashplay</button>
+    <span class="tip">📱 You can also send pages from the Dashplay app on your phone</span>
+  </div>
+  <button class="search" id="search">
+    <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+    Search or type a web address
+  </button>
+  <h2>Quick access</h2>
+  <div class="dial" id="dial"></div>
+  <h2 id="recentTitle" hidden>Recent <button id="clear">Clear</button></h2>
+  <div class="recent" id="recent"></div>
+<script src="kit/sites.js"></script>
+<script src="kit/browser.js"></script>
+<script>
+// DashplayCar exists only when this page runs on the car.
+const car = window.DashplayCar || { openAddress() { alert('Opens the car keyboard'); }, history: () => '[]', clearHistory() {} };
+const $ = id => document.getElementById(id);
+
+$('home').onclick = () => location.href = 'index.html';
+$('search').onclick = () => car.openAddress();
+
+window.DASHPLAY_SITES.forEach(s => {
+  const b = document.createElement('button');
+  b.className = 'site';
+  b.innerHTML = `${Browser.icon(s.url, s.color, s.name)}<b>${s.name}</b>`;
+  b.onclick = () => location.href = s.url;
+  $('dial').append(b);
+});
+
+function renderRecent() {
+  const pages = JSON.parse(car.history()).slice(0, 6);
+  $('recentTitle').hidden = !pages.length;
+  $('recent').innerHTML = '';
+  pages.forEach(p => {
+    const b = document.createElement('button');
+    b.className = 'page';
+    b.innerHTML = `${Browser.icon(p.url)}<div><b></b><small>${Browser.host(p.url)}</small></div>`;
+    b.querySelector('b').textContent = p.title;
+    b.onclick = () => location.href = p.url;
+    $('recent').append(b);
+  });
+}
+$('clear').onclick = () => { car.clearHistory(); renderRecent(); };
+renderRecent();
+</script>
+</body>
+</html>

@@ -90,6 +90,15 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
   background: var(--surface-2); border: 1px solid var(--line);
 }
 
+/* Site icon tile (kit/browser.js): favicon, or a letter when offline */
+  .icon {
+    --c: #8B95A7; width: var(--icon, max(52px, 10vh)); aspect-ratio: 1; border-radius: 28%; display: grid; place-items: center; overflow: hidden;
+    background: color-mix(in srgb, var(--c) 18%, #F2F4F8); position: relative;
+    box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--c) 70%, #000);
+  }
+  .icon img { width: 58%; height: 58%; object-fit: contain; }
+  .icon i { font-style: normal; font-weight: 800; font-size: calc(var(--icon, max(52px, 10vh)) * .42); color: color-mix(in srgb, var(--c) 80%, #000); }
+
 /* Floating "+5" style labels for DOM games */
 .float {
   position: fixed; z-index: 6; pointer-events: none; font-weight: 800; font-size: clamp(18px, 4vh, 30px);

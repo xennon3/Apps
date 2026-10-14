@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Can't reach this page</title>
+<link rel="stylesheet" href="kit/arcade.css">
+<style>
+  body { display: grid; place-items: center; padding: 4vh 5vw; }
+  .box { display: grid; grid-template-columns: auto 1fr; gap: 2vh 28px; align-items: center; max-width: 760px; }
+  .art { font-size: max(64px, 18vh); line-height: 1; }
+  h1 { margin: 0; font-size: clamp(24px, 6vh, 40px); }
+  p { margin: 1vh 0 0; color: var(--muted); font-size: clamp(14px, 2.8vh, 18px); line-height: 1.4; }
+  code { color: var(--text); font: inherit; font-weight: 700; }
+  .row { grid-column: 1 / -1; display: flex; gap: 12px; margin-top: 1vh; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <div class="art">📡</div>
+    <div>
+      <h1>Can't reach this page</h1>
+      <p><code id="host"></code> isn't answering. The car might be out of signal, or the address could be mistyped.</p>
+      <p id="detail" style="font-size:.85em"></p>
+    </div>
+    <div class="row">
+      <button class="btn" onclick="location.href='browser.html'">Start page</button>
+      <button class="btn primary" id="retry">↻ Try again</button>
+    </div>
+  </div>
+<script>
+const q = new URLSearchParams(location.search), url = q.get('u') || '';
+let h = url; try { h = new URL(url).host; } catch (e) {}
+document.getElementById('host').textContent = h || 'This site';
+document.getElementById('detail').textContent = q.get('e') || '';
+document.getElementById('retry').onclick = () => url && (location.href = url);
+</script>
+</body>
+</html>
