@@ -1,0 +1,10 @@
+{
+  "id": "stopwatch",
+  "kind": "tool",
+  "title": "Stopwatch & timer",
+  "emoji": "⏱️",
+  "color": "#F4A261",
+  "version": "1.0.0",
+  "blurb": "A stopwatch with laps and a countdown timer with an alarm.",
+  "entry": "index.html"
+}

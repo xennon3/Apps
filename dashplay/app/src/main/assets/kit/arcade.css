@@ -111,3 +111,7 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
   .card { gap: 10px 16px; }
   .card .sub { display: none; }
 }
+
+/* Store tools (kit/tool.js) */
+.tool-hud { position: static; background: none; }
+.tool-title { font-size: clamp(18px, 4vh, 26px); margin-left: 6px; }

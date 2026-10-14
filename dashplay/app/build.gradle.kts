@@ -30,6 +30,8 @@ kotlin {
 dependencies {
     implementation("androidx.car.app:app:1.7.0")
     implementation("androidx.activity:activity:1.12.4")
+    // Serves bundled pages and downloaded store items from one https origin.
+    implementation("androidx.webkit:webkit:1.17.1")
     // CarHardwareManager on Android Auto (used for the speed lock).
     implementation("androidx.car.app:app-projected:1.7.0")
 }

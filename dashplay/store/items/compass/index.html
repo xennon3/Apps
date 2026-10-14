@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compass</title>
+<link rel="stylesheet" href="/assets/kit/arcade.css">
+<style>
+  body { display: flex; flex-direction: column; }
+  .app { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; gap: max(24px, 6vw); padding: 0 4vw 3vh; }
+  .dial { --size: min(78vh, 46vw); width: var(--size); height: var(--size); position: relative; }
+  .dial svg { width: 100%; height: 100%; display: block; }
+  .needle { position: absolute; left: 50%; top: -2%; transform: translateX(-50%); width: 0; height: 0;
+    border-left: calc(var(--size) * .035) solid transparent; border-right: calc(var(--size) * .035) solid transparent;
+    border-top: calc(var(--size) * .07) solid var(--accent); filter: drop-shadow(0 2px 6px #000a); }
+  .read { display: flex; flex-direction: column; gap: 1vh; min-width: 0; }
+  .dir { font-size: clamp(56px, 20vh, 150px); font-weight: 800; line-height: .9; letter-spacing: -.02em; }
+  .deg { font-size: clamp(24px, 8vh, 56px); font-weight: 700; color: var(--accent); }
+  .name { color: var(--muted); font-size: clamp(14px, 3vh, 20px); }
+  .source { margin-top: 2vh; display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; padding: 8px 14px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--line); font-size: clamp(12px, 2.4vh, 15px); color: var(--muted); }
+  .source::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--dot, #5B6475); }
+  @media (max-aspect-ratio: 1/1) { .app { flex-direction: column; } .dial { --size: min(86vw, 52vh); } .read { align-items: center; text-align: center; } .source { align-self: center; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="dial">
+    <svg viewBox="-110 -110 220 220" aria-hidden="true">
+      <circle r="104" fill="#151922" stroke="#2A3140" stroke-width="2"/>
+      <g id="rose"></g>
+      <circle r="5" fill="#F2F4F8"/>
+    </svg>
+    <div class="needle"></div>
+  </div>
+  <div class="read">
+    <div class="dir" id="dir">—</div>
+    <div class="deg num" id="deg">—°</div>
+    <div class="name" id="name">Waiting for a heading…</div>
+    <div class="source" id="source">No compass yet</div>
+  </div>
+</div>
+<script src="/assets/kit/tool.js"></script>
+<script>
+Tool.header('Compass', '#FF5A5F');
+const $ = id => document.getElementById(id);
+const NAMES = ['North', 'North-northeast', 'Northeast', 'East-northeast', 'East', 'East-southeast', 'Southeast', 'South-southeast',
+  'South', 'South-southwest', 'Southwest', 'West-southwest', 'West', 'West-northwest', 'Northwest', 'North-northwest'];
+const SHORT = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+
+// Draw the compass card: ticks every 5°, labels every 30°, cardinal letters.
+const NS = 'http://www.w3.org/2000/svg';
+const rose = $('rose');
+for (let a = 0; a < 360; a += 5) {
+  const major = a % 30 === 0, l = document.createElementNS(NS, 'line');
+  const r1 = major ? 86 : 92, rad = (a - 90) * Math.PI / 180;
+  l.setAttribute('x1', Math.cos(rad) * r1); l.setAttribute('y1', Math.sin(rad) * r1);
+  l.setAttribute('x2', Math.cos(rad) * 100); l.setAttribute('y2', Math.sin(rad) * 100);
+  l.setAttribute('stroke', major ? '#C9D0DB' : '#4F5B70'); l.setAttribute('stroke-width', major ? 2 : 1);
+  rose.append(l);
+  if (major) {
+    const t = document.createElementNS(NS, 'text'), card = { 0: 'N', 90: 'E', 180: 'S', 270: 'W' }[a];
+    t.setAttribute('x', Math.cos(rad) * (card ? 66 : 72)); t.setAttribute('y', Math.sin(rad) * (card ? 66 : 72));
+    t.setAttribute('text-anchor', 'middle'); t.setAttribute('dominant-baseline', 'central');
+    t.setAttribute('fill', a === 0 ? '#FF5A5F' : card ? '#F2F4F8' : '#8B95A7');
+    t.setAttribute('font-size', card ? 20 : 9); t.setAttribute('font-weight', card ? 800 : 600);
+    t.setAttribute('font-family', 'system-ui, sans-serif');
+    t.textContent = card || a;
+    rose.append(t);
+  }
+}
+
+// The card turns so the car's heading sits under the needle. Track total rotation so it
+// takes the short way round instead of spinning backwards across north.
+let target = 0, drawn = 0, lastSource = null, carSeen = 0;
+function show(heading, source) {
+  heading = (heading % 360 + 360) % 360;
+  let delta = -heading - target;
+  delta = ((delta + 540) % 360) - 180;
+  target += delta;
+  const i = Math.round(heading / 22.5) % 16;
+  $('dir').textContent = SHORT[i];
+  $('deg').textContent = Math.round(heading) + '°';
+  $('name').textContent = NAMES[i];
+  if (source !== lastSource) {
+    lastSource = source;
+    const s = $('source');
+    s.textContent = source === 'car' ? 'Car compass' : 'Phone compass · hold it flat, pointing ahead';
+    s.style.setProperty('--dot', source === 'car' ? '#3DDC84' : '#FFC24B');
+  }
+}
+
+// Dashplay on the car sends the car's own compass as a "dashplay" event.
+addEventListener('dashplay', e => {
+  if (e.detail && e.detail.type === 'heading') { carSeen = Date.now(); show(e.detail.degrees, 'car'); }
+});
+
+// Otherwise use the phone's sensors (works when the phone is mounted facing forward).
+function phone(e) {
+  if (Date.now() - carSeen < 3000) return;
+  let h = null;
+  if (typeof e.webkitCompassHeading === 'number') h = e.webkitCompassHeading;
+  else if (e.absolute && e.alpha != null) h = 360 - e.alpha;
+  if (h != null) show(h, 'phone');
+}
+// Ease the card toward the target heading. Rotating with the SVG transform attribute keeps
+// it turning around the dial's centre on every WebView.
+(function ease() {
+  drawn += (target - drawn) * 0.2;
+  rose.setAttribute('transform', `rotate(${drawn.toFixed(2)})`);
+  requestAnimationFrame(ease);
+})();
+
+addEventListener('deviceorientationabsolute', phone);
+addEventListener('deviceorientation', phone);
+</script>
+</body>
+</html>

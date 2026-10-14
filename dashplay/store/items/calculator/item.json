@@ -1,0 +1,10 @@
+{
+  "id": "calculator",
+  "kind": "tool",
+  "title": "Calculator",
+  "emoji": "🧮",
+  "color": "#4C8DF0",
+  "version": "1.0.0",
+  "blurb": "Big buttons for the car screen, with a tip & split mode for the bill.",
+  "entry": "index.html"
+}

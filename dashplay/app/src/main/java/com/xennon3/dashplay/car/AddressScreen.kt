@@ -8,12 +8,13 @@ import androidx.car.app.model.Row
 import androidx.car.app.model.SearchTemplate
 import androidx.car.app.model.Template
 import com.xennon3.dashplay.CarBridge
+import com.xennon3.dashplay.Local
 
 /** Type an address or a search on the car's keyboard. Cars hide the keyboard while driving. */
 class AddressScreen(carContext: CarContext) : Screen(carContext) {
 
     // Start from the current web address, so it's easy to tweak.
-    private var typed = CarBridge.currentUrl.takeIf { it.startsWith("http") }.orEmpty()
+    private var typed = CarBridge.currentUrl.takeIf { Local.isWeb(it) }.orEmpty()
 
     override fun onGetTemplate(): Template {
         val suggestions = ItemList.Builder()

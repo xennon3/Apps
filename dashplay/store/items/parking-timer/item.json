@@ -1,0 +1,10 @@
+{
+  "id": "parking-timer",
+  "kind": "tool",
+  "title": "Parking timer",
+  "emoji": "🅿️",
+  "color": "#2EC4B6",
+  "version": "1.0.0",
+  "blurb": "Count down your meter and get a beep before it runs out.",
+  "entry": "index.html"
+}

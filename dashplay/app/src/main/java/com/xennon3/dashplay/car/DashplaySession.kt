@@ -12,17 +12,21 @@ import androidx.car.app.SurfaceContainer
 import androidx.car.app.hardware.CarHardwareManager
 import androidx.car.app.hardware.common.CarValue
 import androidx.car.app.hardware.common.OnCarDataAvailableListener
+import androidx.car.app.hardware.info.CarSensors
+import androidx.car.app.hardware.info.Compass
 import androidx.car.app.hardware.info.Speed
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.xennon3.dashplay.CarBridge
 import com.xennon3.dashplay.GameKey
+import com.xennon3.dashplay.Store
 
 class DashplaySession : Session(), CarBridge.CarScreen, WebSurface.Listener {
 
     private lateinit var surface: WebSurface
     private var speedListener: OnCarDataAvailableListener<Speed>? = null
+    private var compassListener: OnCarDataAvailableListener<Compass>? = null
 
     override fun onCreateScreen(intent: Intent): Screen {
         surface = WebSurface(carContext, this)
@@ -31,13 +35,17 @@ class DashplaySession : Session(), CarBridge.CarScreen, WebSurface.Listener {
         CarBridge.onDriveStarted()
         carContext.getCarService(AppManager::class.java).setSurfaceCallback(surfaceCallback)
         watchSpeed()
+        watchCompass()
         CarBridge.car = this
+        Store.observe(onStoreChanged)
 
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onDestroy(owner: LifecycleOwner) {
                 if (CarBridge.car === this@DashplaySession) CarBridge.car = null
                 CarBridge.moving = false
                 stopWatchingSpeed()
+                stopWatchingCompass()
+                Store.stopObserving(onStoreChanged)
                 surface.release()
             }
         })
@@ -51,6 +59,11 @@ class DashplaySession : Session(), CarBridge.CarScreen, WebSurface.Listener {
     override fun onDrivingLockChanged() = applyLock()
 
     override fun onPageChanged(url: String, title: String) = CarBridge.setPage(url, title)
+
+    /** The home screen lists installed tools, so show a new install or removal right away. */
+    private val onStoreChanged: () -> Unit = {
+        if (CarBridge.currentUrl.startsWith(CarBridge.HOME_URL)) surface.nav("reload")
+    }
 
     override fun onAddressRequested() {
         val screens = carContext.getCarService(ScreenManager::class.java)
@@ -94,6 +107,31 @@ class DashplaySession : Session(), CarBridge.CarScreen, WebSurface.Listener {
         } catch (e: Exception) {
             // No hardware access on this host; the lock simply never engages.
         }
+    }
+
+    /** Feeds the car's compass to the Compass tool (and any Dashplay page that listens). */
+    private fun watchCompass() {
+        val listener = OnCarDataAvailableListener<Compass> { compass ->
+            val value = compass.orientations
+            val azimuth = value.value?.firstOrNull()
+            if (value.status == CarValue.STATUS_SUCCESS && azimuth != null) surface.heading(azimuth)
+        }
+        try {
+            carContext.getCarService(CarHardwareManager::class.java).carSensors
+                .addCompassListener(CarSensors.UPDATE_RATE_UI, ContextCompat.getMainExecutor(carContext), listener)
+            compassListener = listener
+        } catch (e: Exception) {
+            // No compass on this car; the Compass tool falls back to the phone's sensors.
+        }
+    }
+
+    private fun stopWatchingCompass() {
+        val listener = compassListener ?: return
+        try {
+            carContext.getCarService(CarHardwareManager::class.java).carSensors.removeCompassListener(listener)
+        } catch (e: Exception) {
+        }
+        compassListener = null
     }
 
     private fun stopWatchingSpeed() {

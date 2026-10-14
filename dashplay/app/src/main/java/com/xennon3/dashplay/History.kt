@@ -11,7 +11,7 @@ object History {
     private const val MAX = 24
 
     fun add(context: Context, url: String, title: String) {
-        if (!url.startsWith("http")) return
+        if (!Local.isWeb(url)) return
         val pages = read(context).filterNot { it.getString("url") == url }.toMutableList()
         pages.add(0, JSONObject().put("url", url).put("title", title.ifBlank { url }))
         write(context, pages.take(MAX))

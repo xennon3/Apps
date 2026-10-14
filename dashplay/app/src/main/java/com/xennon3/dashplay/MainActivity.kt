@@ -3,7 +3,10 @@ package com.xennon3.dashplay
 import android.annotation.SuppressLint
 import android.os.Bundle
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.core.view.ViewCompat
@@ -17,6 +20,11 @@ import org.json.JSONObject
 class MainActivity : ComponentActivity() {
 
     private lateinit var web: WebView
+    private val assets by lazy { Local.loader(this) }
+
+    // Read by Store.Api on a WebView thread.
+    @Volatile private var pageUrl = ""
+    private val onStoreChanged: () -> Unit = { web.evaluateJavascript("window.onStoreChanged && onStoreChanged()", null) }
     private val onStatus: (CarBridge.Status) -> Unit = { push(it) }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -29,7 +37,22 @@ class MainActivity : ComponentActivity() {
             settings.domStorageEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false
             addJavascriptInterface(Remote(), "DashplayRemote")
-            loadUrl("file:///android_asset/remote.html")
+            addJavascriptInterface(Store.Api(this@MainActivity, { pageUrl }, { js -> evaluateJavascript(js, null) }), "DashplayStore")
+            webViewClient = object : WebViewClient() {
+                override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
+                    assets.shouldInterceptRequest(request.url)
+
+                override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
+                    pageUrl = url
+                }
+
+                // The page crashed; start the screen over instead of letting the app close.
+                override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                    recreate()
+                    return true
+                }
+            }
+            loadUrl("${Local.ASSETS}/remote.html")
         }
         // Keep the page clear of the status bar, navigation bar and keyboard.
         ViewCompat.setOnApplyWindowInsetsListener(web) { v, insets ->
@@ -50,10 +73,12 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         CarBridge.observe(onStatus)
+        Store.observe(onStoreChanged)
     }
 
     override fun onStop() {
         CarBridge.stopObserving(onStatus)
+        Store.stopObserving(onStoreChanged)
         super.onStop()
     }
 

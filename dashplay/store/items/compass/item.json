@@ -1,0 +1,10 @@
+{
+  "id": "compass",
+  "kind": "tool",
+  "title": "Compass",
+  "emoji": "🧭",
+  "color": "#FF5A5F",
+  "version": "1.0.0",
+  "blurb": "Which way you're heading, from the car's own compass.",
+  "entry": "index.html"
+}

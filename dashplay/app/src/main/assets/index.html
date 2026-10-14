@@ -72,6 +72,9 @@
   }
   @keyframes in { from { opacity: 0; transform: translateY(10px); } }
 
+  .tabs { display: flex; gap: 6px; padding: 5px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); align-self: flex-start; }
+  .tabs button { height: max(42px, 7.5vh); padding: 0 max(16px, 1.8vw); border-radius: 999px; font-weight: 700; font-size: clamp(14px, 2.9vh, 18px); color: var(--muted); }
+  .tabs button.on { background: var(--surface-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
   .pager { display: flex; align-items: center; justify-content: center; gap: 14px; }
   .pager button {
     width: max(56px, 10vh); height: max(48px, 8.5vh); border-radius: 16px; background: var(--surface-2);
@@ -106,6 +109,9 @@
     <button class="continue" id="continue" hidden></button>
   </section>
   <section class="main">
+    <div class="tabs" id="tabs">
+      <button data-tab="games">🎮 Games</button><button data-tab="tools">🧰 Tools</button>
+    </div>
     <div class="grid" id="grid"></div>
     <div class="pager" id="pager">
       <button id="prev" aria-label="Previous page">‹</button>
@@ -114,9 +120,21 @@
     </div>
   </section>
 <script src="kit/games.js"></script>
+<!-- Written by the app when something is installed from the store; missing until then. -->
+<script src="/store/installed.js"></script>
 <script>
-const GAMES = window.DASHPLAY_GAMES;
 const read = k => { try { return JSON.parse(localStorage.getItem('dashplay.' + k)); } catch (e) { return null; } };
+const INSTALLED = window.DASHPLAY_INSTALLED || [];
+const STORE_TILE = { title: 'Store', emoji: '🛍️', color: '#8B95A7', tag: 'Get more', sub: 'Tools and games to install', href: 'store.html' };
+// Every tile is { title, emoji, color, tag, sub, href }.
+const fromGame = g => ({ ...g, href: `games/${g.id}.html`, best: read('bestText.' + g.id), sub: g.blurb });
+const fromStore = i => ({ ...i, tag: i.kind === 'game' ? 'Store' : 'Tool', sub: i.blurb, href: `/store/${i.id}/${i.entry || 'index.html'}` });
+const LISTS = {
+  games: () => [...window.DASHPLAY_GAMES.map(fromGame), ...INSTALLED.filter(i => i.kind === 'game').map(fromStore)],
+  tools: () => [...INSTALLED.filter(i => i.kind !== 'game').map(fromStore), STORE_TILE],
+};
+let tab = read('homeTab') || 'games';
+let ITEMS = [];
 const grid = document.getElementById('grid'), dots = document.getElementById('dots');
 let page = 0, perPage = 6, cols = 3, focus = -1;
 
@@ -127,10 +145,11 @@ function tick() {
 }
 tick(); setInterval(tick, 5000);
 
-const open = g => location.href = `games/${g.id}.html`;
+const open = item => location.href = item.href;
 document.getElementById('web').onclick = () => location.href = 'browser.html';
 
-const last = GAMES.find(g => g.id === read('last'));
+const lastGame = window.DASHPLAY_GAMES.find(g => g.id === read('last'));
+const last = lastGame && fromGame(lastGame);
 if (last) {
   const c = document.getElementById('continue');
   c.hidden = false; c.style.setProperty('--c', last.color);
@@ -149,17 +168,29 @@ function layout() {
   page = Math.min(page, pages() - 1);
   render();
 }
-const pages = () => Math.ceil(GAMES.length / perPage);
+const pages = () => Math.max(1, Math.ceil(ITEMS.length / perPage));
+
+function setTab(t) {
+  tab = t; page = 0; focus = -1;
+  try { localStorage.setItem('dashplay.homeTab', JSON.stringify(t)); } catch (e) {}
+  ITEMS = LISTS[t]();
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  render();
+}
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => setTab(b.dataset.tab));
 
 function render() {
   grid.innerHTML = '';
-  GAMES.slice(page * perPage, (page + 1) * perPage).forEach((g, i) => {
+  ITEMS.slice(page * perPage, (page + 1) * perPage).forEach((g, i) => {
     const t = document.createElement('button');
     t.className = 'tile' + (i === focus ? ' focus' : '');
-    t.style.setProperty('--c', g.color);
+    t.style.setProperty('--c', g.color || '#8B95A7');
     t.style.animationDelay = i * 30 + 'ms';
-    const best = read('bestText.' + g.id);
-    t.innerHTML = `<span class="tag">${g.tag}</span><span class="art">${g.emoji}</span><b>${g.title}</b>${best ? `<small>Best ${best}</small>` : `<small class="blurb">${g.blurb}</small>`}`;
+    t.innerHTML = `<span class="tag"></span><span class="art"></span><b></b>${g.best ? `<small>Best ${g.best}</small>` : '<small class="blurb"></small>'}`;
+    t.querySelector('.tag').textContent = g.tag || '';
+    t.querySelector('.art').textContent = g.emoji || '📦';
+    t.querySelector('b').textContent = g.title;
+    if (!g.best) t.querySelector('.blurb').textContent = g.sub || '';
     t.onclick = () => open(g);
     grid.append(t);
   });
@@ -175,20 +206,22 @@ document.getElementById('next').onclick = () => go(1);
 
 // Phone gamepad: arrows move a highlight across pages, A opens.
 addEventListener('keydown', e => {
-  const onPage = Math.min(perPage, GAMES.length - page * perPage);
+  const onPage = Math.min(perPage, ITEMS.length - page * perPage);
   if (focus < 0 && e.key.startsWith('Arrow')) { focus = 0; render(); return; }
   const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -cols, ArrowDown: cols }[e.key];
   if (step) {
     let i = page * perPage + focus + step;
-    i = Math.max(0, Math.min(GAMES.length - 1, i));
+    i = Math.max(0, Math.min(ITEMS.length - 1, i));
     page = Math.floor(i / perPage); focus = i % perPage;
     render();
   } else if ((e.key === ' ' || e.key === 'Enter') && focus >= 0 && focus < onPage) {
-    open(GAMES[page * perPage + focus]);
+    open(ITEMS[page * perPage + focus]);
   }
 });
 
 addEventListener('resize', layout);
+ITEMS = LISTS[tab]();
+document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
 layout();
 </script>
 </body>

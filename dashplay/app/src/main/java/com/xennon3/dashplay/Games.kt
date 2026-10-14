@@ -5,7 +5,7 @@ import org.json.JSONArray
 
 /** A game bundled in assets/games. Each one is a single web page. */
 data class Game(val id: String, val title: String, val emoji: String, val blurb: String) {
-    val url get() = "file:///android_asset/games/$id.html"
+    val url get() = "${Local.ASSETS}/games/$id.html"
 }
 
 /** A quick-access site from the browser start page. */

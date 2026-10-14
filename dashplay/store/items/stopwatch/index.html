@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stopwatch &amp; timer</title>
+<link rel="stylesheet" href="/assets/kit/arcade.css">
+<style>
+  body { display: flex; flex-direction: column; }
+  .tabs { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); }
+  .tabs button { height: max(40px, 7vh); padding: 0 18px; border-radius: 999px; font-weight: 700; font-size: clamp(14px, 2.8vh, 17px); color: var(--muted); }
+  .tabs button.on { background: var(--surface-2); color: var(--text); }
+  .app { flex: 1; min-height: 0; display: grid; grid-template-columns: 1.3fr 1fr; gap: max(16px, 3vw); padding: 0 4vw 3vh; align-items: center; }
+  .time { font-size: clamp(56px, 24vh, 190px); font-weight: 800; line-height: 1; letter-spacing: -.02em; }
+  .time small { font-size: .4em; color: var(--muted); font-weight: 700; }
+  .time.alarm { color: var(--accent); animation: flash 1s infinite; }
+  @keyframes flash { 50% { opacity: .3; } }
+  .note { color: var(--muted); font-size: clamp(13px, 2.6vh, 17px); margin-top: 1.4vh; }
+  .side { display: flex; flex-direction: column; gap: 1.4vh; min-height: 0; max-height: 100%; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .row.three { grid-template-columns: repeat(3, 1fr); }
+  .side button {
+    height: max(52px, 10vh); border-radius: 18px; background: var(--surface-2); border: 1px solid var(--line); font-weight: 800;
+    font-size: clamp(15px, 3.4vh, 21px);
+  }
+  .side button.go { background: var(--accent); color: #111; border: 0; }
+  .side button.stopit { background: var(--bad); color: #fff; border: 0; }
+  .side button:disabled { opacity: .35; }
+  .side button:active { transform: scale(.97); }
+  .laps { overflow: auto; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); min-height: 0; flex: 1; touch-action: pan-y; }
+  .laps div { display: flex; justify-content: space-between; padding: 10px 16px; font-size: clamp(14px, 2.8vh, 18px); }
+  .laps div + div { border-top: 1px solid var(--line); }
+  .laps span { color: var(--muted); }
+  @media (max-aspect-ratio: 1/1) { .app { grid-template-columns: 1fr; text-align: center; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <div><div class="time num" id="time">0:00<small>.00</small></div><div class="note" id="note"></div></div>
+  <div class="side" id="side"></div>
+</div>
+<script src="/assets/kit/tool.js"></script>
+<script>
+const bar = Tool.header('Stopwatch & timer', '#F4A261');
+const tabs = document.createElement('div');
+tabs.className = 'tabs';
+tabs.innerHTML = '<button data-t="watch">Stopwatch</button><button data-t="timer">Timer</button>';
+bar.append(tabs);
+const $ = id => document.getElementById(id);
+
+// Both keep timestamps, not counters, so they stay right after leaving the tool.
+let tab = Tool.store.get('sw.tab', 'watch');
+let watch = Tool.store.get('sw.watch', { start: null, banked: 0, laps: [] });
+let timer = Tool.store.get('sw.timer', { length: 300000, end: null, left: 300000, rang: false });
+const save = () => { Tool.store.set('sw.tab', tab); Tool.store.set('sw.watch', watch); Tool.store.set('sw.timer', timer); };
+
+function fmt(ms, hundredths) {
+  ms = Math.max(0, ms);
+  const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+  const main = h ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`;
+  return hundredths ? `${main}<small>.${String(Math.floor(ms % 1000 / 10)).padStart(2, '0')}</small>` : main;
+}
+const watchMs = () => watch.banked + (watch.start ? Date.now() - watch.start : 0);
+const timerLeft = () => timer.end ? timer.end - Date.now() : timer.left;
+
+tabs.querySelectorAll('button').forEach(b => b.onclick = () => { tab = b.dataset.t; save(); build(); });
+
+function build() {
+  tabs.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.t === tab));
+  const side = $('side');
+  if (tab === 'watch') {
+    const running = !!watch.start;
+    side.innerHTML = `<div class="row"><button id="lap" ${running ? '' : 'disabled'}>Lap</button>
+      <button class="${running ? 'stopit' : 'go'}" id="startstop">${running ? 'Stop' : watchMs() ? 'Resume' : 'Start'}</button></div>
+      <button id="reset" ${running || !watchMs() ? 'disabled' : ''}>Reset</button>
+      <div class="laps" id="laps"></div>`;
+    $('startstop').onclick = () => {
+      if (watch.start) { watch.banked = watchMs(); watch.start = null; } else watch.start = Date.now();
+      Tool.beep(990, 0.05, 0.1); save(); build();
+    };
+    $('lap').onclick = () => { watch.laps.unshift(watchMs()); save(); renderLaps(); };
+    $('reset').onclick = () => { watch = { start: null, banked: 0, laps: [] }; save(); build(); };
+    renderLaps();
+    $('note').textContent = '';
+  } else {
+    const running = !!timer.end;
+    side.innerHTML = `<div class="row three">${[1, 3, 5, 10, 15, 30].map(m => `<button data-m="${m}" ${running ? 'disabled' : ''}>${m} min</button>`).join('')}</div>
+      <div class="row"><button id="minus" ${running ? 'disabled' : ''}>− 1 min</button><button id="plus">+ 1 min</button></div>
+      <div class="row"><button id="treset">Reset</button>
+      <button class="${running ? 'stopit' : 'go'}" id="tgo">${running ? 'Pause' : timer.left < timer.length ? 'Resume' : 'Start'}</button></div>`;
+    side.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { timer.length = timer.left = +b.dataset.m * 60000; timer.rang = false; save(); build(); });
+    $('minus').onclick = () => { timer.length = timer.left = Math.max(60000, timer.left - 60000); save(); build(); };
+    $('plus').onclick = () => {
+      if (timer.end) timer.end += 60000; else timer.left += 60000;
+      timer.length = Math.max(timer.length, timerLeft()); timer.rang = false; save(); build();
+    };
+    $('treset').onclick = () => { timer.end = null; timer.left = timer.length; timer.rang = false; save(); build(); };
+    $('tgo').onclick = () => {
+      if (timer.end) { timer.left = timerLeft(); timer.end = null; }
+      else { if (timer.left <= 0) timer.left = timer.length; timer.end = Date.now() + timer.left; timer.rang = false; }
+      Tool.beep(990, 0.05, 0.1); save(); build();
+    };
+  }
+  tick();
+}
+
+function renderLaps() {
+  const el = $('laps'); if (!el) return;
+  el.innerHTML = watch.laps.length
+    ? watch.laps.map((t, i) => { const prev = watch.laps[i + 1] || 0; return `<div><span>Lap ${watch.laps.length - i}</span><b>${fmt(t - prev, true)}</b><b>${fmt(t, true)}</b></div>`; }).join('')
+    : '<div><span>Laps show up here</span></div>';
+}
+
+function tick() {
+  const t = $('time');
+  if (tab === 'watch') { t.innerHTML = fmt(watchMs(), true); t.classList.remove('alarm'); }
+  else {
+    const left = timerLeft();
+    t.innerHTML = fmt(left > 0 ? left + 999 : 0);
+    const done = timer.end && left <= 0;
+    t.classList.toggle('alarm', !!done);
+    $('note').textContent = done ? "Time's up!" : timer.end ? 'Ends at ' + new Date(timer.end).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+    if (done && !timer.rang) {
+      timer.rang = true; save();
+      for (let i = 0; i < 6; i++) setTimeout(() => Tool.beep(1040, 0.25, 0.35), i * 350);
+    }
+  }
+}
+
+function loop() { tick(); requestAnimationFrame(loop); }
+build();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

@@ -11,8 +11,9 @@ import android.os.Looper
  */
 object CarBridge {
 
-    const val HOME_URL = "file:///android_asset/index.html"
-    const val START_URL = "file:///android_asset/browser.html"
+    const val HOME_URL = "${Local.ASSETS}/index.html"
+    const val START_URL = "${Local.ASSETS}/browser.html"
+    const val STORE_URL = "${Local.ASSETS}/store.html"
 
     interface CarScreen {
         fun load(url: String)

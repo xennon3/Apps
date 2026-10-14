@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "calculator",
+      "kind": "tool",
+      "title": "Calculator",
+      "emoji": "🧮",
+      "color": "#4C8DF0",
+      "version": "1.0.0",
+      "blurb": "Big buttons for the car screen, with a tip & split mode for the bill.",
+      "entry": "index.html",
+      "files": [
+        "index.html"
+      ],
+      "size": 8391
+    },
+    {
+      "id": "compass",
+      "kind": "tool",
+      "title": "Compass",
+      "emoji": "🧭",
+      "color": "#FF5A5F",
+      "version": "1.0.0",
+      "blurb": "Which way you're heading, from the car's own compass.",
+      "entry": "index.html",
+      "files": [
+        "index.html"
+      ],
+      "size": 5891
+    },
+    {
+      "id": "parking-timer",
+      "kind": "tool",
+      "title": "Parking timer",
+      "emoji": "🅿️",
+      "color": "#2EC4B6",
+      "version": "1.0.0",
+      "blurb": "Count down your meter and get a beep before it runs out.",
+      "entry": "index.html",
+      "files": [
+        "index.html"
+      ],
+      "size": 6253
+    },
+    {
+      "id": "stopwatch",
+      "kind": "tool",
+      "title": "Stopwatch & timer",
+      "emoji": "⏱️",
+      "color": "#F4A261",
+      "version": "1.0.0",
+      "blurb": "A stopwatch with laps and a countdown timer with an alarm.",
+      "entry": "index.html",
+      "files": [
+        "index.html"
+      ],
+      "size": 7460
+    }
+  ]
+}

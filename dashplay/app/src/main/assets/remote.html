@@ -153,6 +153,7 @@
   .sheet .btn { height: 54px; font-size: 16px; }
   .sheet .btn.danger { background: var(--bad); color: #fff; border: 0; }
 
+  h3.first { margin-top: 4px; }
   h3 { margin: 22px 2px 10px; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
   details { margin-top: 22px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); padding: 4px 16px; }
   summary { padding: 12px 0; font-weight: 700; cursor: pointer; }
@@ -197,6 +198,9 @@
   <main>
     <section class="view on" id="games">
       <p class="note" id="gamesNote"></p>
+      <h3 class="first">Tools</h3>
+      <div class="games" id="toolList"></div>
+      <h3>Games</h3>
       <div class="games" id="gameList"></div>
     </section>
 
@@ -258,7 +262,7 @@
   </main>
 
   <nav>
-    <button data-tab="games" class="on"><span>🎮</span>Games</button>
+    <button data-tab="games" class="on"><span>🎮</span>Apps</button>
     <button data-tab="pad"><span>🕹️</span>Pad</button>
     <button data-tab="web"><span>🌐</span>Web</button>
     <button data-tab="settings"><span>⚙️</span>Settings</button>
@@ -274,12 +278,14 @@
   <div class="toast" id="toast"></div>
 
 <script src="kit/games.js"></script>
+<script src="/store/installed.js"></script>
 <script src="kit/sites.js"></script>
 <script src="kit/browser.js"></script>
 <script>
 const GAMES = window.DASHPLAY_GAMES;
-const HOME = 'file:///android_asset/index.html';
-const START = 'file:///android_asset/browser.html';
+const page = path => new URL(path, location.href).href;
+const HOME = page('index.html');
+const START = page('browser.html');
 const $ = id => document.getElementById(id);
 
 // Native side (MainActivity). In a plain browser, a stand-in keeps the page usable.
@@ -306,28 +312,40 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
 });
 
 // Games
-function renderGames() {
-  const playing = gameFor(status.url);
-  $('gameList').innerHTML = '';
-  GAMES.forEach(g => {
-    const b = document.createElement('button');
-    b.className = 'game' + (playing === g && status.connected ? ' playing' : '');
-    b.style.setProperty('--c', g.color);
-    b.innerHTML = `<span class="art">${g.emoji}</span><b>${g.title}</b><small>${g.tag}</small>`;
-    b.onclick = () => openGame(g);
-    $('gameList').append(b);
-  });
-  $('gamesNote').textContent = status.connected
-    ? 'Tap a game to start it on the car screen.'
-    : 'Not connected to a car, so games open right here on your phone.';
+// Apps tab: tools from the store, then games. Each entry is { title, emoji, color, tag, url }.
+function tile(item, list) {
+  const b = document.createElement('button');
+  b.className = 'game' + (status.connected && status.url === item.url ? ' playing' : '');
+  b.style.setProperty('--c', item.color || '#8B95A7');
+  b.innerHTML = '<span class="art"></span><b></b><small></small>';
+  b.querySelector('.art').textContent = item.emoji || '📦';
+  b.querySelector('b').textContent = item.title;
+  b.querySelector('small').textContent = item.tag || '';
+  b.onclick = () => openItem(item);
+  list.append(b);
 }
 
-function openGame(g) {
-  const url = `file:///android_asset/games/${g.id}.html`;
-  buzz();
-  if (status.connected) { remote.load(url); toast(`${g.emoji} ${g.title} is on the car`); }
-  else location.href = `games/${g.id}.html`;
+function renderGames() {
+  const installed = window.DASHPLAY_INSTALLED || [];
+  $('toolList').innerHTML = '';
+  installed.forEach(i => tile({ ...i, tag: i.kind === 'game' ? 'Game' : 'Tool', url: page(`/store/${i.id}/${i.entry || 'index.html'}`) }, $('toolList')));
+  tile({ title: 'Store', emoji: '🛍️', color: '#8B95A7', tag: 'Get more', url: page('store.html'), store: true }, $('toolList'));
+  $('gameList').innerHTML = '';
+  GAMES.forEach(g => tile({ ...g, url: page(`games/${g.id}.html`) }, $('gameList')));
+  $('gamesNote').textContent = status.connected
+    ? 'Tap a tool or game to open it on the car screen.'
+    : 'Not connected to a car, so everything opens right here on your phone.';
 }
+
+// Opens on the car when connected. The store always opens here, where browsing is easier.
+function openItem(item) {
+  buzz();
+  if (status.connected && !item.store) { remote.load(item.url); toast(`${item.emoji} ${item.title} is on the car`); }
+  else location.href = item.url;
+}
+
+// The app calls this after something is installed or removed.
+window.onStoreChanged = () => location.reload();
 
 function gameFor(url) { const m = /games\/([\w-]+)\.html/.exec(url || ''); return m && GAMES.find(g => g.id === m[1]); }
 
@@ -350,7 +368,7 @@ window.DASHPLAY_SITES.forEach(site => {
 document.querySelectorAll('[data-nav]').forEach(b => b.onclick = () => { remote.nav(b.dataset.nav); buzz(); });
 $('cwOpen').onclick = () => send(START);
 
-const isWeb = url => /^https?:/.test(url || '');
+const isWeb = url => /^https?:/.test(url || '') && !url.startsWith(location.origin + '/');
 function renderWeb() {
   const web = status.connected && isWeb(status.url);
   $('cwIcon').innerHTML = web ? Browser.icon(status.url) : '<span class="icon" style="--c:#8B95A7"><i>🌐</i></span>';

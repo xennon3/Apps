@@ -18,6 +18,7 @@ import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -30,7 +31,9 @@ import androidx.car.app.SurfaceContainer
 import com.xennon3.dashplay.CarBridge
 import com.xennon3.dashplay.GameKey
 import com.xennon3.dashplay.History
+import com.xennon3.dashplay.Local
 import com.xennon3.dashplay.R
+import com.xennon3.dashplay.Store
 import org.json.JSONObject
 
 /**
@@ -53,6 +56,7 @@ class WebSurface(private val context: Context, private val listener: Listener) {
 
     private val main = Handler(Looper.getMainLooper())
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    private val assets = Local.loader(context)
 
     private var display: VirtualDisplay? = null
     private var presentation: Presentation? = null
@@ -172,6 +176,15 @@ class WebSurface(private val context: Context, private val listener: Listener) {
         js("window.scrollBy($dx,$dy);" + event("""{type:"scroll",dx:$dx,dy:$dy}"""))
     }
 
+    /**
+     * The car's compass heading, in degrees. Only Dashplay's own pages get it: a website has
+     * no business knowing which way the car is pointing.
+     */
+    fun heading(degrees: Float) {
+        if (!Local.isLocal(pageUrl)) return
+        js(event("""{type:"heading",degrees:$degrees}"""))
+    }
+
     fun zoom(factor: Float) {
         if (locked) return
         js(event("""{type:"zoom",factor:$factor}"""))
@@ -210,12 +223,28 @@ class WebSurface(private val context: Context, private val listener: Listener) {
         webView?.evaluateJavascript(code, null)
     }
 
+    /**
+     * A page crashed or ran out of memory, which took its WebView down. Build fresh ones and
+     * go back to where we were, rather than letting Android close the whole app.
+     */
+    private fun recover(): Boolean {
+        main.post {
+            val p = presentation ?: return@post
+            val url = pageUrl.ifEmpty { CarBridge.HOME_URL }
+            webView?.destroy()
+            toolbar?.destroy()
+            p.setContentView(buildContent(p.context))
+            load(url)
+        }
+        return true
+    }
+
     // Browser toolbar
 
     private val textZoom get() = prefs.getInt("textZoom", 100)
 
     /** Web pages and the error page get the toolbar; games and Dashplay's own pages don't. */
-    private fun isBrowsing(url: String) = url.startsWith("http") || url.startsWith(OFFLINE_URL)
+    private fun isBrowsing(url: String) = Local.isWeb(url) || url.startsWith(OFFLINE_URL)
 
     private fun updateToolbar() {
         val bar = toolbar ?: return
@@ -261,7 +290,8 @@ class WebSurface(private val context: Context, private val listener: Listener) {
      * every call checks that the current page is one of ours before doing anything.
      */
     private inner class CarPageApi {
-        private fun trusted() = pageUrl.startsWith(ASSET_ROOT)
+        // Bundled pages only; tools downloaded from the store don't get these calls.
+        private fun trusted() = pageUrl.startsWith("${Local.ASSETS}/")
 
         @JavascriptInterface
         fun openAddress() {
@@ -292,6 +322,7 @@ class WebSurface(private val context: Context, private val listener: Listener) {
             // Sites with a dark mode use it; the rest are darkened to match the car UI.
             if (Build.VERSION.SDK_INT >= 33) settings.isAlgorithmicDarkeningAllowed = true
             addJavascriptInterface(CarPageApi(), "DashplayCar")
+            addJavascriptInterface(Store.Api(context, { pageUrl }, { js -> webView?.evaluateJavascript(js, null) }), "DashplayStore")
             webChromeClient = object : WebChromeClient() {
                 override fun onProgressChanged(view: WebView, newProgress: Int) {
                     pageProgress = newProgress
@@ -304,6 +335,11 @@ class WebSurface(private val context: Context, private val listener: Listener) {
                 }
             }
             webViewClient = object : WebViewClient() {
+                override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
+                    assets.shouldInterceptRequest(request.url)
+
+                override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail) = recover()
+
                 override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
                     pageUrl = url
                     pageLoading = true
@@ -337,7 +373,7 @@ class WebSurface(private val context: Context, private val listener: Listener) {
 
                 // Links to apps (tel:, intent:, market: ...) have nowhere to go on a car screen.
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) =
-                    request.url.scheme !in setOf("http", "https", "file", "about", "data", "blob")
+                    request.url.scheme !in setOf("http", "https", "about", "data", "blob")
             }
         }
         webView = wv
@@ -350,9 +386,14 @@ class WebSurface(private val context: Context, private val listener: Listener) {
             visibility = View.GONE
             addJavascriptInterface(ToolbarApi(), "DashplayChrome")
             webViewClient = object : WebViewClient() {
+                override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
+                    assets.shouldInterceptRequest(request.url)
+
                 override fun onPageFinished(view: WebView, url: String) = updateToolbar()
+
+                override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail) = recover()
             }
-            loadUrl("$ASSET_ROOT/chrome.html")
+            loadUrl("${Local.ASSETS}/chrome.html")
         }
         toolbar = bar
 
@@ -393,8 +434,7 @@ class WebSurface(private val context: Context, private val listener: Listener) {
     }
 
     private companion object {
-        const val ASSET_ROOT = "file:///android_asset"
-        const val OFFLINE_URL = "$ASSET_ROOT/offline.html"
+        const val OFFLINE_URL = "${Local.ASSETS}/offline.html"
         val ZOOM_STEPS = listOf(100, 125, 150)
     }
 }

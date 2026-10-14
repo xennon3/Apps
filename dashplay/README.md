@@ -26,6 +26,9 @@ run on the dashboard.
 | `car/LibraryScreen.kt`, `car/AddressScreen.kt` | Pick a game or bookmark, or type an address on the car's keyboard. |
 | `MainActivity.kt` + `assets/remote.html` | The phone remote: start games on the car, a full-screen **gamepad** for a passenger, control the car's browser (back/forward/reload, quick sites, recent pages, typing), and **Settings**. With no car connected, games open on the phone. |
 | `assets/index.html` | The car home screen: clock, "continue" card, and a paged grid of games (no scrolling needed). |
+| `Store.kt`, `assets/store.html` | The **Store**: browses the catalog at [xennon3/dashplay-store](https://github.com/xennon3/dashplay-store), downloads tools onto the phone so they work offline, and offers updates and removal. |
+| `Local.kt` | Serves Dashplay's own pages from one local https address (`https://appassets.androidplatform.net`): bundled pages under `/assets/`, downloaded store items under `/store/`. |
+| `store/` | A copy of the store repo's contents (tools, catalog and the catalog builder). |
 | `assets/kit/` | Shared by every page: `games.js` and `sites.js` (the game and quick-access lists), `arcade.css` (the look), `arcade.js` (start/pause/game-over cards, best scores, input, sound) and `browser.js` (site icons). |
 
 ### Driving lock
@@ -34,6 +37,21 @@ On by default. It can be switched off in the phone app's **Settings** tab after 
 confirmation. A second switch, **Turn back on every drive** (on by default), makes every new
 connection start with the lock on again, so it is never left off by accident. Turn that
 switch off to have the lock keep its setting between drives. Both settings are saved.
+
+### Store and tools
+
+The home screen has **Games** and **Tools** tabs. Tools come from the Store (open it from the
+Tools tab, the car's Library list, or the phone's Apps tab). The first four:
+
+| | Tool | |
+| --- | --- | --- |
+| 🧮 | **Calculator** | Big buttons, plus a tip & split mode |
+| 🧭 | **Compass** | Heading from the car's own compass, falling back to the phone's sensors |
+| 🅿️ | **Parking timer** | Meter countdown that survives leaving the tool, with beeps at 10 and 5 minutes |
+| ⏱️ | **Stopwatch & timer** | Stopwatch with laps, countdown timer with an alarm |
+
+To publish a new tool, add it to the store repo; see its README. Cars pick it up within minutes,
+with no app update needed.
 
 ### Games
 
