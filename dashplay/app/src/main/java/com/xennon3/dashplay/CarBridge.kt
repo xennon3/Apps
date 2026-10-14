@@ -22,6 +22,7 @@ object CarBridge {
         /** "back", "forward" or "reload" in the car's browser. */
         fun nav(action: String)
         fun onDrivingLockChanged()
+        fun onScreenScaleChanged()
     }
 
     /** What the phone screen shows about the car. */
@@ -32,6 +33,7 @@ object CarBridge {
         val title: String,
         val drivingLock: Boolean,
         val lockResetsEachDrive: Boolean,
+        val screenScale: Int,
     )
 
     private val main = Handler(Looper.getMainLooper())
@@ -44,6 +46,7 @@ object CarBridge {
         prefs = p
         lockResetsEachDrive = p.getBoolean("lockResetsEachDrive", true)
         drivingLock = p.getBoolean("drivingLock", true)
+        screenScale = p.getInt("screenScale", 0)
     }
     private val statusListeners = mutableSetOf<(Status) -> Unit>()
 
@@ -83,6 +86,16 @@ object CarBridge {
             publish()
         }
 
+    /** "Car screen size" on the phone: -1 smaller, 0 automatic, 1 bigger. */
+    var screenScale = 0
+        set(value) {
+            if (field == value) return
+            field = value.coerceIn(-1, 1)
+            prefs?.edit()?.putInt("screenScale", field)?.apply()
+            car?.onScreenScaleChanged()
+            publish()
+        }
+
     /** A car session started. */
     fun onDriveStarted() {
         if (lockResetsEachDrive) drivingLock = true
@@ -115,6 +128,8 @@ object CarBridge {
 
     fun switchLockResetsEachDrive(on: Boolean) = onMain { lockResetsEachDrive = on }
 
+    fun switchScreenScale(scale: Int) = onMain { screenScale = scale }
+
     fun observe(listener: (Status) -> Unit) {
         statusListeners += listener
         listener(status())
@@ -124,7 +139,7 @@ object CarBridge {
         statusListeners -= listener
     }
 
-    fun status() = Status(car != null, moving, currentUrl, currentTitle, drivingLock, lockResetsEachDrive)
+    fun status() = Status(car != null, moving, currentUrl, currentTitle, drivingLock, lockResetsEachDrive, screenScale)
 
     private fun publish() {
         val s = status()

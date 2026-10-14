@@ -161,7 +161,7 @@ if (last) {
 function layout() {
   const r = grid.getBoundingClientRect();
   cols = Math.max(2, Math.min(4, Math.floor(r.width / 230)));
-  const rows = Math.max(1, Math.min(3, Math.floor((r.height + 12) / 170)));
+  const rows = Math.max(1, Math.min(3, Math.floor((r.height + 12) / 135)));
   perPage = cols * rows;
   grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
   grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;

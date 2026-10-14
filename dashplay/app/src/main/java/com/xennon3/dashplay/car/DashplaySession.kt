@@ -57,6 +57,7 @@ class DashplaySession : Session(), CarBridge.CarScreen, WebSurface.Listener {
     override fun type(text: String) = surface.type(text)
     override fun nav(action: String) = surface.nav(action)
     override fun onDrivingLockChanged() = applyLock()
+    override fun onScreenScaleChanged() = surface.rescale()
 
     override fun onPageChanged(url: String, title: String) = CarBridge.setPage(url, title)
 

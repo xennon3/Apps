@@ -62,7 +62,13 @@ class WebSurface(private val context: Context, private val listener: Listener) {
     private var presentation: Presentation? = null
     private var root: FrameLayout? = null
     private var toolbar: WebView? = null
+    private var toolbarHandle: View? = null
     private var lockCover: View? = null
+    private var fullscreenView: View? = null
+    private var fullscreenDone: WebChromeClient.CustomViewCallback? = null
+    private var visibleArea: Rect? = null
+    private var containerDpi = 160
+    private var appliedDpi = 0
     private var pendingUrl: String? = null
     private var width = 0
     private var height = 0
@@ -95,26 +101,68 @@ class WebSurface(private val context: Context, private val listener: Listener) {
         val surface = container.surface ?: return
         width = container.width
         height = container.height
+        containerDpi = container.dpi
+        val dpi = displayDpi()
         val existing = display
         if (existing != null) {
-            // Same WebView, new surface: the page keeps its state across screen changes.
-            existing.resize(container.width, container.height, container.dpi)
+            // Same WebView, new surface: the page keeps its state across screen changes,
+            // unless the new size needs a different scale.
+            existing.resize(width, height, dpi)
             existing.surface = surface
+            if (dpi != appliedDpi) rebuild()
             return
         }
         val dm = context.getSystemService(DisplayManager::class.java)
-        val vd = dm.createVirtualDisplay(
-            "Dashplay", container.width, container.height, container.dpi, surface,
+        display = dm.createVirtualDisplay(
+            "Dashplay", width, height, dpi, surface,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY,
         )
-        display = vd
+        rebuild()
+        pendingUrl?.let { load(it) }
+        pendingUrl = null
+    }
+
+    /**
+     * The density pages are drawn at. Car screens report a high density for a short screen,
+     * which would leave pages only a few hundred CSS pixels tall; lowering it gives every page
+     * at least [MIN_PAGE_HEIGHT] CSS pixels of height. The phone's "Car screen size" setting
+     * nudges it either way.
+     */
+    private fun displayDpi(): Int {
+        val fit = minOf(containerDpi, height * 160 / MIN_PAGE_HEIGHT)
+        val nudge = when (CarBridge.screenScale) { -1 -> 0.85f; 1 -> 1.2f; else -> 1f }
+        return (fit * nudge).toInt().coerceIn(96, maxOf(containerDpi, 96) * 2)
+    }
+
+    /** Call after the "Car screen size" setting changes. */
+    fun rescale() {
+        val vd = display ?: return
+        val dpi = displayDpi()
+        if (dpi == appliedDpi) return
+        vd.resize(width, height, dpi)
+        rebuild()
+    }
+
+    /**
+     * Shows fresh content on the virtual display: a new Presentation picks up the display's
+     * current density. Reloads the current page, if there is one.
+     */
+    private fun rebuild() {
+        val vd = display ?: return
+        val url = pageUrl
+        exitFullscreen()
+        webView?.destroy()
+        toolbar?.destroy()
+        presentation?.dismiss()
+        appliedDpi = displayDpi()
         // A dark theme lets web pages switch to their dark mode (see buildContent).
         presentation = Presentation(context, vd.display, R.style.Theme_Dashplay).also {
             it.setContentView(buildContent(it.context))
             it.show()
         }
-        pendingUrl?.let { load(it) }
-        pendingUrl = null
+        visibleArea?.let { setVisibleArea(it) }
+        if (locked) webView?.onPause()
+        if (url.isNotEmpty()) load(url)
     }
 
     fun detach() {
@@ -122,6 +170,7 @@ class WebSurface(private val context: Context, private val listener: Listener) {
     }
 
     fun release() {
+        exitFullscreen()
         webView?.destroy()
         toolbar?.destroy()
         presentation?.dismiss()
@@ -135,6 +184,7 @@ class WebSurface(private val context: Context, private val listener: Listener) {
 
     /** Keeps the page clear of the buttons Android Auto draws over the surface. */
     fun setVisibleArea(area: Rect) {
+        visibleArea = area
         val r = root ?: return
         if (area.isEmpty) {
             r.setPadding(0, 0, 0, 0)
@@ -145,11 +195,18 @@ class WebSurface(private val context: Context, private val listener: Listener) {
 
     fun load(url: String) {
         val wv = webView
-        if (wv == null) pendingUrl = url else wv.loadUrl(url)
+        if (wv == null) {
+            pendingUrl = url
+            return
+        }
+        exitFullscreen()
+        wv.loadUrl(url)
     }
 
     fun nav(action: String) {
         val wv = webView ?: return
+        // Back first leaves full-screen video, like a phone's back button.
+        if (action == "back" && exitFullscreen()) return
         when (action) {
             "back" -> if (wv.canGoBack()) wv.goBack()
             "forward" -> if (wv.canGoForward()) wv.goForward()
@@ -229,13 +286,33 @@ class WebSurface(private val context: Context, private val listener: Listener) {
      */
     private fun recover(): Boolean {
         main.post {
-            val p = presentation ?: return@post
-            val url = pageUrl.ifEmpty { CarBridge.HOME_URL }
-            webView?.destroy()
-            toolbar?.destroy()
-            p.setContentView(buildContent(p.context))
-            load(url)
+            if (pageUrl.isEmpty()) pageUrl = CarBridge.HOME_URL
+            rebuild()
         }
+        return true
+    }
+
+    // Full-screen video (a page's own full-screen button, e.g. YouTube's)
+
+    private fun enterFullscreen(view: View, done: WebChromeClient.CustomViewCallback) {
+        val r = root
+        if (r == null || fullscreenView != null) {
+            done.onCustomViewHidden()
+            return
+        }
+        fullscreenView = view
+        fullscreenDone = done
+        view.setBackgroundColor(Color.BLACK)
+        // Above the page and toolbar, below the driving-lock cover.
+        r.addView(view, r.indexOfChild(lockCover), FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+    }
+
+    private fun exitFullscreen(): Boolean {
+        val view = fullscreenView ?: return false
+        root?.removeView(view)
+        fullscreenView = null
+        fullscreenDone?.onCustomViewHidden()
+        fullscreenDone = null
         return true
     }
 
@@ -246,10 +323,20 @@ class WebSurface(private val context: Context, private val listener: Listener) {
     /** Web pages and the error page get the toolbar; games and Dashplay's own pages don't. */
     private fun isBrowsing(url: String) = Local.isWeb(url) || url.startsWith(OFFLINE_URL)
 
+    private val toolbarHidden get() = prefs.getBoolean("toolbarHidden", false)
+
+    private fun setToolbarHidden(hidden: Boolean) {
+        prefs.edit().putBoolean("toolbarHidden", hidden).apply()
+        updateToolbar()
+    }
+
     private fun updateToolbar() {
         val bar = toolbar ?: return
         val wv = webView ?: return
-        bar.visibility = if (isBrowsing(pageUrl)) View.VISIBLE else View.GONE
+        val browsing = isBrowsing(pageUrl)
+        bar.visibility = if (browsing && !toolbarHidden) View.VISIBLE else View.GONE
+        // A small tab brings a hidden toolbar back.
+        toolbarHandle?.visibility = if (browsing && toolbarHidden) View.VISIBLE else View.GONE
         if (bar.visibility != View.VISIBLE) return
         val offline = pageUrl.startsWith(OFFLINE_URL)
         // The error page stands in for the page that failed, so show that address.
@@ -270,7 +357,7 @@ class WebSurface(private val context: Context, private val listener: Listener) {
     private fun cycleTextZoom() {
         val next = ZOOM_STEPS[(ZOOM_STEPS.indexOf(textZoom) + 1) % ZOOM_STEPS.size]
         prefs.edit().putInt("textZoom", next).apply()
-        webView?.settings?.textZoom = next
+        if (Local.isWeb(pageUrl)) webView?.settings?.textZoom = next
         updateToolbar()
     }
 
@@ -283,6 +370,7 @@ class WebSurface(private val context: Context, private val listener: Listener) {
         @JavascriptInterface fun start() { main.post { load(CarBridge.START_URL) } }
         @JavascriptInterface fun textSize() { main.post { cycleTextZoom() } }
         @JavascriptInterface fun address() { main.post { listener.onAddressRequested() } }
+        @JavascriptInterface fun hide() { main.post { setToolbarHidden(true) } }
     }
 
     /**
@@ -318,7 +406,6 @@ class WebSurface(private val context: Context, private val listener: Listener) {
             settings.useWideViewPort = true
             settings.builtInZoomControls = true
             settings.displayZoomControls = false
-            settings.textZoom = textZoom
             // Sites with a dark mode use it; the rest are darkened to match the car UI.
             if (Build.VERSION.SDK_INT >= 33) settings.isAlgorithmicDarkeningAllowed = true
             addJavascriptInterface(CarPageApi(), "DashplayCar")
@@ -333,6 +420,12 @@ class WebSurface(private val context: Context, private val listener: Listener) {
                     updateToolbar()
                     listener.onPageChanged(view.url ?: pageUrl, title)
                 }
+
+                override fun onShowCustomView(view: View, callback: CustomViewCallback) = enterFullscreen(view, callback)
+
+                override fun onHideCustomView() {
+                    exitFullscreen()
+                }
             }
             webViewClient = object : WebViewClient() {
                 override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
@@ -342,6 +435,8 @@ class WebSurface(private val context: Context, private val listener: Listener) {
 
                 override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
                     pageUrl = url
+                    // The Aa text size is for websites; games and Dashplay's pages lay out their own text.
+                    view.settings.textZoom = if (Local.isWeb(url)) textZoom else 100
                     pageLoading = true
                     pageProgress = 10
                     updateToolbar()
@@ -397,17 +492,33 @@ class WebSurface(private val context: Context, private val listener: Listener) {
         }
         toolbar = bar
 
-        val toolbarHeight = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 60f, ctx.resources.displayMetrics).toInt()
+        val dp = { v: Float -> TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, ctx.resources.displayMetrics).toInt() }
+        val toolbarHeight = dp(46f)
         val column = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             addView(bar, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, toolbarHeight))
             addView(wv, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         }
+        val handle = TextView(ctx).apply {
+            text = "⌄  Toolbar"
+            setTextColor(Color.parseColor("#F2F4F8"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            gravity = Gravity.CENTER
+            setPadding(dp(16f), 0, dp(16f), 0)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.parseColor("#CC1E2430"))
+                cornerRadii = floatArrayOf(0f, 0f, 0f, 0f, 99f, 99f, 99f, 99f)
+            }
+            visibility = View.GONE
+            setOnClickListener { setToolbarHidden(false) }
+        }
+        toolbarHandle = handle
         val cover = buildLockCover(ctx)
         lockCover = cover
         return FrameLayout(ctx).apply {
             root = this
             addView(column, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+            addView(handle, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, dp(28f), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
             addView(cover, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         }
     }
@@ -436,5 +547,8 @@ class WebSurface(private val context: Context, private val listener: Listener) {
     private companion object {
         const val OFFLINE_URL = "${Local.ASSETS}/offline.html"
         val ZOOM_STEPS = listOf(100, 125, 150)
+
+        /** Pages always get at least this many CSS pixels of height. */
+        const val MIN_PAGE_HEIGHT = 440
     }
 }

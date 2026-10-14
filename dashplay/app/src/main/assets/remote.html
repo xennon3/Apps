@@ -139,6 +139,9 @@
   .switch.on { background: var(--good); }
   .switch.on::after { transform: translateX(22px); }
   .switch:disabled { opacity: .4; }
+  .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; border-radius: 14px; background: var(--bg); border: 1px solid var(--line); }
+  .seg button { height: 42px; border-radius: 10px; font-weight: 700; font-size: 14px; color: var(--muted); }
+  .seg button.on { background: var(--surface-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
   .lockstate { margin: 10px 4px 0; font-size: 13px; line-height: 1.45; color: var(--muted); }
   .lockstate.off { color: #FFC24B; }
   .sheet {
@@ -249,6 +252,10 @@
         <button class="switch" id="resetSwitch" role="switch" aria-label="Turn back on every drive"></button>
       </div>
       <p class="lockstate" id="lockState"></p>
+      <div class="setting" style="margin-top:14px; flex-direction: column; align-items: stretch;">
+        <div><b>Car screen size</b><p>How big pages, games and tools look on the car. Auto fits your car's screen.</p></div>
+        <div class="seg" id="scale"><button data-s="-1">Smaller</button><button data-s="0">Auto</button><button data-s="1">Bigger</button></div>
+      </div>
       <details>
         <summary>First time in the car?</summary>
         <ol>
@@ -291,8 +298,8 @@ const $ = id => document.getElementById(id);
 const remote = window.DashplayRemote || {
   load: u => console.log('load', u), press: k => console.log('press', k), type: t => console.log('type', t),
   nav: a => console.log('nav', a), history: () => '[]', setDrivingLock: on => console.log('lock', on),
-  setLockResetsEachDrive: on => console.log('reset', on),
-  status: () => JSON.stringify({ connected: false, moving: false, url: HOME, title: '', drivingLock: true, lockResetsEachDrive: true }),
+  setLockResetsEachDrive: on => console.log('reset', on), setScreenScale: n => console.log('scale', n),
+  status: () => JSON.stringify({ connected: false, moving: false, url: HOME, title: '', drivingLock: true, lockResetsEachDrive: true, screenScale: 0 }),
 };
 let status = JSON.parse(remote.status());
 
@@ -411,7 +418,13 @@ $('resetSwitch').onclick = () => {
   toast(on ? 'The lock will turn back on each drive' : 'The lock keeps its setting between drives');
 };
 $('sheet').onclick = e => { if (e.target.id === 'sheet') $('sheet').classList.remove('show'); };
+document.querySelectorAll('#scale button').forEach(b => b.onclick = () => {
+  remote.setScreenScale(+b.dataset.s); buzz();
+  toast(status.connected ? 'Car screen updated' : 'Applies next time you connect');
+});
+
 function renderSettings() {
+  document.querySelectorAll('#scale button').forEach(b => b.classList.toggle('on', +b.dataset.s === (status.screenScale || 0)));
   const sw = $('lockSwitch');
   sw.classList.toggle('on', status.drivingLock);
   sw.setAttribute('aria-checked', status.drivingLock);
