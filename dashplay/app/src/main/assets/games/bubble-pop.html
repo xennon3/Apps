@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bubble Pop</title>
+<style>
+  html,body { margin:0; height:100%; overflow:hidden; background:#0E1116; color:#EEF1F5;
+    font-family:system-ui,-apple-system,Roboto,sans-serif; touch-action:none; user-select:none; }
+  canvas { display:block; width:100vw; height:100vh; }
+  #hud { position:fixed; left:3vw; top:3vh; font-size:clamp(16px,4vh,30px); font-weight:700; pointer-events:none; }
+  #hud span { color:#8A94A3; font-weight:400; margin-left:2vw; }
+  #msg { position:fixed; inset:0; display:grid; place-content:center; text-align:center; gap:2vh;
+    background:#0E1116cc; font-size:clamp(18px,4.5vh,34px); }
+  #msg small { color:#8A94A3; font-size:.55em; }
+  #msg b { font-size:1.6em; color:#FFB547; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">0<span>60s</span></div>
+<div id="msg"><b>Bubble Pop</b>Tap anywhere to start<small>Pop bubbles fast for combos · gold ones are worth 5</small></div>
+<script>
+const c = document.getElementById('c'), g = c.getContext('2d');
+const hud = document.getElementById('hud'), msg = document.getElementById('msg');
+let W, H, R, bubbles = [], bursts = [], score = 0, best = +localStorage.bubbleBest || 0;
+let combo = 0, lastPop = 0, ends = 0, playing = false, spawnAt = 0;
+const ROUND = 60000;
+
+function fit() { const d = devicePixelRatio || 1; W = innerWidth; H = innerHeight;
+  c.width = W * d; c.height = H * d; g.setTransform(d, 0, 0, d, 0, 0); R = Math.min(W, H) * 0.075; }
+addEventListener('resize', fit); fit();
+
+function start() { score = 0; combo = 0; bubbles = []; bursts = []; ends = performance.now() + ROUND;
+  playing = true; msg.style.display = 'none'; }
+
+function spawn(now) {
+  const elapsed = 1 - (ends - now) / ROUND;
+  const gold = Math.random() < 0.08;
+  const r = R * (gold ? 0.75 : 0.8 + Math.random() * 0.6);
+  bubbles.push({ x: r + Math.random() * (W - 2 * r), y: H + r, r, gold,
+    vy: (H / 7) * (1 + elapsed * 1.6) * (gold ? 1.5 : 0.8 + Math.random() * 0.5),
+    hue: 170 + Math.random() * 140, wob: Math.random() * 6 });
+  spawnAt = now + 650 - elapsed * 380;
+}
+
+function pop(x, y) {
+  if (!playing) { start(); return; }
+  for (let i = bubbles.length - 1; i >= 0; i--) {
+    const b = bubbles[i];
+    // A little extra radius makes big fingers and bumpy roads forgivable.
+    if (Math.hypot(x - b.x, y - b.y) < b.r * 1.25) {
+      const now = performance.now();
+      combo = now - lastPop < 900 ? combo + 1 : 1; lastPop = now;
+      const pts = (b.gold ? 5 : 1) * Math.min(combo, 5);
+      score += pts; bubbles.splice(i, 1);
+      bursts.push({ x: b.x, y: b.y, r: b.r, t: now, pts, hue: b.gold ? 42 : b.hue });
+      if (navigator.vibrate) navigator.vibrate(15);
+      return;
+    }
+  }
+  combo = 0;
+}
+
+addEventListener('pointerdown', e => pop(e.clientX, e.clientY));
+// Gamepad A or B pops the bubble closest to escaping, so a passenger can play from the phone.
+addEventListener('keydown', e => {
+  if (e.key !== ' ' && e.key !== 'Enter') return;
+  if (!playing) { start(); return; }
+  const target = bubbles.reduce((a, b) => (!a || b.y < a.y ? (b.y < H - b.r ? b : a) : a), null);
+  if (target) pop(target.x, target.y);
+});
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  g.clearRect(0, 0, W, H);
+  if (playing) {
+    if (now > spawnAt) spawn(now);
+    if (now > ends) {
+      playing = false; best = Math.max(best, score); localStorage.bubbleBest = best;
+      msg.innerHTML = `<b>${score}</b>Time's up! Best: ${best}<small>Tap to play again</small>`;
+      msg.style.display = 'grid';
+    }
+  }
+  for (let i = bubbles.length - 1; i >= 0; i--) {
+    const b = bubbles[i];
+    b.y -= b.vy * dt; b.wob += dt * 2;
+    if (b.y < -b.r) { bubbles.splice(i, 1); combo = 0; continue; }
+    const x = b.x + Math.sin(b.wob) * b.r * 0.15;
+    const grad = g.createRadialGradient(x - b.r * .35, b.y - b.r * .35, b.r * .1, x, b.y, b.r);
+    grad.addColorStop(0, b.gold ? '#fff6d8' : `hsla(${b.hue},90%,85%,.9)`);
+    grad.addColorStop(1, b.gold ? '#FFB547' : `hsla(${b.hue},80%,55%,.35)`);
+    g.fillStyle = grad; g.beginPath(); g.arc(x, b.y, b.r, 0, 7); g.fill();
+    g.strokeStyle = b.gold ? '#ffe2a3' : `hsla(${b.hue},90%,80%,.8)`; g.lineWidth = 2; g.stroke();
+  }
+  for (let i = bursts.length - 1; i >= 0; i--) {
+    const p = bursts[i], k = (now - p.t) / 450;
+    if (k > 1) { bursts.splice(i, 1); continue; }
+    g.globalAlpha = 1 - k;
+    g.strokeStyle = `hsl(${p.hue},90%,70%)`; g.lineWidth = 3;
+    g.beginPath(); g.arc(p.x, p.y, p.r * (1 + k), 0, 7); g.stroke();
+    g.fillStyle = '#fff'; g.font = `700 ${R * .6}px system-ui`; g.textAlign = 'center';
+    g.fillText('+' + p.pts, p.x, p.y - k * R);
+    g.globalAlpha = 1;
+  }
+  const left = playing ? Math.ceil((ends - now) / 1000) : 60;
+  hud.innerHTML = `${score}<span>${left}s${combo > 1 ? ' · combo ×' + Math.min(combo, 5) : ''}</span>`;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

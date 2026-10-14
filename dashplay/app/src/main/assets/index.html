@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashplay</title>
+<style>
+  :root { --bg:#0E1116; --panel:#1A1F27; --text:#EEF1F5; --muted:#8A94A3; --accent:#FFB547; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  body { display:flex; flex-direction:column; padding:4vh 4vw; gap:3vh; }
+  header { display:flex; align-items:baseline; gap:1.2vw; }
+  h1 { margin:0; font-size:clamp(22px,5vh,40px); }
+  header span { color:var(--muted); font-size:clamp(13px,2.6vh,18px); }
+  .grid { flex:1; display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:2.5vw; }
+  a.tile { display:flex; flex-direction:column; justify-content:flex-end; gap:.6vh; padding:3vh 2vw;
+    border-radius:20px; background:var(--panel); color:inherit; text-decoration:none;
+    position:relative; overflow:hidden; min-height:140px; }
+  a.tile:active { outline:3px solid var(--accent); }
+  .art { position:absolute; inset:0; display:grid; place-items:center; font-size:clamp(48px,14vh,110px);
+    opacity:.9; padding-bottom:7vh; }
+  .tile b { font-size:clamp(17px,3.6vh,26px); position:relative; }
+  .tile small { color:var(--muted); font-size:clamp(12px,2.4vh,16px); position:relative; }
+  footer { color:var(--muted); font-size:clamp(12px,2.4vh,16px); }
+</style>
+</head>
+<body>
+  <header><h1>Dashplay</h1><span id="clock"></span></header>
+  <div class="grid">
+    <a class="tile" href="games/bubble-pop.html"><div class="art">🫧</div><b>Bubble Pop</b><small>Tap bubbles before they float away</small></a>
+    <a class="tile" href="games/turn-snake.html"><div class="art">🐍</div><b>Turn Snake</b><small>Tap left or right to steer</small></a>
+    <a class="tile" href="games/memory-lane.html"><div class="art">🛑</div><b>Memory Lane</b><small>Find the matching road signs</small></a>
+  </div>
+  <footer>Send any web page from the Dashplay app on your phone, or tap 🔍 to type an address.</footer>
+<script>
+  const clock = document.getElementById('clock');
+  const tick = () => clock.textContent = new Date().toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+  tick(); setInterval(tick, 10000);
+</script>
+</body>
+</html>

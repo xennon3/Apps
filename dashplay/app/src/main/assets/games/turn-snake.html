@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Turn Snake</title>
+<style>
+  html,body { margin:0; height:100%; overflow:hidden; background:#0E1116; color:#EEF1F5;
+    font-family:system-ui,-apple-system,Roboto,sans-serif; touch-action:none; user-select:none; }
+  canvas { display:block; width:100vw; height:100vh; }
+  #hud { position:fixed; left:3vw; top:3vh; font-size:clamp(16px,4vh,30px); font-weight:700; pointer-events:none; }
+  #hud span { color:#8A94A3; font-weight:400; margin-left:2vw; }
+  #msg { position:fixed; inset:0; display:grid; place-content:center; text-align:center; gap:2vh;
+    background:#0E1116cc; font-size:clamp(18px,4.5vh,34px); }
+  #msg small { color:#8A94A3; font-size:.55em; }
+  #msg b { font-size:1.6em; color:#4ADE80; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">0</div>
+<div id="msg"><b>Turn Snake</b>Tap to start<small>Tap the left half to turn left, the right half to turn right · gamepad arrows work too</small></div>
+<script>
+const c = document.getElementById('c'), g = c.getContext('2d');
+const hud = document.getElementById('hud'), msg = document.getElementById('msg');
+const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]]; // right, down, left, up (clockwise)
+let W, H, cell, cols, rows, ox, oy;
+let snake, dir, queued, food, score, best = +localStorage.snakeBest || 0, alive = false, stepMs, nextStep = 0;
+
+function fit() {
+  const d = devicePixelRatio || 1; W = innerWidth; H = innerHeight;
+  c.width = W * d; c.height = H * d; g.setTransform(d, 0, 0, d, 0, 0);
+  // Big cells: this is played on a car screen at arm's length.
+  cell = Math.floor(Math.min(W / 24, H / 14)); cols = Math.floor(W / cell); rows = Math.floor(H / cell);
+  ox = (W - cols * cell) / 2; oy = (H - rows * cell) / 2;
+}
+addEventListener('resize', fit); fit();
+
+function start() {
+  const y = Math.floor(rows / 2), x = Math.floor(cols / 3);
+  snake = [[x, y], [x - 1, y], [x - 2, y]]; dir = 0; queued = []; score = 0; stepMs = 170;
+  placeFood(); alive = true; msg.style.display = 'none';
+}
+
+function placeFood() {
+  do { food = [Math.floor(Math.random() * cols), Math.floor(Math.random() * rows)]; }
+  while (snake.some(s => s[0] === food[0] && s[1] === food[1]));
+}
+
+// Queue turns so two quick taps both count, even within one step.
+function turn(delta) { if (!alive) return start(); queued.push(d => (d + delta + 4) % 4); }
+function face(target) {
+  if (!alive) return start();
+  queued.push(d => (Math.abs(d - target) === 2 ? d : target));
+}
+
+addEventListener('pointerdown', e => turn(e.clientX < W / 2 ? -1 : 1));
+addEventListener('keydown', e => {
+  const map = { ArrowRight: 0, ArrowDown: 1, ArrowLeft: 2, ArrowUp: 3 };
+  if (e.key in map) { e.preventDefault(); face(map[e.key]); }
+  else if (e.key === ' ' || e.key === 'Enter') { if (!alive) start(); }
+});
+
+function step() {
+  if (queued.length) dir = queued.shift()(dir);
+  const [dx, dy] = DIRS[dir];
+  // The walls wrap around, which is kinder to a laggy car screen.
+  const head = [(snake[0][0] + dx + cols) % cols, (snake[0][1] + dy + rows) % rows];
+  if (snake.some(s => s[0] === head[0] && s[1] === head[1])) {
+    alive = false; best = Math.max(best, score); localStorage.snakeBest = best;
+    msg.innerHTML = `<b>${score}</b>Crashed! Best: ${best}<small>Tap to try again</small>`;
+    msg.style.display = 'grid'; return;
+  }
+  snake.unshift(head);
+  if (head[0] === food[0] && head[1] === food[1]) {
+    score++; stepMs = Math.max(80, stepMs - 4); placeFood();
+    if (navigator.vibrate) navigator.vibrate(20);
+  } else snake.pop();
+}
+
+function rect(x, y, inset, color) {
+  g.fillStyle = color;
+  g.beginPath(); g.roundRect(ox + x * cell + inset, oy + y * cell + inset, cell - inset * 2, cell - inset * 2, cell * .3); g.fill();
+}
+
+function frame(now) {
+  if (alive && now >= nextStep) { step(); nextStep = now + stepMs; }
+  g.fillStyle = '#0E1116'; g.fillRect(0, 0, W, H);
+  g.fillStyle = '#151A21';
+  for (let x = 0; x < cols; x++) for (let y = 0; y < rows; y++) if ((x + y) % 2) g.fillRect(ox + x * cell, oy + y * cell, cell, cell);
+  // Faint arrows remind the player which half of the screen does what.
+  g.globalAlpha = .07; g.fillStyle = '#fff'; g.font = `${H * .5}px system-ui`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('↺', W * .25, H / 2); g.fillText('↻', W * .75, H / 2); g.globalAlpha = 1;
+  if (snake) {
+    const pulse = 1 + Math.sin(now / 150) * .08;
+    g.fillStyle = '#FF6B6B'; g.beginPath();
+    g.arc(ox + (food[0] + .5) * cell, oy + (food[1] + .5) * cell, cell * .38 * pulse, 0, 7); g.fill();
+    snake.forEach((s, i) => rect(s[0], s[1], i ? cell * .1 : cell * .04, `hsl(${140 - i * 2},70%,${i ? 50 : 62}%)`));
+  }
+  hud.innerHTML = `${score || 0}<span>best ${best}</span>`;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
