@@ -125,13 +125,14 @@
 <script>
 const read = k => { try { return JSON.parse(localStorage.getItem('dashplay.' + k)); } catch (e) { return null; } };
 const INSTALLED = window.DASHPLAY_INSTALLED || [];
+const TUNE_TILE = { title: 'Touch timing', emoji: '🎯', color: '#A3E635', tag: 'Setup', sub: 'Make fast games fair on the car', href: 'tune.html' };
 const STORE_TILE = { title: 'Store', emoji: '🛍️', color: '#8B95A7', tag: 'Get more', sub: 'Tools and games to install', href: 'store.html' };
 // Every tile is { title, emoji, color, tag, sub, href }.
 const fromGame = g => ({ ...g, href: `games/${g.id}.html`, best: read('bestText.' + g.id), sub: g.blurb });
 const fromStore = i => ({ ...i, tag: i.kind === 'game' ? 'Store' : 'Tool', sub: i.blurb, href: `/store/${i.id}/${i.entry || 'index.html'}` });
 const LISTS = {
   games: () => [...window.DASHPLAY_GAMES.map(fromGame), ...INSTALLED.filter(i => i.kind === 'game').map(fromStore)],
-  tools: () => [...INSTALLED.filter(i => i.kind !== 'game').map(fromStore), STORE_TILE],
+  tools: () => [...INSTALLED.filter(i => i.kind !== 'game').map(fromStore), TUNE_TILE, STORE_TILE],
 };
 let tab = read('homeTab') || 'games';
 let ITEMS = [];

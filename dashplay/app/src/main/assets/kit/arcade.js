@@ -253,6 +253,30 @@
   }
 
   // Helpers games share.
+  // Touch delay. A tap on the car screen reaches the phone late (Android Auto, wireless link,
+  // and the video of the screen travelling back). Fast games rewind to where things were when
+  // the player actually touched. "Touch timing" measures it; until then, a typical delay.
+  // DashplayCar only exists on the car screen, so phone play has no delay.
+  const onCar = !!window.DashplayCar;
+  const measured = store.get('touchLag');
+  const lag = onCar ? (typeof measured === 'number' ? measured : 0.35) : 0;
+
+  // Remembers a value over the last couple of seconds, so a late tap can look it up.
+  //   const t = Arcade.trail(); t.push(now, {x, y}); t.at(now - Arcade.lag * 1000)
+  function trail(keepMs = 2000) {
+    const pts = [];
+    return {
+      push(t, v) { pts.push([t, v]); while (pts.length && t - pts[0][0] > keepMs) pts.shift(); },
+      // The value at time t (the latest one recorded at or before it).
+      at(t) {
+        for (let i = pts.length - 1; i >= 0; i--) if (pts[i][0] <= t) return pts[i][1];
+        return pts.length ? pts[0][1] : undefined;
+      },
+      between(t0, t1) { return pts.filter(p => p[0] >= t0 && p[0] <= t1).map(p => p[1]); },
+      clear() { pts.length = 0; },
+    };
+  }
+
   const rand = (a, b) => a + Math.random() * (b - a);
   const pick = list => list[Math.floor(Math.random() * list.length)];
   function roundRect(g, x, y, w, h, r) { g.beginPath(); g.roundRect(x, y, w, h, r); }
@@ -262,5 +286,5 @@
     g.fillText(ch, x, y);
   }
 
-  window.Arcade = { create, sfx, store, rand, pick, roundRect, emoji, games: GAMES };
+  window.Arcade = { create, sfx, store, rand, pick, roundRect, emoji, trail, lag, onCar, games: GAMES };
 })();

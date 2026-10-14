@@ -12,6 +12,7 @@
 <script>
 const { roundRect } = Arcade;
 let floors, mover, falling, camY, perfectRun, unit;
+const moverTrail = Arcade.trail();
 
 const game = Arcade.create({
   id: 'stack-tower',
@@ -25,9 +26,10 @@ const game = Arcade.create({
   },
   tap: drop,
   key(k) { if (k === 'a' || k === 'b' || k === 'down') drop(); },
-  update(dt) {
+  update(dt, t) {
     const speed = unit * (5 + Math.min(floors.length, 40) * 0.22);
     mover.x += mover.dir * speed * dt;
+    moverTrail.push(t, { x: mover.x, dir: mover.dir });
     const top = floors[floors.length - 1];
     const reach = Math.max(top.w, unit * 3) * 1.2;
     if (mover.x + mover.w > top.x + top.w + reach) mover.dir = -1;
@@ -54,6 +56,7 @@ const game = Arcade.create({
 });
 
 function spawn() {
+  moverTrail.clear();
   const top = floors[floors.length - 1];
   const fromLeft = floors.length % 2 === 1;
   mover = { w: top.w, x: fromLeft ? top.x - top.w * 1.1 : top.x + top.w * 1.1, dir: fromLeft ? 1 : -1, hue: (top.hue + 14) % 360 };
@@ -61,6 +64,9 @@ function spawn() {
 
 function drop() {
   if (game.state !== 'playing') return;
+  // Drop the block where it was when the player touched, not where it is when the tap arrives.
+  const then = Arcade.lag && moverTrail.at(performance.now() - Arcade.lag * 1000);
+  if (then) { mover.x = then.x; mover.dir = then.dir; }
   const top = floors[floors.length - 1];
   const y = game.H - unit * 2 + camY - floors.length * unit;
   let left = Math.max(top.x, mover.x), right = Math.min(top.x + top.w, mover.x + mover.w);

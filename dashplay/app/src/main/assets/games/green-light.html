@@ -85,7 +85,8 @@ function hit() {
     results.push({ ms: PENALTY, early: true }); game.sfx('bad');
     say.textContent = 'Jumped the light!'; hint.textContent = `That counts as ${PENALTY} ms.`;
   } else {
-    const ms = Math.round(performance.now() - greenAt);
+    // On the car the tap arrives late; take that delay off so the time is your reaction alone.
+    const ms = Math.max(100, Math.round(performance.now() - greenAt - Arcade.lag * 1000));
     results.push({ ms }); game.sfx('point');
     say.textContent = ms + ' ms'; hint.textContent = verdict(ms);
   }

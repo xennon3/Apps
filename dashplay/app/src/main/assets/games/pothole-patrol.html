@@ -58,7 +58,12 @@ const game = Arcade.create({
       if (!s.kind) return;
       s.t += dt;
       if (s.t < s.life) return;
-      if (s.kind === 'hole') { loseLife(s, 'missed'); }
+      // A hole stays tappable for the touch delay after its timer runs out, so a tap already
+      // on its way from the car screen still patches it.
+      if (s.kind === 'hole') {
+        if (s.t < s.life + Arcade.lag) return;
+        loseLife(s, 'missed');
+      }
       s.kind = null;
     });
   },
@@ -76,7 +81,7 @@ const game = Arcade.create({
         g.strokeStyle = '#F2F4F8'; g.lineWidth = 4; g.beginPath(); g.ellipse(s.x, s.y, s.r * 1.15, s.r * 0.78, 0, 0, 7); g.stroke();
       }
       if (s.kind === 'hole') {
-        const k = Math.min(1, s.t / 0.15), left = 1 - s.t / s.life;
+        const k = Math.min(1, s.t / 0.15), left = Math.max(0, 1 - s.t / s.life);
         g.fillStyle = '#0B0D12'; g.beginPath(); g.ellipse(s.x, s.y, s.r * 0.9 * k, s.r * 0.55 * k, 0.2, 0, 7); g.fill();
         g.strokeStyle = '#5B6475'; g.lineWidth = 3; g.beginPath();
         for (let a = 0; a < 5; a++) { const ang = a * 1.3 + 0.4; g.moveTo(s.x + Math.cos(ang) * s.r * 0.8 * k, s.y + Math.sin(ang) * s.r * 0.5 * k); g.lineTo(s.x + Math.cos(ang) * s.r * 1.1 * k, s.y + Math.sin(ang) * s.r * 0.72 * k); }

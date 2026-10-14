@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Touch timing</title>
+<link rel="stylesheet" href="kit/arcade.css">
+<style>
+  :root { --accent: #A3E635; }
+  body { display: flex; flex-direction: column; }
+  .app { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; gap: max(24px, 5vw); padding: 0 4vw 3vh; }
+  .beat {
+    --size: min(62vh, 36vw); width: var(--size); aspect-ratio: 1; border-radius: 50%; flex: none; display: grid; place-items: center;
+    background: var(--surface); border: 3px solid var(--line); transition: background .25s, transform .25s, box-shadow .25s;
+    font-size: calc(var(--size) * .22); font-weight: 800; color: var(--muted);
+  }
+  .beat.on { background: var(--accent); color: #111; transform: scale(1.06); box-shadow: 0 0 60px 8px color-mix(in srgb, var(--accent) 60%, transparent); transition: none; }
+  .side { display: flex; flex-direction: column; gap: 1.8vh; width: min(46vw, 460px); }
+  .side h2 { margin: 0; font-size: clamp(20px, 5vh, 32px); }
+  .side p { margin: 0; color: var(--muted); font-size: clamp(13px, 2.8vh, 17px); line-height: 1.45; }
+  .dots { display: flex; gap: 8px; }
+  .dots i { width: 14px; height: 14px; border-radius: 50%; background: var(--line); }
+  .dots i.done { background: var(--accent); }
+  .result { font-size: clamp(30px, 9vh, 56px); font-weight: 800; color: var(--accent); }
+  .row { display: flex; gap: 10px; }
+  .row button {
+    flex: 1; height: max(50px, 10vh); border-radius: 16px; font-weight: 800; font-size: clamp(15px, 3.2vh, 19px);
+    background: var(--surface-2); border: 1px solid var(--line);
+  }
+  .row button.go { background: var(--accent); color: #111; border: 0; }
+  .row button:active { transform: scale(.97); }
+  @media (max-aspect-ratio: 1/1) { .app { flex-direction: column; } .beat { --size: 54vw; } .side { width: 92vw; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="beat" id="beat">♪</div>
+  <div class="side" id="side"></div>
+</div>
+<script src="kit/tool.js"></script>
+<script>
+Tool.header('Touch timing', '#A3E635');
+const $ = id => document.getElementById(id);
+const PERIOD = 1000, WARMUP = 2, TAPS = 8, KEY = 'dashplay.touchLag';
+const saved = (() => { try { return JSON.parse(localStorage.getItem(KEY)); } catch (e) { return null; } })();
+let start = 0, timer = null, offsets = [], running = false;
+
+// On the car the tap arrives late, and the beat also shows up late on the car screen. Tapping
+// along with a steady beat (instead of reacting to it) cancels out reaction time, so the
+// average gap between a beat and the tap that answers it is the car's total delay: exactly
+// what games need to rewind.
+function intro() {
+  running = false; clearInterval(timer);
+  const onCar = !!window.DashplayCar;
+  $('side').innerHTML = `<h2>Make fast games fair</h2>
+    <p>Taps on the car screen reach your phone a moment late, so fast games can feel unresponsive. Tap anywhere <b>in rhythm with the flashing circle</b> ${TAPS} times and games will make up for the delay.</p>
+    ${onCar ? '' : '<p style="color:#FFC24B">Run this on the car screen. On the phone there is no delay to measure.</p>'}
+    <p>Current setting: <b style="color:var(--text)">${typeof saved === 'number' ? Math.round(saved * 1000) + ' ms (measured)' : onCar ? '350 ms (typical)' : 'none on the phone'}</b></p>
+    <div class="row"><button class="go" id="go">Start</button></div>`;
+  $('go').onclick = begin;
+}
+
+function begin() {
+  offsets = []; running = true; start = performance.now() + 600;
+  $('side').innerHTML = `<h2>Tap along with the beat</h2><p>Tap anywhere on the screen each time the circle flashes. Keep a steady rhythm.</p><div class="dots" id="dots"></div>`;
+  renderDots();
+  clearInterval(timer);
+  setTimeout(() => { flash(); timer = setInterval(flash, PERIOD); }, 600);
+}
+
+function flash() {
+  const b = $('beat'); b.classList.add('on'); b.textContent = '';
+  setTimeout(() => { b.classList.remove('on'); b.textContent = '♪'; }, 160);
+}
+
+function renderDots() { const d = $('dots'); if (d) d.innerHTML = Array.from({ length: TAPS }, (_, i) => `<i class="${i < offsets.length ? 'done' : ''}"></i>`).join(''); }
+
+addEventListener('pointerdown', e => {
+  if (!running || e.target.closest('.hud, button')) return;
+  const since = performance.now() - start;
+  // Answer to the beat at most 900 ms earlier (delays longer than that are not realistic).
+  const beat = Math.floor((since + 100) / PERIOD);
+  if (beat < WARMUP) return;
+  offsets.push(since - beat * PERIOD);
+  renderDots();
+  if (offsets.length >= TAPS) finish();
+});
+
+function finish() {
+  running = false; clearInterval(timer);
+  const sorted = [...offsets].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  const spread = sorted[sorted.length - 2] - sorted[1];
+  const lag = Math.max(0, Math.min(0.9, median / 1000));
+  $('side').innerHTML = `<h2>Your car's touch delay</h2><div class="result num">${Math.round(lag * 1000)} ms</div>
+    <p>${spread > 250 ? 'Your taps were a bit uneven. Try again for a steadier number.' : 'Games will rewind by this much so your taps land where you aimed.'}</p>
+    <div class="row"><button id="again">Again</button><button class="go" id="save">Save</button></div>
+    <div class="row"><button id="reset">Use typical (350 ms)</button></div>`;
+  $('again').onclick = begin;
+  $('save').onclick = () => { try { localStorage.setItem(KEY, JSON.stringify(lag)); } catch (e) {} Tool.beep(880); location.href = 'index.html'; };
+  $('reset').onclick = () => { try { localStorage.removeItem(KEY); } catch (e) {} location.href = 'index.html'; };
+}
+
+intro();
+</script>
+</body>
+</html>

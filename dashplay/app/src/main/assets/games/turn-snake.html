@@ -13,6 +13,8 @@
 const { roundRect } = Arcade;
 const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]]; // right, down, left, up: clockwise
 let cell, cols, rows, ox, oy, snake, prev, dir, queued, food, stepTime, acc, tapFx = null;
+// Recent steps, so a late turn can be applied where the player actually tapped.
+let snaps = [];
 
 const game = Arcade.create({
   id: 'turn-snake',
@@ -26,17 +28,17 @@ const game = Arcade.create({
   start() {
     const y = Math.floor(rows / 2), x = Math.floor(cols / 3);
     snake = [[x, y], [x - 1, y], [x - 2, y]]; prev = snake.map(s => [...s]);
-    dir = 0; queued = []; stepTime = 0.17; acc = 0;
+    dir = 0; queued = []; stepTime = 0.17; acc = 0; snaps = [];
     placeFood();
   },
   tap(x) {
     const d = x < game.W / 2 ? -1 : 1;
-    queued.push(cur => (cur + d + 4) % 4);
+    turn(cur => (cur + d + 4) % 4);
     tapFx = { side: d, t: performance.now() };
   },
   key(k) {
     const target = { right: 0, down: 1, left: 2, up: 3 }[k];
-    if (target != null) queued.push(cur => (Math.abs(cur - target) === 2 ? cur : target));
+    if (target != null) turn(cur => (Math.abs(cur - target) === 2 ? cur : target));
   },
   update(dt) {
     acc += dt;
@@ -84,7 +86,23 @@ function placeFood() {
   while (snake.some(s => s[0] === food[0] && s[1] === food[1]));
 }
 
+// A turn from the car screen arrives Arcade.lag seconds after the touch. Undo the steps
+// taken since then, turn, and replay them, so the snake turns where the player meant.
+function turn(fn) {
+  const since = performance.now() - Arcade.lag * 1000;
+  const i = Arcade.lag ? snaps.findIndex(s => s.t > since) : -1;
+  if (i < 0 || queued.length) { queued.push(fn); return; }
+  const replay = snaps.length - i, s = snaps[i];
+  snaps.length = i;
+  snake = s.snake; dir = s.dir; food = s.food; stepTime = s.stepTime; game.set(s.score);
+  queued = [fn];
+  for (let n = 0; n < replay && game.state === 'playing'; n++) step();
+  prev = snake.map(p => [...p]);
+}
+
 function step() {
+  snaps.push({ t: performance.now(), snake: snake.map(p => [...p]), dir, food: [...food], stepTime, score: game.score });
+  if (snaps.length > 8) snaps.shift();
   if (queued.length) dir = queued.shift()(dir);
   const [dx, dy] = DIRS[dir];
   // Walls wrap around, which is kinder to a laggy car screen.

@@ -26,7 +26,7 @@ const game = Arcade.create({
     const target = bubbles.filter(b => b.y < game.H - b.r).sort((a, b) => a.y - b.y)[0];
     if (target) pop(target.x, target.y);
   },
-  update(dt) {
+  update(dt, t) {
     left -= dt;
     if (left <= 0) { game.end("Time's up!"); return; }
     const progress = 1 - left / ROUND;
@@ -35,7 +35,9 @@ const game = Arcade.create({
     for (let i = bubbles.length - 1; i >= 0; i--) {
       const b = bubbles[i];
       b.y -= b.vy * dt; b.wob += dt * 2;
-      if (b.y < -b.r) { bubbles.splice(i, 1); combo = 0; }
+      b.trail.push(t, { x: b.x + Math.sin(b.wob) * b.r * 0.15, y: b.y });
+      // Kept a little past the top, so a late tap on an escaping bubble still counts.
+      if (b.y < -b.r - b.vy * Arcade.lag) { bubbles.splice(i, 1); combo = 0; }
     }
   },
   draw(g, W, H, t) {
@@ -72,16 +74,24 @@ function spawn(progress) {
   const r = R * (gold ? 0.75 : 0.8 + Math.random() * 0.6);
   bubbles.push({
     x: r + Math.random() * (game.W - 2 * r), y: game.H + r, r, gold, wob: rand(0, 6), hue: rand(170, 310),
-    vy: (game.H / 7) * (1 + progress * 1.6) * (gold ? 1.5 : rand(0.8, 1.3)),
+    vy: (game.H / 7) * (1 + progress * 1.6) * (gold ? 1.5 : rand(0.8, 1.3)), trail: Arcade.trail(),
   });
 }
 
+// Where a bubble could have been when the player touched: the touch reaches us
+// Arcade.lag seconds late, give or take, so check a window around that moment.
+function wasUnder(b, x, y, now) {
+  const reach = b.r * 1.3, back = Arcade.lag * 1000;
+  const spots = back ? b.trail.between(now - back - 150, now - back + 150) : [];
+  spots.push({ x: b.x, y: b.y });
+  return spots.some(p => Math.hypot(x - p.x, y - p.y) <= reach);
+}
+
 function pop(x, y) {
+  const now = performance.now();
   for (let i = bubbles.length - 1; i >= 0; i--) {
     const b = bubbles[i];
-    // A little extra radius forgives big fingers and bumpy roads.
-    if (Math.hypot(x - b.x, y - b.y) > b.r * 1.25) continue;
-    const now = performance.now();
+    if (!wasUnder(b, x, y, now)) continue;
     combo = now - lastPop < 900 ? combo + 1 : 1; lastPop = now;
     const pts = (b.gold ? 5 : 1) * Math.min(combo, 5);
     game.add(pts); bubbles.splice(i, 1);

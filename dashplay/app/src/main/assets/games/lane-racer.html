@@ -48,7 +48,12 @@ const game = Arcade.create({
       const c = traffic[i];
       c.y += (speed - c.v) * dt;
       if (c.y > H + road.carH) { traffic.splice(i, 1); continue; }
-      if (hit(c, 0.82)) { shake = 1; navigator.vibrate?.(200); game.end('Crashed!'); return; }
+      if (hit(c, 0.82)) {
+        // The tap that dodges this car may still be on its way from the car screen, so it
+        // only counts as a crash if the cars are still touching after the touch delay.
+        c.touching = (c.touching || 0) + dt;
+        if (c.touching > Arcade.lag) { shake = 1; navigator.vibrate?.(200); game.end('Crashed!'); return; }
+      } else c.touching = 0;
     }
     for (let i = cans.length - 1; i >= 0; i--) {
       const c = cans[i];

@@ -11,7 +11,8 @@
 <script src="../kit/arcade.js"></script>
 <script>
 const { rand, roundRect, emoji } = Arcade;
-let bird, posts, scrollX, clouds = [], unit;
+let bird, posts, scrollX, clouds = [], unit, lastFlap = 0;
+const birdTrail = Arcade.trail();
 
 const game = Arcade.create({
   id: 'sky-hop',
@@ -22,15 +23,17 @@ const game = Arcade.create({
   },
   start() {
     bird = { x: game.W * 0.25, y: game.H * 0.45, vy: 0, rot: 0 };
+    birdTrail.clear(); lastFlap = 0;
     posts = []; scrollX = 0;
     for (let i = 0; i < 4; i++) addPost(game.W * 0.75 + i * gap());
   },
   tap: flap,
   key(k) { if (k === 'a' || k === 'up' || k === 'b') flap(); },
-  update(dt) {
+  update(dt, t) {
     const H = game.H, speed = unit * (3.2 + Math.min(game.score, 30) * 0.05);
-    bird.vy += unit * 22 * dt;
+    bird.vy += GRAVITY() * dt;
     bird.y += bird.vy * dt;
+    birdTrail.push(t, { y: bird.y, vy: bird.vy });
     bird.rot = Math.max(-0.5, Math.min(1.2, bird.vy / (unit * 12)));
     posts.forEach(p => {
       p.x -= speed * dt;
@@ -70,7 +73,25 @@ function addPost(x) {
   posts.push({ x, w: unit * 1.15, gapY: top, gap: gapH, hue: Math.random() < 0.5 ? 'green' : 'blue' });
 }
 
-function flap() { bird.vy = -unit * 7.2; game.sfx('flip', 1.6); }
+const FLAP = () => -unit * 7.2, GRAVITY = () => unit * 22;
+
+// A late tap: go back to where the bird was when the player touched (never before the last
+// flap), flap there, and replay the fall up to now.
+function flap() {
+  const now = performance.now();
+  const from = Math.max(now - Arcade.lag * 1000, lastFlap);
+  const then = Arcade.lag && birdTrail.at(from);
+  if (then) {
+    let y = then.y, vy = FLAP();
+    for (let left = (now - from) / 1000; left > 0; left -= 1 / 120) {
+      const step = Math.min(1 / 120, left);
+      vy += GRAVITY() * step; y += vy * step;
+    }
+    bird.y = y; bird.vy = vy;
+  } else bird.vy = FLAP();
+  lastFlap = now;
+  game.sfx('flip', 1.6);
+}
 
 function crash() { game.sfx('bad'); navigator.vibrate?.(150); game.end(game.score === 1 ? '1 sign cleared' : `${game.score} signs cleared`); }
 
