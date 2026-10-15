@@ -77,8 +77,12 @@ Extras over the browser version:
 
 Reconnecting to the last port (at startup and when the adapter is plugged back in) works in both the app and Chrome/Edge.
 
-**Getting the .exe:** every push that changes `serial-scope/` builds both files on GitHub
-(*Actions → "Serial Scope (Windows app)" → latest run → Artifacts → Serial-Scope-Windows*).
+**Getting the .exe:** download it from the repo's **Releases** page, under *Serial Scope for Windows (latest)*.
+Every push that changes `serial-scope/` rebuilds it there.
+
+**Serial Scope Lite** (`Serial-Scope-Lite.zip`, under 100 KB) is a tiny `Serial Scope.exe` plus `index.html`.
+It opens the app in its own Microsoft Edge window, which works the same because Edge supports serial ports.
+It's small enough to email or drop on a USB stick. Unzip it and keep the two files together. Build it with `sh lite/build.sh`.
 
 **Building it yourself** (needs Node.js 22):
 ```

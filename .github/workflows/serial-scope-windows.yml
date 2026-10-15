@@ -7,6 +7,9 @@ on:
       - 'serial-scope/**'
       - '.github/workflows/serial-scope-windows.yml'
 
+permissions:
+  contents: write   # to publish the download page (GitHub Release)
+
 jobs:
   build:
     runs-on: windows-latest
@@ -27,3 +30,33 @@ jobs:
           name: Serial-Scope-Windows
           path: serial-scope/dist/*.exe
           if-no-files-found: error
+      # One always-current download page: github.com/<owner>/<repo>/releases/tag/serial-scope-latest
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: serial-scope-latest
+          target_commitish: ${{ github.sha }}
+          name: Serial Scope for Windows (latest)
+          make_latest: true
+          body: |
+            **Serial Scope**: live Daktronics scoreboard dashboard + OBS overlay.
+
+            - **Serial-Scope-Setup-*.exe**: installs with a Start-menu shortcut
+            - **Serial-Scope-Portable-*.exe**: runs without installing
+
+            The app is unsigned: if Windows SmartScreen warns, click **More info → Run anyway**.
+
+            Built from ${{ github.sha }}.
+          files: serial-scope/dist/*.exe
+
+  # "Lite": a tiny launcher .exe that opens the app in Microsoft Edge (small enough to email)
+  lite:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq gcc-mingw-w64-x86-64 zip
+      - run: sh serial-scope/lite/build.sh
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: serial-scope-latest
+          files: serial-scope/dist/Serial-Scope-Lite.zip
