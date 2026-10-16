@@ -17,6 +17,7 @@
       "index.html",
       "desktop/main.js",
       "desktop/preload.js",
+      "desktop/viewer.html",
       "desktop/build/icon.png"
     ],
     "directories": {

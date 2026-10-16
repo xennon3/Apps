@@ -63,6 +63,23 @@ for OBS **Text (GDI+)** sources with *Read from file* ticked. Next time, click *
 
 The ⛶ button on the scoreboard makes it full screen, for a TV or second monitor.
 
+## 🌐 Share on the network (Windows app)
+
+Click **🌐 Share → Start sharing** and the PC running Serial Scope becomes a small, read-only web server. Anyone with the link
+can watch in any browser (phone, tablet, laptop, a TV):
+
+- **Scoreboard page**: live scoreboard, game log, feed status (LIVE / NO DATA, checksum counts) and the most recent raw packets
+- **OBS overlay page**: the same score bar as 📺 Broadcast, for an OBS **Browser Source** on a different computer (use the URL, untick *Local file*)
+- `/api/state` returns the latest snapshot as JSON, for other software
+
+Every link carries an **access code** (shown in the dialog; *New code* makes a fresh one). Without it you get a code prompt,
+and 20 wrong guesses from one address lock it out for 10 minutes. Viewers can only watch. The dialog shows how many are connected.
+The first time, Windows asks whether Serial Scope may use the network: tick **Private networks** → **Allow**.
+
+**Remote viewers (outside the building):** install [Tailscale](https://tailscale.com) (free) on this PC and on each viewer's
+phone or computer, then invite them (or share just this PC from the Tailscale admin page). A **🌍 Remote (Tailscale)** link
+then shows up in the Share dialog. It works from anywhere, encrypted, with nothing exposed to the public internet and no router changes.
+
 ## 🖥 Windows app
 
 Serial Scope also comes as a normal Windows program (built with Electron, the same engine as Chrome):

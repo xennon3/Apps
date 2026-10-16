@@ -9,4 +9,8 @@ contextBridge.exposeInMainWorld('native', {
   writeFile: (dir, name, text) => ipcRenderer.invoke('write-file', dir, name, text),
   folderExists: dir => ipcRenderer.invoke('folder-exists', dir),
   openFolder: dir => ipcRenderer.invoke('open-folder', dir),
+  shareStart: opts => ipcRenderer.invoke('share-start', opts),
+  shareStop: () => ipcRenderer.invoke('share-stop'),
+  shareInfo: () => ipcRenderer.invoke('share-info'),
+  shareState: state => ipcRenderer.send('share-state', state),
 });

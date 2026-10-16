@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Serial Scope · Live</title>
+<style>
+  :root { --bg: #0d0f13; --panel: #161a20; --ink: #e8ebf0; --muted: #8b93a1; --line: #262b33;
+    --led: #ffb020; --led2: #ff4d4d; --ok: #4ade80; --bad: #f87171; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 16px; background: var(--panel);
+    border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; }
+  h1 { font-size: 16px; margin: 0; }
+  .ro { color: var(--muted); font-size: 12px; margin-right: auto; }
+  .pill { padding: 2px 10px; border-radius: 99px; font-weight: 700; font-size: 11px; letter-spacing: .08em; }
+  .pill.live { background: #14532d; color: #86efac; }
+  .pill.stale { background: #7f1d1d; color: #fecaca; }
+  .pill.off { background: #374151; color: #d1d5db; }
+  .pill.blink { animation: blink 1s infinite; } @keyframes blink { 50% { opacity: .5; } }
+  main { padding: 16px; display: grid; gap: 16px; max-width: 1300px; margin: 0 auto; }
+  #board { background: #0b0d10; border: 1px solid #222; border-radius: 14px; padding: 18px 14px 14px; }
+  .grid { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: center; text-align: center; }
+  .team { font-size: clamp(15px, 3vw, 28px); font-weight: 700; letter-spacing: .12em; color: #cfd6e0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .poss { display: inline-block; width: 1.3em; visibility: hidden; } .poss.on { visibility: visible; }
+  .score { font: 700 clamp(60px, 13vw, 150px)/1 ui-monospace, "SF Mono", Consolas, monospace; color: var(--led);
+    text-shadow: 0 0 18px rgba(255,176,32,.5); font-variant-numeric: tabular-nums; border-radius: 12px; }
+  .score.flash { animation: flash 1.4s ease-out; } @keyframes flash { 0% { background: rgba(255,176,32,.4); } 100% { background: transparent; } }
+  .tol { font-size: 12px; letter-spacing: .14em; color: #7b8494; margin-top: 4px; } .tol b { color: var(--led); letter-spacing: .25em; font-size: 16px; }
+  .mid { display: grid; gap: 6px; justify-items: center; }
+  .qtr { font: 700 15px ui-monospace, Consolas, monospace; letter-spacing: .14em; color: #cfd6e0; } .qtr b { color: var(--led); font-size: 20px; }
+  .clock { font: 700 clamp(38px, 7vw, 84px)/1 ui-monospace, "SF Mono", Consolas, monospace; color: var(--led2); text-shadow: 0 0 16px rgba(255,77,77,.5); font-variant-numeric: tabular-nums; }
+  .play { font: 700 clamp(18px, 2.6vw, 28px)/1 ui-monospace, Consolas, monospace; color: #7dd3fc; } .play small { font-size: 11px; letter-spacing: .14em; color: #7b8494; margin-right: 6px; }
+  .dd { font: 700 clamp(14px, 2vw, 20px) ui-monospace, Consolas, monospace; color: #fef08a; min-height: 1.3em; }
+  .cols { display: grid; grid-template-columns: 1.2fr 1fr 1.4fr; gap: 16px; }
+  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-width: 0; }
+  .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 8px; }
+  #events { max-height: 300px; overflow: auto; font-size: 13px; }
+  #events div { padding: 4px 0; border-bottom: 1px solid var(--line); }
+  #events .t { color: var(--muted); font-size: 11px; margin-right: 6px; }
+  dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-variant-numeric: tabular-nums; }
+  dt { color: var(--muted); } dd { margin: 0; font-weight: 600; }
+  #packets { background: #0a0c0f; border-radius: 8px; padding: 8px 10px; font: 12px/1.5 ui-monospace, Consolas, monospace;
+    white-space: pre; overflow: auto; max-height: 300px; color: #cfd6e0; }
+  #packets .bad { color: var(--bad); }
+  .hint { color: var(--muted); font-size: 12px; }
+  #lost { display: none; background: #7f1d1d; color: #fecaca; padding: 8px 16px; text-align: center; font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚡ Serial Scope</h1>
+  <span class="ro">live · view only</span>
+  <span id="pill" class="pill off">CONNECTING</span>
+  <span class="hint" id="age"></span>
+</header>
+<div id="lost">Lost contact with the Serial Scope computer. Reconnecting…</div>
+<main>
+  <section id="board">
+    <div class="grid">
+      <div><div class="team"><span class="poss" id="hPoss">🏈</span><span id="hName">HOME</span><span class="poss"></span></div>
+        <div class="score" id="hScore">–</div><div class="tol">TIMEOUTS <b id="hTol">–</b></div></div>
+      <div class="mid"><div class="qtr">QTR <b id="qtr">–</b></div><div class="clock" id="clock">--:--</div>
+        <div class="play"><small>PLAY</small><span id="play">--</span></div><div class="dd" id="dd"></div></div>
+      <div><div class="team"><span class="poss"></span><span id="gName">GUEST</span><span class="poss" id="gPoss">🏈</span></div>
+        <div class="score" id="gScore">–</div><div class="tol">TIMEOUTS <b id="gTol">–</b></div></div>
+    </div>
+  </section>
+  <div class="cols">
+    <section class="panel"><h2>Game log</h2><div id="events"><span class="hint">Nothing yet.</span></div></section>
+    <section class="panel"><h2>Status</h2>
+      <dl>
+        <dt>Scoreboard feed</dt><dd id="sFeed">–</dd>
+        <dt>Serial port</dt><dd id="sPort">–</dd>
+        <dt>Packets</dt><dd id="sPackets">–</dd>
+        <dt>Checksum</dt><dd id="sCheck">–</dd>
+        <dt>Last packet</dt><dd id="sAge">–</dd>
+      </dl>
+    </section>
+    <section class="panel"><h2>Recent packets</h2><div id="packets"><span class="hint">Waiting…</span></div></section>
+  </div>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const key = new URLSearchParams(location.search).get('key') || '';
+  const dots = n => typeof n === 'number' && n >= 0 ? '●'.repeat(n) + '○'.repeat(Math.max(0, 3 - n)) : '–';
+  const prev = {};
+  let lastMsg = 0;
+
+  function flashIf(id, v) {
+    if (prev[id] !== undefined && prev[id] !== v) { const el = $(id); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
+    prev[id] = v;
+  }
+  function render(d) {
+    const s = d.sb || {}, st = d.status || {};
+    $('hName').textContent = s.hn || 'HOME'; $('gName').textContent = s.gn || 'GUEST';
+    $('hScore').textContent = s.hs || '–'; $('gScore').textContent = s.gs || '–';
+    flashIf('hScore', s.hs); flashIf('gScore', s.gs);
+    $('hPoss').classList.toggle('on', s.poss === 'home'); $('gPoss').classList.toggle('on', s.poss === 'guest');
+    $('hTol').textContent = dots(s.htol); $('gTol').textContent = dots(s.gtol);
+    $('qtr').textContent = s.q || '–'; $('clock').textContent = s.clock || '--:--'; $('play').textContent = s.play || '--';
+    $('dd').textContent = [s.dd, s.ball].filter(Boolean).join('  ·  ');
+
+    const pill = $('pill');
+    if (!st.connected) { pill.className = 'pill off'; pill.textContent = 'NOT CONNECTED'; }
+    else if (st.live) { pill.className = 'pill live'; pill.textContent = 'LIVE'; }
+    else { pill.className = 'pill stale blink'; pill.textContent = 'NO DATA'; }
+    $('sFeed').textContent = st.live ? 'receiving' : st.connected ? 'no packets right now' : '–';
+    $('sPort').textContent = !st.connected ? 'not connected' : st.source === 'demo' ? 'demo (simulated game)' : st.source === 'replay' ? 'replaying a log' : 'connected';
+    $('sPackets').textContent = (st.packets ?? 0).toLocaleString() + ' · ' + (st.rate ?? 0) + '/s';
+    $('sCheck').innerHTML = '';
+    $('sCheck').append(`✓ ${(st.good ?? 0).toLocaleString()}  ✗ ${(st.bad ?? 0).toLocaleString()}`);
+    $('sAge').textContent = st.age == null ? '–' : st.age < 1 ? 'just now' : st.age + ' s ago';
+
+    if (Array.isArray(d.events)) {
+      // event text is built and escaped by the Serial Scope app itself
+      $('events').innerHTML = d.events.length
+        ? d.events.map(e => `<div><span class="t">${String(e.t).replace(/[<>&]/g, '')}</span>${e.html}</div>`).join('')
+        : '<span class="hint">Nothing yet.</span>';
+    }
+    if (Array.isArray(d.packets)) {
+      const box = $('packets'); box.textContent = '';
+      for (const p of d.packets) { const div = document.createElement('div'); if (!p.ok) div.className = 'bad'; div.textContent = (p.ok ? '✓ ' : '✗ ') + p.text; box.appendChild(div); }
+      box.scrollTop = box.scrollHeight;
+    }
+  }
+  const es = new EventSource('events' + (key ? '?key=' + encodeURIComponent(key) : ''));
+  es.onmessage = e => { lastMsg = Date.now(); $('lost').style.display = 'none'; try { render(JSON.parse(e.data)); } catch {} };
+  setInterval(() => {
+    const quiet = Date.now() - lastMsg;
+    $('age').textContent = lastMsg ? '' : 'connecting…';
+    if (lastMsg && quiet > 4000) { $('lost').style.display = 'block'; const p = $('pill'); p.className = 'pill off'; p.textContent = 'OFFLINE'; }
+  }, 1000);
+})();
+</script>
+</body>
+</html>

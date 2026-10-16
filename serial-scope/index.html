@@ -140,6 +140,17 @@
     border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
   .portrow:has(input:checked) { border-color: var(--accent); }
   .portrow span { grid-column: 2; }
+  #shareBtn.on { border-color: var(--ok); color: var(--ok); }
+  #shareDlg { width: min(820px, calc(100vw - 32px)); }
+  #shareDlg h3 { font-size: 13px; margin: 18px 0 4px; }
+  #shareDlg ol { margin: 6px 0; padding-left: 20px; line-height: 1.7; }
+  .sharegrid { display: grid; grid-template-columns: 110px 1fr auto; gap: 8px; align-items: end; margin-top: 8px; }
+  .sharegrid label { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
+  .sharerow { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-top: 10px; display: grid; gap: 6px; }
+  .shareline { display: grid; grid-template-columns: 90px 1fr auto auto; gap: 8px; align-items: center; }
+  .shareline code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: var(--bg); padding: 4px 6px; border-radius: 6px; font-size: 12px; }
+  .shareline button { padding: 3px 10px; font-size: 12px; }
+  @media (max-width: 560px) { .sharegrid { grid-template-columns: 1fr; } .shareline { grid-template-columns: 1fr auto auto; } .shareline .hint { grid-column: 1 / -1; } }
   #bcBtn.on { border-color: var(--ok); color: var(--ok); }
   #bcDlg { width: min(780px, calc(100vw - 32px)); }
   #bcDlg h3 { font-size: 13px; margin: 18px 0 4px; }
@@ -167,6 +178,7 @@
   <button id="demo" title="Simulated data, to try the UI without a device">Demo</button>
   <button id="feedBtn" title="Paste text or load a Tera Term log file">Paste / Load log</button>
   <button id="bcBtn" title="Score overlay for OBS and live streams">📺 Broadcast</button>
+  <button id="shareBtn" title="Let others watch live in a browser, on this network or remotely">🌐 Share</button>
   <button id="rec" class="rec" title="Record values to CSV">● Rec</button>
   <button id="theme" title="Toggle theme">◐</button>
 </header>
@@ -306,6 +318,35 @@
     <p class="hint" id="portEmpty" hidden>No serial ports found. Plug in the Moxa adapter and check that its driver is installed
       (it should appear under <i>Ports (COM &amp; LPT)</i> in Device Manager).</p>
     <div class="row" style="margin-top:12px"><button value="ok" id="portOk" class="primary">Connect</button><button value="cancel">Cancel</button></div>
+  </form>
+</dialog>
+
+<dialog id="shareDlg">
+  <form method="dialog">
+    <b>🌐 Share on the network</b>
+    <p class="hint" style="margin:6px 0">Turns this PC into a small server. Anyone you give the link to can watch the live scoreboard,
+      game log, status and recent packets in any browser (phone, tablet, laptop). They can only watch, not control anything.</p>
+    <p class="hint" id="shareNoApp">Sharing needs the <b>Serial Scope Windows app</b>, because a browser page can't act as a server.
+      Get it from the Releases page on GitHub.</p>
+    <div id="shareBody">
+      <div class="sharegrid">
+        <label>Port<input id="sharePort" type="number" min="1024" max="65535"></label>
+        <label>Access code (part of every link; leave blank for none)<input id="shareCode" type="text" spellcheck="false" autocomplete="off"></label>
+        <button type="button" id="shareNewCode">New code</button>
+      </div>
+      <div class="row"><button type="button" id="shareToggle" class="primary">Start sharing</button><span id="shareState" class="hint">Not sharing.</span></div>
+      <p class="hint">The first time, Windows asks whether Serial Scope may use the network: tick <b>Private networks</b> and click <b>Allow</b>.</p>
+      <div id="shareLinks"></div>
+      <h3>Watching from somewhere else (remote)</h3>
+      <ol class="hint">
+        <li>Install <b>Tailscale</b> (free, tailscale.com) on this PC and sign in.</li>
+        <li>Each person who should watch installs Tailscale on their phone or computer. Invite them to your Tailscale network,
+          or share just this PC with them (Tailscale admin page → Machines → this PC → Share).</li>
+        <li>A <b>🌍 Remote (Tailscale)</b> link appears above. Send it to them. It works from anywhere, encrypted,
+          with nothing opened to the public internet.</li>
+      </ol>
+    </div>
+    <div class="row" style="margin-top:14px"><button value="close" class="primary">Done</button></div>
   </form>
 </dialog>
 
@@ -982,8 +1023,11 @@
     d.innerHTML = `<span class="t">${new Date().toLocaleTimeString()}</span>` + (trusted ? html : esc(html));
     ev.prepend(d);
     while (ev.childElementCount > 500) ev.lastChild.remove();
+    shareEvents.unshift({ t: new Date().toLocaleTimeString(), html: trusted ? html : esc(html) });
+    if (shareEvents.length > 100) shareEvents.pop();
   }
-  $('clearEvents').onclick = () => { $('events').innerHTML = ''; };
+  const shareEvents = [];   // newest first, for the network viewer
+  $('clearEvents').onclick = () => { $('events').innerHTML = ''; shareEvents.length = 0; };
 
   // =====================================================================
   //  Status / stats
@@ -1295,7 +1339,7 @@
       const b = s.banner;
       if (b && b.id !== lastBanner) {
         lastBanner = b.id;
-        if (s.banners && Date.now() - b.at < 6000) {
+        if (s.banners && (b.ageMs ?? Date.now() - b.at) < 6000) {
           const el = $('banner');
           el.textContent = b.text + '  ·  ' + (b.team === 'home' ? s.hn : s.gn);
           el.style.setProperty('--c', b.team === 'home' ? s.hc : s.gc);
@@ -1305,6 +1349,11 @@
       }
     }
     window.render = window.SCOREBOARD = render;
+    if (mode === 'sse') {   // served over the network by the desktop app's Share server
+      const key = new URLSearchParams(location.search).get('key') || '';
+      const es = new EventSource('events' + (key ? '?key=' + encodeURIComponent(key) : ''));
+      es.onmessage = e => { try { render(JSON.parse(e.data).sb); } catch {} };
+    }
     if (mode === 'poll') setInterval(() => {
       const s = document.createElement('script');
       s.src = 'scoreboard.js?' + Date.now();
@@ -1508,6 +1557,98 @@
   $('fsBtn').onclick = () => document.fullscreenElement ? document.exitFullscreen() : $('board').requestFullscreen?.();
 
   // =====================================================================
+  //  Share on the network (desktop app): a read-only server others can watch
+  // =====================================================================
+  const shareCfg = Object.assign({ on: false, port: 8080, code: '' }, store.get('share', {}));
+  const newCode = () => { const a = 'abcdefghjkmnpqrstuvwxyz23456789', r = crypto.getRandomValues(new Uint8Array(8)); return [...r].map(x => a[x % a.length]).join(''); };
+  if (!shareCfg.code) { shareCfg.code = newCode(); store.set('share', shareCfg); }
+  let sharing = null, shareLastJson = '', shareLastAt = 0;
+
+  function shareSnapshot() {
+    const st = {
+      connected: !!(port || demoTimer || feedTimer), source: port ? 'serial' : demoTimer ? 'demo' : feedTimer ? 'replay' : '',
+      live: lastRecT != null && now() - lastRecT < 3,
+      age: lastRecT == null ? null : Math.floor(now() - lastRecT), good, bad, rate, packets: recsIn,
+    };
+    const packets = [];
+    for (let i = rawLog.length - 1; i >= 0 && packets.length < 12; i--) {
+      const [, dir, text] = rawLog[i];
+      if (dir === 'rx' || dir === 'bad') packets.unshift({ ok: dir === 'rx', text: text.replace(/[\x00-\x1f\x7f]/g, '') });
+    }
+    return { sb: bcState(), status: st, events: shareEvents.slice(0, 40), packets };
+  }
+  function shareTick() {
+    if (!sharing) return;
+    const snap = shareSnapshot(), json = JSON.stringify(snap);
+    if (json === shareLastJson && performance.now() - shareLastAt < 1000) return;   // send on change, and once a second regardless
+    shareLastJson = json; shareLastAt = performance.now();
+    // remote clocks differ, so banners travel with their age rather than a timestamp
+    if (snap.sb.banner) snap.sb.banner = { ...snap.sb.banner, ageMs: Date.now() - snap.sb.banner.at };
+    window.native.shareState(snap);
+  }
+  const linkFor = (a, path) => `http://${a.address}:${sharing.port}${path}${shareCfg.code ? '?key=' + encodeURIComponent(shareCfg.code) : ''}`;
+  function renderShareLinks(info) {
+    const box = $('shareLinks'); box.innerHTML = '';
+    if (!sharing) return;
+    const addrs = (info?.addresses || sharing.addresses || []).slice().sort((x, y) => (x.kind === 'tailscale') - (y.kind === 'tailscale'));
+    if (!addrs.length) box.innerHTML = '<p class="hint">This PC has no network connection right now.</p>';
+    for (const a of addrs) {
+      const row = document.createElement('div'); row.className = 'sharerow';
+      const title = document.createElement('b');
+      title.textContent = a.kind === 'tailscale' ? '🌍 Remote (Tailscale)' : `🏠 This network (${a.name})`;
+      row.appendChild(title);
+      for (const [label, path] of [['Scoreboard', '/'], ['OBS overlay', '/overlay']]) {
+        const url = linkFor(a, path);
+        const line = document.createElement('div'); line.className = 'shareline';
+        const l = document.createElement('span'); l.className = 'hint'; l.textContent = label;
+        const code = document.createElement('code'); code.textContent = url;
+        const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Copy';
+        copy.onclick = async () => { try { await navigator.clipboard.writeText(url); copy.textContent = 'Copied ✓'; setTimeout(() => copy.textContent = 'Copy', 1500); } catch {} };
+        const open = document.createElement('button'); open.type = 'button'; open.textContent = 'Open';
+        open.onclick = () => window.open(url);
+        line.append(l, code, copy, open);
+        row.appendChild(line);
+      }
+      box.appendChild(row);
+    }
+    if (!addrs.some(a => a.kind === 'tailscale')) box.insertAdjacentHTML('beforeend', '<p class="hint">No Tailscale link yet: see "Watching from somewhere else" below.</p>');
+  }
+  function updateShareUi(info) {
+    $('shareToggle').textContent = sharing ? 'Stop sharing' : 'Start sharing';
+    $('sharePort').disabled = $('shareCode').disabled = $('shareNewCode').disabled = !!sharing;
+    const n = info?.viewers ?? 0;
+    $('shareState').textContent = sharing ? `Sharing on port ${sharing.port} · ${n} watching` : 'Not sharing.';
+    $('shareBtn').textContent = sharing ? `🌐 Sharing · ${n}` : '🌐 Share';
+    $('shareBtn').classList.toggle('on', !!sharing);
+  }
+  async function startShare() {
+    const portNum = Math.round(+$('sharePort').value) || 8080;
+    shareCfg.port = portNum; shareCfg.code = $('shareCode').value.trim();
+    const r = await window.native.shareStart({ port: portNum, code: shareCfg.code, overlay: overlayHtml('sse', 'transparent') });
+    if (!r.ok) { $('shareState').textContent = '⚠ ' + r.error; sys('share: ' + r.error); return; }
+    sharing = r; shareLastJson = '';
+    shareCfg.on = true; store.set('share', shareCfg);
+    sys(`share: serving the live scoreboard on port ${r.port}` + (shareCfg.code ? ' (access code required)' : ' (no access code!)'));
+    updateShareUi(); renderShareLinks(); shareTick();
+  }
+  async function stopShare() {
+    await window.native.shareStop();
+    sharing = null; shareCfg.on = false; store.set('share', shareCfg);
+    sys('share: stopped'); updateShareUi(); renderShareLinks();
+  }
+  if (window.native?.shareStart) {
+    $('shareNoApp').hidden = true;
+    $('sharePort').value = shareCfg.port; $('shareCode').value = shareCfg.code;
+    $('shareNewCode').onclick = () => { $('shareCode').value = newCode(); };
+    $('shareToggle').onclick = () => sharing ? stopShare() : startShare();
+    setInterval(async () => { if (!sharing) return; const info = await window.native.shareInfo(); updateShareUi(info); if ($('shareDlg').open) renderShareLinks(info); }, 2000);
+    if (shareCfg.on) startShare();
+  } else {
+    $('shareBody').hidden = true;
+  }
+  $('shareBtn').onclick = () => { $('shareDlg').showModal(); };
+
+  // =====================================================================
   //  Wiring
   // =====================================================================
   $('connect').onclick = connect;
@@ -1533,7 +1674,7 @@
   let lastUi = 0;
   (function frame(ts) {
     drawChart();
-    if (ts - lastUi > 100) { lastUi = ts; updateTiles(); updateBoard(); flushTerm(); bcPush(); }
+    if (ts - lastUi > 100) { lastUi = ts; updateTiles(); updateBoard(); flushTerm(); bcPush(); shareTick(); }
     requestAnimationFrame(frame);
   })(0);
   updateStats();
