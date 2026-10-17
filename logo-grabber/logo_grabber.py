@@ -9,6 +9,7 @@ Examples:
     python logo_grabber.py --list acc
     python logo_grabber.py --top25                                # this week's AP Top 25
     python logo_grabber.py --top25 coaches --save                 # save all 25 logos
+    python logo_grabber.py --live                                 # today's ACC games
     python logo_grabber.py                                        # interactive mode
 
 Team names are looked up on loodibee.com (NCAA conferences plus NFL, NBA,
@@ -220,6 +221,66 @@ def top25(teams, poll="ap"):
     return r.get("headline", POLLS[poll]), out
 
 
+# ---------------------------------------------------------------- live games
+
+SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard"
+GROUPS = {"acc": "1", "top25": "", "fbs": "80"}  # ESPN group ids; "" = ESPN's Top 25 board
+_logo_for = {}
+_newest = {}  # game id -> (progress, game); ESPN's CDN sometimes serves an older copy
+
+
+def team_logo(team, teams):
+    """Match an ESPN team to its loodibee logo (cached), else ESPN's own logo."""
+    full = f"{team.get('location', '')} {team.get('name', '')}".strip()
+    if full not in _logo_for:
+        hits = [h for h in search(full, teams) if h["league"] in NCAA]
+        _logo_for[full] = (hits[0]["name"], hits[0]["url"]) if hits else (full, team.get("logo", ""))
+    return _logo_for[full]
+
+
+def scoreboard(teams, group="acc"):
+    """Today's college football games for a group, live games first."""
+    url = (SCOREBOARD_URL + f"?limit=200&_={int(time.time())}"
+           + (f"&groups={GROUPS[group]}" if GROUPS[group] else ""))
+    data, _, _ = fetch(url)
+    games = []
+    for e in json.loads(data).get("events", []):
+        c = e["competitions"][0]
+        st, sit = c["status"], c.get("situation") or {}
+        side = {}
+        for x in c["competitors"]:
+            t = x["team"]
+            name, logo = team_logo(t, teams)
+            rank = (x.get("curatedRank") or {}).get("current", 99)
+            rec = next((r["summary"] for r in x.get("records", []) if r.get("type") == "total"), "")
+            side[x["homeAway"]] = {
+                "id": t.get("id"), "name": name, "short": t.get("location") or name,
+                "abbr": t.get("abbreviation", ""), "logo": logo, "color": t.get("color", ""),
+                "score": x.get("score", ""), "rank": rank if rank <= 25 else None,
+                "record": rec, "winner": bool(x.get("winner")),
+                "possession": sit.get("possession") == t.get("id")}
+        last = (sit.get("lastPlay") or {}).get("type", {}).get("text", "")
+        game = {
+            "id": e["id"], "date": e.get("date"), "state": st["type"]["state"],
+            "detail": st["type"].get("shortDetail", ""), "conf": bool(c.get("conferenceCompetition")),
+            "tv": ", ".join((c.get("broadcasts") or [{}])[0].get("names", [])),
+            "venue": (c.get("venue") or {}).get("fullName", ""),
+            "down": sit.get("downDistanceText", ""), "redzone": bool(sit.get("isRedZone")),
+            "last": last, "away": side.get("away"), "home": side.get("home")}
+        # Never step backwards: keep whichever copy is further into the game.
+        progress = ({"pre": 0, "in": 1, "post": 2}.get(game["state"], 0),
+                    st.get("period", 0), -st.get("clock", 0))
+        seen = _newest.get(game["id"])
+        if seen and seen[0] > progress:
+            game = seen[1]
+        else:
+            _newest[game["id"]] = (progress, game)
+        games.append(game)
+    order = {"in": 0, "pre": 1, "post": 2}
+    games.sort(key=lambda g: (order.get(g["state"], 3), g["date"] or ""))
+    return games
+
+
 # ---------------------------------------------------------------- saving
 
 def safe_name(s):
@@ -304,6 +365,8 @@ def main():
     p.add_argument("--top25", nargs="?", const="ap", choices=sorted(POLLS),
                    help="show this week's college football Top 25 (ap or coaches)")
     p.add_argument("--save", action="store_true", help="with --top25, download all 25 logos")
+    p.add_argument("--live", nargs="?", const="acc", choices=sorted(GROUPS),
+                   help="show today's games and live scores (acc, top25 or fbs)")
     args = p.parse_args()
 
     teams_cache = [None]
@@ -312,6 +375,19 @@ def main():
         for t in sorted(teams, key=lambda t: (t["league"], t["name"])):
             if not args.list or t["league"] == args.list:
                 print(f"{t['league']:<18} {t['name']}")
+        return 0
+
+    if args.live:
+        games = scoreboard(load_index(args.refresh), args.live)
+        if not games:
+            print("No games today.")
+        for g in games:
+            a, h = g["away"], g["home"]
+            tag = lambda t: (f"#{t['rank']} " if t["rank"] else "") + t["short"]
+            line = f"{tag(a):>24} {a['score']:>3}  @  {h['score']:<3} {tag(h):<24} {g['detail']}"
+            if g["state"] == "pre":
+                line = f"{tag(a):>24}      @      {tag(h):<24} {g['detail']}"
+            print(("LIVE " if g["state"] == "in" else "     ") + line + (f"  [{g['tv']}]" if g["tv"] else ""))
         return 0
 
     if args.top25:

@@ -6,6 +6,7 @@
 python logo_app.py          # opens http://127.0.0.1:8765 in your browser
 ```
 
+- **📺 Live now** at the top shows ACC games in progress (or Top 25 / all FBS) with score, clock, TV, possession 🏈, down and distance, red zone and last play. It refreshes every 30 seconds and briefly highlights a score when it changes. Tick *Show today's full slate* to add upcoming and finished games. Click any team's logo to download it.
 - Opens on this week's **AP Top 25**, with rank, record and movement (▲▼) from the latest poll. Switch to the **Coaches Poll**, press ☑ Select all, then Download ZIP to get all 25 logos named `01_…png` to `25_…png`.
 - Type a team name ("clemson", "the u", typos are fine) and results update as you type
 - Click a conference or league chip to browse every logo in it
@@ -37,6 +38,7 @@ python logo_grabber.py                                       # interactive: keep
 | `-y` | Take the best match instead of asking when a name is ambiguous ("miami") |
 | `--list [LEAGUE]` | Show every team it knows (about 400 across NCAA, NFL, NBA, MLB, NHL, MLS, WNBA and CFL) |
 | `--top25 [ap\|coaches]` | Print this week's college football Top 25 (add `--save` to download all 25 logos) |
+| `--live [acc\|top25\|fbs]` | Print today's games with live scores |
 | `--refresh` | Rebuild the team index (normally cached for 7 days in `~/.cache/logo_grabber`) |
 
 Name lookups use logos from loodibee.com. Rankings come live from ESPN's public poll feed. If a ranked team isn't on loodibee, ESPN's logo is used instead. Small typos ("clemsun") still match. A link must be either a direct `.png` or a web page with PNGs on it. Every saved file is checked to be a real PNG.

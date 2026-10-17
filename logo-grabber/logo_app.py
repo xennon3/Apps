@@ -29,6 +29,7 @@ _teams = None
 _teams_lock = threading.Lock()
 _img_cache = {}
 _polls = {}  # poll -> (fetched_at, payload)
+_boards = {}  # scoreboard group -> (fetched_at, games)
 
 
 def teams(refresh=False):
@@ -45,6 +46,14 @@ def poll(name):
     if not hit or time.time() - hit[0] > 1800:
         headline, ranked = lg.top25(teams(), name)
         hit = _polls[name] = (time.time(), {"headline": headline, "teams": ranked})
+    return hit[1]
+
+
+def games(group):
+    """Today's games, refetched at most every 20 seconds."""
+    hit = _boards.get(group)
+    if not hit or time.time() - hit[0] > 20:
+        hit = _boards[group] = (time.time(), lg.scoreboard(teams(), group))
     return hit[1]
 
 
@@ -103,6 +112,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, {"teams": t, "leagues": leagues, "ncaa": lg.NCAA})
             if u.path == "/api/top25":
                 return self.send(200, poll(q.get("poll", "ap")))
+            if u.path == "/api/games":
+                g = q.get("group", "acc")
+                if g not in lg.GROUPS:
+                    raise ValueError("unknown group")
+                return self.send(200, games(g))
             if u.path == "/api/search":
                 hits = lg.search(q.get("q", ""), teams(), q.get("league") or None)
                 return self.send(200, hits[:60])
@@ -202,6 +216,32 @@ dialog::backdrop{background:#000a}
 .up{color:var(--ok)}.down{color:var(--err)}
 .chip.poll{border-color:var(--accent);color:var(--accent)}
 .chip.poll.on{color:#111}
+#live{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:12px 14px;margin:0 0 18px}
+.lhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.lhead h2{margin:0;font-size:17px}
+.lhead select{padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-weight:600}
+.lhead label{font-size:13px;color:var(--muted);display:flex;gap:5px;align-items:center;cursor:pointer}
+.lhead .upd{margin-left:auto;font-size:12px;color:var(--muted)}
+.games{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px}
+.game{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--bg)}
+.game.in{border-color:color-mix(in srgb,var(--err) 60%,var(--line))}
+.gtop{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px;gap:8px}
+.gtop b{color:var(--text)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--err);margin-right:5px;animation:pulse 1.4s infinite}
+@keyframes pulse{50%{opacity:.25}}
+.trow{display:flex;align-items:center;gap:9px;padding:4px 0}
+.trow img{width:34px;height:34px;object-fit:contain;cursor:pointer;background:#f4f6f8;border-radius:8px;padding:3px;flex:none}
+.trow img:hover{outline:2px solid var(--accent)}
+.tn{flex:1;min-width:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tn small{color:var(--muted);font-weight:500;margin-left:5px}
+.tn .rk{color:var(--accent);font-size:12px;margin-right:4px}
+.sc{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;min-width:34px;text-align:right}
+.lose{opacity:.5}
+.flash{animation:flash 1.6s}
+@keyframes flash{0%,40%{color:#111;background:var(--accent);border-radius:6px}}
+.gfoot{font-size:12px;color:var(--muted);margin-top:6px;border-top:1px dashed var(--line);padding-top:6px;min-height:18px}
+.gfoot .rz{color:var(--err);font-weight:700}
+.lnone{color:var(--muted);font-size:14px;padding:4px 0}
 .empty{text-align:center;color:var(--muted);padding:60px 10px}
 </style></head>
 <body>
@@ -215,6 +255,15 @@ dialog::backdrop{background:#000a}
   <div class="chips" id="chips"></div>
 </div></header>
 <main class="wrap">
+  <section id="live">
+    <div class="lhead">
+      <h2>📺 Live now</h2>
+      <select id="grp" aria-label="Which games"><option value="acc">ACC</option><option value="top25">Top 25</option><option value="fbs">All FBS</option></select>
+      <label><input type="checkbox" id="allg"> Show today's full slate</label>
+      <span class="upd" id="upd"></span>
+    </div>
+    <div class="games" id="games"><div class="lnone">Checking for games...</div></div>
+  </section>
   <div class="top"><p class="status" id="status">Loading team index... (the first run takes a few seconds)</p>
   <button id="selShown" class="ghost">☑ Select all</button></div>
   <div class="grid" id="grid"></div>
@@ -343,6 +392,63 @@ $("#zip").onclick = async () => {
   catch(e){ status("ZIP failed: " + e.message, true); }
   b.disabled = false; b.textContent = "⬇ Download ZIP";
 };
+
+// ---- live games
+const scores = {};
+const el = (tag, cls, text) => { const e = document.createElement(tag); if(cls) e.className = cls; if(text != null) e.textContent = text; return e; };
+function teamRow(t, g){
+  const r = el("div", "trow");
+  const i = el("img"); i.loading = "lazy"; i.alt = t.name; i.title = "Get the " + t.name + " logo"; i.src = img(t.logo);
+  i.onclick = () => open_({name: t.name, url: t.logo, league: "live"});
+  const n = el("div", "tn");
+  if(t.rank) n.appendChild(el("span", "rk", "#" + t.rank));
+  n.append(t.short + (t.possession ? " 🏈" : ""));
+  if(t.record) n.appendChild(el("small", "", t.record));
+  r.append(i, n);
+  if(g.state !== "pre"){
+    const sc = el("div", "sc" + (g.state === "post" && !t.winner ? " lose" : ""), t.score);
+    const key = g.id + t.id;
+    if(scores[key] !== undefined && scores[key] !== t.score) sc.classList.add("flash");
+    scores[key] = t.score; r.appendChild(sc);
+  }
+  return r;
+}
+function kickoff(g){
+  const d = new Date(g.date);
+  return isNaN(d) ? g.detail : d.toLocaleString([], {weekday: "short", hour: "numeric", minute: "2-digit"});
+}
+async function loadGames(){
+  if(document.hidden) return;
+  const grp = $("#grp").value, full = $("#allg").checked, box = $("#games");
+  let list;
+  try { list = await api("/api/games?group=" + grp); }
+  catch(e){ box.replaceChildren(el("div", "lnone", "Couldn't load scores: " + e.message)); return; }
+  const live = list.filter(g => g.state === "in"), show = full ? list : live;
+  const who = $("#grp").selectedOptions[0].text;
+  box.replaceChildren();
+  if(!show.length){
+    const next = list.find(g => g.state === "pre");
+    box.appendChild(el("div", "lnone", `No ${who} games in progress right now.` +
+      (next ? ` Next: ${next.away.short} at ${next.home.short}, ${kickoff(next)}${next.tv ? " on " + next.tv : ""}.` : list.length ? " All of today's games are final." : "")));
+  }
+  for(const g of show){
+    const c = el("div", "game " + g.state), top = el("div", "gtop"), left = el("span");
+    if(g.state === "in"){ left.appendChild(el("span", "dot")); left.appendChild(el("b", "", g.detail)); }
+    else left.textContent = g.state === "pre" ? kickoff(g) : g.detail;
+    top.append(left, el("span", "", g.tv));
+    c.append(top, teamRow(g.away, g), teamRow(g.home, g));
+    const f = el("div", "gfoot");
+    if(g.state === "in"){
+      if(g.down) f.appendChild(el("span", g.redzone ? "rz" : "", (g.redzone ? "🔴 Red zone · " : "") + g.down));
+      if(g.last) f.append((g.down ? " · " : "") + "Last: " + g.last);
+    } else f.textContent = g.venue;
+    c.appendChild(f); box.appendChild(c);
+  }
+  $("#upd").textContent = (live.length ? live.length + " live · " : "") + "updated " + new Date().toLocaleTimeString([], {hour: "numeric", minute: "2-digit", second: "2-digit"});
+}
+$("#grp").onchange = loadGames; $("#allg").onchange = loadGames;
+document.addEventListener("visibilitychange", loadGames);
+loadGames(); setInterval(loadGames, 30000);
 
 api("/api/teams").then(d => { ALL = d.teams; LEAGUES = d.leagues; chips(); run(); })
   .catch(e => status("Could not load teams: " + e.message + ". You can still paste links.", true));
