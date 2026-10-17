@@ -6,6 +6,7 @@
 python logo_app.py          # opens http://127.0.0.1:8765 in your browser
 ```
 
+- Opens on this week's **AP Top 25**, with rank, record and movement (▲▼) from the latest poll. Switch to the **Coaches Poll**, press ☑ Select all, then Download ZIP to get all 25 logos named `01_…png` to `25_…png`.
 - Type a team name ("clemson", "the u", typos are fine) and results update as you type
 - Click a conference or league chip to browse every logo in it
 - Paste any link: a direct `.png`, or a web page to choose logos from
@@ -35,6 +36,7 @@ python logo_grabber.py                                       # interactive: keep
 | `-l LEAGUE` | Search only one conference or league, e.g. `-l acc`, `-l nfl` |
 | `-y` | Take the best match instead of asking when a name is ambiguous ("miami") |
 | `--list [LEAGUE]` | Show every team it knows (about 400 across NCAA, NFL, NBA, MLB, NHL, MLS, WNBA and CFL) |
+| `--top25 [ap\|coaches]` | Print this week's college football Top 25 (add `--save` to download all 25 logos) |
 | `--refresh` | Rebuild the team index (normally cached for 7 days in `~/.cache/logo_grabber`) |
 
-Name lookups use logos from loodibee.com. Small typos ("clemsun") still match. A link must be either a direct `.png` or a web page with PNGs on it. Every saved file is checked to be a real PNG.
+Name lookups use logos from loodibee.com. Rankings come live from ESPN's public poll feed. If a ranked team isn't on loodibee, ESPN's logo is used instead. Small typos ("clemsun") still match. A link must be either a direct `.png` or a web page with PNGs on it. Every saved file is checked to be a real PNG.

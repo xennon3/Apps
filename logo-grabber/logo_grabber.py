@@ -7,6 +7,8 @@ Examples:
     python logo_grabber.py https://loodibee.com/wp-content/uploads/Duke_Blue_Devils_logo.png
     python logo_grabber.py https://loodibee.com/ncaa/acc/        # pick from a page
     python logo_grabber.py --list acc
+    python logo_grabber.py --top25                                # this week's AP Top 25
+    python logo_grabber.py --top25 coaches --save                 # save all 25 logos
     python logo_grabber.py                                        # interactive mode
 
 Team names are looked up on loodibee.com (NCAA conferences plus NFL, NBA,
@@ -181,6 +183,43 @@ def search(query, teams, league=None):
     return [t for sc, t in scored[:5] if sc >= 0.75]
 
 
+# ---------------------------------------------------------------- top 25
+
+RANKINGS_URL = "https://site.api.espn.com/apis/site/v2/sports/football/college-football/rankings"
+POLLS = {"ap": "AP Top 25", "coaches": "AFCA Coaches Poll"}
+
+
+def top25(teams, poll="ap"):
+    """This week's college football poll from ESPN, each team matched to a logo.
+
+    Returns (headline, [{rank, name, url, league, record, trend, ...}]).
+    Teams missing from the loodibee index fall back to ESPN's own logo.
+    """
+    data, _, _ = fetch(RANKINGS_URL)
+    polls = json.loads(data)["rankings"]
+    r = next((x for x in polls if x["name"] == POLLS[poll]), None)
+    if r is None:
+        raise ValueError(f"ESPN isn't publishing the {POLLS[poll]} right now")
+    out = []
+    for x in r["ranks"]:
+        t = x["team"]
+        full = f"{t.get('location', '')} {t.get('name', '')}".strip()
+        hits = [h for h in search(full, teams) if h["league"] in NCAA]
+        if hits:
+            name, url, src = hits[0]["name"], hits[0]["url"], "loodibee"
+        else:
+            logo = next((l["href"] for l in t.get("logos", []) if "default" in l.get("rel", [])), None)
+            if not logo:
+                continue
+            name, url, src = full, logo, "espn"
+        trend = x.get("trend", "-")
+        out.append({"rank": x["current"], "name": name, "url": url, "league": "top-25",
+                    "record": x.get("recordSummary", ""), "trend": "" if trend == "-" else trend,
+                    "first": x.get("firstPlaceVotes", 0), "source": src,
+                    "zipname": f"{x['current']:02d} {name}"})
+    return r.get("headline", POLLS[poll]), out
+
+
 # ---------------------------------------------------------------- saving
 
 def safe_name(s):
@@ -262,6 +301,9 @@ def main():
     p.add_argument("-a", "--all", action="store_true", help="for a page link, save every PNG on it")
     p.add_argument("--list", nargs="?", const="", metavar="LEAGUE", help="list known teams and exit")
     p.add_argument("--refresh", action="store_true", help="rebuild the cached team index")
+    p.add_argument("--top25", nargs="?", const="ap", choices=sorted(POLLS),
+                   help="show this week's college football Top 25 (ap or coaches)")
+    p.add_argument("--save", action="store_true", help="with --top25, download all 25 logos")
     args = p.parse_args()
 
     teams_cache = [None]
@@ -270,6 +312,21 @@ def main():
         for t in sorted(teams, key=lambda t: (t["league"], t["name"])):
             if not args.list or t["league"] == args.list:
                 print(f"{t['league']:<18} {t['name']}")
+        return 0
+
+    if args.top25:
+        headline, ranked = top25(load_index(args.refresh), args.top25)
+        print(headline)
+        for t in ranked:
+            print(f"{t['rank']:>3}. {t['name']:<32} {t['record']:<6} {t['trend']}")
+        if args.save:
+            out = os.path.join(args.out, safe_name(headline))
+            lines = [f"{headline}\n"]
+            for t in ranked:
+                path = save_png(t["url"], t["zipname"], out)
+                lines.append(f"{os.path.basename(path)}: {t['url']}")
+            with open(os.path.join(out, "sources.txt"), "w") as f:
+                f.write("\n".join(lines) + "\n")
         return 0
 
     targets = args.targets

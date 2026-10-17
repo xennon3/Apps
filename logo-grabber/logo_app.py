@@ -16,6 +16,7 @@ import os
 import re
 import sys
 import threading
+import time
 import urllib.parse
 import webbrowser
 import zipfile
@@ -27,6 +28,7 @@ import logo_grabber as lg  # noqa: E402
 _teams = None
 _teams_lock = threading.Lock()
 _img_cache = {}
+_polls = {}  # poll -> (fetched_at, payload)
 
 
 def teams(refresh=False):
@@ -35,6 +37,15 @@ def teams(refresh=False):
         if _teams is None or refresh:
             _teams = lg.load_index(refresh)
         return _teams
+
+
+def poll(name):
+    """This week's Top 25, refreshed at most every 30 minutes."""
+    hit = _polls.get(name)
+    if not hit or time.time() - hit[0] > 1800:
+        headline, ranked = lg.top25(teams(), name)
+        hit = _polls[name] = (time.time(), {"headline": headline, "teams": ranked})
+    return hit[1]
 
 
 def get_png(url):
@@ -90,6 +101,8 @@ class Handler(BaseHTTPRequestHandler):
                 t = teams(q.get("refresh") == "1")
                 leagues = sorted({x["league"] for x in t}, key=lambda l: (l not in lg.NCAA, l))
                 return self.send(200, {"teams": t, "leagues": leagues, "ncaa": lg.NCAA})
+            if u.path == "/api/top25":
+                return self.send(200, poll(q.get("poll", "ap")))
             if u.path == "/api/search":
                 hits = lg.search(q.get("q", ""), teams(), q.get("league") or None)
                 return self.send(200, hits[:60])
@@ -120,7 +133,7 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception as e:
                         failed.append(f"{it.get('name')}: {e}")
                         continue
-                    fn, n = lg.safe_name(it.get("name", "logo")), 2
+                    fn, n = lg.safe_name(it.get("zipname") or it.get("name", "logo")), 2
                     base = fn
                     while fn in used:
                         fn, n = f"{base}_{n}", n + 1
@@ -159,6 +172,9 @@ button:disabled{opacity:.45;cursor:default}
 .chip{white-space:nowrap;padding:5px 11px;border-radius:999px;border:1px solid var(--line);font-size:13px;cursor:pointer;color:var(--muted);background:transparent}
 .chip.on{background:var(--accent);color:#111;border-color:var(--accent)}
 main{padding:16px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 12px}
+.top .status{margin:0}
+.ghost{padding:6px 11px;font-size:13px}
 .status{color:var(--muted);margin:0 0 12px;min-height:20px}
 .status.err{color:var(--err)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
@@ -182,6 +198,10 @@ dialog::backdrop{background:#000a}
 .bgs button{width:30px;height:30px;padding:0;border-radius:50%}
 .meta{color:var(--muted);font-size:13px;word-break:break-all;margin:8px 0 14px}
 .row{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.rank{position:absolute;top:8px;right:8px;z-index:1;min-width:30px;height:24px;padding:0 7px;border-radius:7px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#111;font-weight:800;font-size:13px;display:grid;place-items:center}
+.up{color:var(--ok)}.down{color:var(--err)}
+.chip.poll{border-color:var(--accent);color:var(--accent)}
+.chip.poll.on{color:#111}
 .empty{text-align:center;color:var(--muted);padding:60px 10px}
 </style></head>
 <body>
@@ -195,7 +215,8 @@ dialog::backdrop{background:#000a}
   <div class="chips" id="chips"></div>
 </div></header>
 <main class="wrap">
-  <p class="status" id="status">Loading team index... (the first run takes a few seconds)</p>
+  <div class="top"><p class="status" id="status">Loading team index... (the first run takes a few seconds)</p>
+  <button id="selShown" class="ghost">☑ Select all</button></div>
   <div class="grid" id="grid"></div>
 </main>
 <div class="tray" id="tray">
@@ -223,7 +244,9 @@ dialog::backdrop{background:#000a}
 </div></dialog>
 <script>
 const $ = s => document.querySelector(s);
-let ALL = [], LEAGUES = [], league = "", shown = [], picked = new Map(), current = null, timer;
+let ALL = [], LEAGUES = [], league = "top25:ap", shown = [], picked = new Map(), current = null, timer;
+const POLLS = {"top25:ap": "🏆 AP TOP 25", "top25:coaches": "COACHES POLL"};
+const isPoll = l => l.startsWith("top25:");
 const img = u => "/api/img?url=" + encodeURIComponent(u);
 const label = l => l.replace(/-/g, " ");
 
@@ -237,12 +260,19 @@ function render(list, msg){
     c.innerHTML = '<div class="tick">✓</div><img loading="lazy" alt=""><div class="n"></div><div class="l"></div>';
     c.querySelector("img").src = img(t.url);
     c.querySelector(".n").textContent = t.name; c.querySelector(".n").title = t.name;
-    c.querySelector(".l").textContent = label(t.league || "");
+    if(t.rank){
+      const r = document.createElement("div"); r.className = "rank"; r.textContent = "#" + t.rank; c.appendChild(r);
+      const l = c.querySelector(".l"); l.textContent = t.record + " ";
+      if(t.trend){ const s = document.createElement("span"); s.className = t.trend[0] === "+" ? "up" : "down";
+        s.textContent = (t.trend[0] === "+" ? "▲" : "▼") + t.trend.slice(1); l.appendChild(s); }
+      if(t.first) l.append(` · ${t.first} 1st`);
+    } else c.querySelector(".l").textContent = label(t.league || "");
     c.querySelector(".tick").onclick = e => { e.stopPropagation(); toggle(t); c.classList.toggle("sel", picked.has(t.url)); };
     c.onclick = () => open_(t);
     g.appendChild(c);
   }
   status(msg ?? (list.length + " logo" + (list.length===1?"":"s")));
+  $("#selShown").style.visibility = list.length ? "visible" : "hidden";
 }
 
 function toggle(t){ picked.has(t.url) ? picked.delete(t.url) : picked.set(t.url, t); tray(); }
@@ -250,9 +280,10 @@ function tray(){ $("#count").textContent = picked.size + " selected"; $("#tray")
 
 function chips(){
   const box = $("#chips"); box.innerHTML = "";
-  for(const l of ["", ...LEAGUES]){
-    const b = document.createElement("button"); b.className = "chip" + (l===league?" on":"");
-    b.textContent = l ? label(l).toUpperCase() : "ALL"; b.onclick = () => { league = l; chips(); run(); };
+  for(const l of [...Object.keys(POLLS), "", ...LEAGUES]){
+    const b = document.createElement("button"); b.className = "chip" + (isPoll(l)?" poll":"") + (l===league?" on":"");
+    b.textContent = POLLS[l] || (l ? label(l).toUpperCase() : "ALL");
+    b.onclick = () => { league = l; if(isPoll(l)) $("#q").value = ""; chips(); run(); };
     box.appendChild(b);
   }
 }
@@ -269,15 +300,22 @@ async function run(){
     catch(e){ render([], ""); status(e.message, true); }
     return;
   }
+  if(!q && isPoll(league)){
+    status("Loading this week's poll...");
+    try { const d = await api("/api/top25?poll=" + league.slice(6)); render(d.teams, d.headline.replace(/^\d{4} NCAA Football Rankings - /, "") + " · " + d.teams.length + " teams"); }
+    catch(e){ render([], ""); status("Couldn't load the poll: " + e.message, true); }
+    return;
+  }
   if(!q){ render(ALL.filter(t => !league || t.league === league)); return; }
-  try { const hits = await api(`/api/search?q=${encodeURIComponent(q)}&league=${league}`);
+  try { const hits = await api(`/api/search?q=${encodeURIComponent(q)}&league=${isPoll(league) ? "" : league}`);
         render(hits, hits.length ? null : `No team matches "${q}"`); }
   catch(e){ status(e.message, true); }
 }
 
 function open_(t){
   current = t; $("#big").src = img(t.url); $("#dn").textContent = t.name;
-  $("#dm").textContent = (t.league ? label(t.league).toUpperCase() + " · " : "") + t.url;
+  $("#dn").textContent = (t.rank ? "#" + t.rank + " " : "") + t.name;
+  $("#dm").textContent = (t.rank ? (t.record ? t.record + " · " : "") : t.league ? label(t.league).toUpperCase() + " · " : "") + t.url;
   $("#ddl").href = `/api/download?url=${encodeURIComponent(t.url)}&name=${encodeURIComponent(t.name)}`;
   $("#dsel").textContent = picked.has(t.url) ? "Remove from ZIP" : "Add to ZIP";
   $("#big").onload = () => $("#dm").textContent += ` · ${$("#big").naturalWidth}×${$("#big").naturalHeight}px`;
@@ -293,7 +331,8 @@ document.querySelectorAll(".bgs button").forEach(b => b.onclick = () => {
 $("#go").onclick = run;
 $("#q").addEventListener("keydown", e => { if(e.key === "Enter"){ clearTimeout(timer); run(); } });
 $("#q").addEventListener("input", () => { clearTimeout(timer); if(!/:\/\//.test($("#q").value)) timer = setTimeout(run, 220); });
-$("#lucky").onclick = () => { const pool = ALL.filter(t => !league || t.league === league); if(pool.length) open_(pool[Math.floor(Math.random()*pool.length)]); };
+$("#lucky").onclick = () => { const pool = isPoll(league) ? shown : ALL.filter(t => !league || t.league === league); if(pool.length) open_(pool[Math.floor(Math.random()*pool.length)]); };
+$("#selShown").onclick = () => $("#selAll").click();
 $("#selAll").onclick = () => { shown.forEach(t => picked.set(t.url, t)); tray(); render(shown, $("#status").textContent); };
 $("#clear").onclick = () => { picked.clear(); tray(); render(shown, $("#status").textContent); };
 $("#zip").onclick = async () => {
@@ -305,7 +344,7 @@ $("#zip").onclick = async () => {
   b.disabled = false; b.textContent = "⬇ Download ZIP";
 };
 
-api("/api/teams").then(d => { ALL = d.teams; LEAGUES = d.leagues; league = "acc"; chips(); run(); })
+api("/api/teams").then(d => { ALL = d.teams; LEAGUES = d.leagues; chips(); run(); })
   .catch(e => status("Could not load teams: " + e.message + ". You can still paste links.", true));
 </script>
 </body></html>
