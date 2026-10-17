@@ -1,5 +1,22 @@
 # Logo Grabber
 
+## The app with a UI: Logo Locker
+
+```bash
+python logo_app.py          # opens http://127.0.0.1:8765 in your browser
+```
+
+- Type a team name ("clemson", "the u", typos are fine) and results update as you type
+- Click a conference or league chip to browse every logo in it
+- Paste any link: a direct `.png`, or a web page to choose logos from
+- Click a logo to preview it on a checkerboard, white, black or turf background, then **Download PNG**
+- Tick several logos and press **Download ZIP**. You get one ZIP with a `sources.txt` inside.
+- 🎲 picks a random team
+
+It runs only on your computer (nothing is published). Press Ctrl+C in the terminal to stop it.
+
+## Command line
+
 Download a team logo as a PNG, either by **team name** or by **link**.
 Needs only Python 3.9+, with nothing to install. If Pillow is installed, it also reports each image's size and whether it's transparent.
 
