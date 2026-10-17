@@ -102,6 +102,8 @@ class Handler(BaseHTTPRequestHandler):
                     extra["Content-Disposition"] = f'attachment; filename="{lg.safe_name(q.get("name", "logo"))}.png"'
                 return self.send(200, data, "image/png", extra)
             self.send(404, {"error": "not found"})
+        except ConnectionError:
+            pass  # the browser gave up on the request (e.g. scrolled past an image)
         except Exception as e:
             self.send(400, {"error": str(e)})
 
@@ -315,9 +317,17 @@ def main():
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--no-browser", action="store_true")
     a = p.parse_args()
-    srv = ThreadingHTTPServer(("127.0.0.1", a.port), Handler)
-    url = f"http://127.0.0.1:{a.port}"
-    print(f"Logo Locker running at {url}  (Ctrl+C to stop)")
+    for port in range(a.port, a.port + 20):  # skip ports already in use
+        try:
+            srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+            break
+        except OSError:
+            continue
+    else:
+        sys.exit(f"No free port between {a.port} and {a.port + 19}")
+    url = f"http://127.0.0.1:{port}"
+    print(f"Logo Locker running at {url}")
+    print("Keep this window open while you use it; close it (or press Ctrl+C) to quit.")
     threading.Thread(target=teams, daemon=True).start()  # warm the index
     if not a.no_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()

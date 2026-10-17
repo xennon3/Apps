@@ -1,0 +1,63 @@
+name: Logo Locker (Windows exe)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'logo-grabber/**'
+      - '.github/workflows/logo-locker-windows.yml'
+
+permissions:
+  contents: write   # to publish the download page (GitHub Release)
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: logo-grabber
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pyinstaller==6.11.1
+      - run: pyinstaller --onefile --name LogoLocker logo_app.py
+      - run: pyinstaller --onefile --name logo_grabber logo_grabber.py
+      # Smoke test: start the exe, load the page and run a real team search.
+      - shell: pwsh
+        run: |
+          $p = Start-Process dist\LogoLocker.exe -ArgumentList '--no-browser' -PassThru
+          $ok = $false
+          foreach ($i in 1..60) {
+            try { $r = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8765/; if ($r.Content -match 'Logo Locker') { $ok = $true; break } } catch {}
+            Start-Sleep 1
+          }
+          if (-not $ok) { throw 'LogoLocker.exe did not serve its page' }
+          $s = Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:8765/api/search?q=clemson' -TimeoutSec 120
+          if ($s.Content -notmatch 'Clemson') { throw "search failed: $($s.Content)" }
+          Stop-Process $p
+          dist\logo_grabber.exe clemson -o smoke
+          if (-not (Test-Path smoke\Clemson_Tigers.png)) { throw 'logo_grabber.exe did not save a PNG' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Logo-Locker-Windows
+          path: logo-grabber/dist/*.exe
+          if-no-files-found: error
+      # One always-current download page: github.com/<owner>/<repo>/releases/tag/logo-locker-latest
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: logo-locker-latest
+          target_commitish: ${{ github.sha }}
+          name: Logo Locker for Windows (latest)
+          make_latest: false
+          body: |
+            **Logo Locker**: find and download team logo PNGs by name or link.
+
+            - **LogoLocker.exe**: double-click it. Your browser opens to the app; keep the black window open while you use it and close it to quit.
+            - **logo_grabber.exe**: the command-line version (`logo_grabber.exe clemson`).
+
+            The app is unsigned: if Windows SmartScreen warns, click **More info → Run anyway**.
+
+            Built from ${{ github.sha }}.
+          files: logo-grabber/dist/*.exe
