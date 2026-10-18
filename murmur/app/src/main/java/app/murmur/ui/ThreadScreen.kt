@@ -500,11 +500,14 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(6.dp))
-                            Text("A calmer way to say it", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                            Text(
+                                if (calming) "Writing a calmer version…" else "A calmer way to say it",
+                                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
+                            )
                         }
                         Spacer(Modifier.height(6.dp))
                         Text(suggestion, style = MaterialTheme.typography.bodyLarge)
-                        Row {
+                        if (!calming) Row {
                             TextButton(onClick = { text = suggestion; calmSuggestion = null }) { Text("Use this", fontWeight = FontWeight.Bold) }
                             TextButton(onClick = { calmSuggestion = null }) { Text("Keep mine") }
                         }
@@ -545,7 +548,8 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
                         calming = true
                         scope.launch {
                             val draft = text
-                            calmSuggestion = Brain.calmDown(context, draft)
+                            // Words appear as the model writes them.
+                            calmSuggestion = Brain.calmDown(context, draft) { partial -> calmSuggestion = partial }
                             calming = false
                             if (calmSuggestion == null) Toast.makeText(context, "Murmur Brain couldn't come up with a rewrite", Toast.LENGTH_SHORT).show()
                         }
@@ -990,6 +994,8 @@ internal fun Composer(
         tween(400), label = "heat",
     )
     val (segments, left) = Vibes.segments(text)
+    // The draft is getting heated: start loading Murmur Brain now, so "Calm it down" answers quickly.
+    if (onCalm != null && heat != Vibes.Heat.CALM) LaunchedEffect(Unit) { Brain.warmUp(context) }
 
     Surface(color = scheme.surfaceContainer) {
         Column(Modifier.navigationBarsPadding().padding(8.dp)) {

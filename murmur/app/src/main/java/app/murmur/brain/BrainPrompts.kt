@@ -16,13 +16,14 @@ object BrainPrompts {
             "Answer on one line in exactly this form: SCAM: <short reason> or SAFE: <short reason>. " +
             "Most texts are SAFE; only say SCAM when it pushes a link, money, codes or personal details."
 
-    /** Worked examples, given to the model as earlier turns of the chat: small models copy a pattern far better than they follow rules. */
+    /**
+     * Worked examples, given to the model as earlier turns of the chat: small models copy a pattern
+     * far better than they follow rules. Three is enough; each extra one is more for the phone to read.
+     */
     val CALM_EXAMPLES = listOf(
         "you're late AGAIN, unbelievable" to "Hey, you're running late again. Can we talk about timing?",
         "stop ignoring me!!!" to "I haven't heard back and I'm feeling a bit ignored. Can you reply when you get a chance?",
         "whatever, do what you want" to "I'm frustrated, but I'll let you decide. Can we talk about it later?",
-        "you NEVER help with anything around here" to "I'd really appreciate more help around the house. Can we make a plan?",
-        "ok." to "Okay, sounds good.",
     )
 
     fun calmPrompt(draft: String) = "Rewrite calmly: " + draft.replace('\n', ' ').trim()

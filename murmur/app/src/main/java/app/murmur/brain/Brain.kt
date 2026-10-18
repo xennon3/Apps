@@ -13,7 +13,9 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.SamplerConfig
-import com.google.ai.edge.litertlm.ThinkingConfig
+import com.google.ai.edge.litertlm.ExperimentalApi
+import com.google.ai.edge.litertlm.MessageCallback
+import com.google.ai.edge.litertlm.benchmark
 import app.murmur.MurmurApp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -21,6 +23,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -33,15 +37,8 @@ import java.io.File
  */
 object Brain {
 
-    /** A model Murmur knows how to run. Only [chatTemplate] differs between model families. */
-    data class ModelSpec(
-        val name: String,
-        val file: String,
-        val url: String,
-        val bytes: Long,
-        /** Murmur's own chat template, for a model whose bundled one doesn't work with LiteRT-LM. */
-        val chatTemplate: String? = null,
-    ) {
+    /** A model Murmur knows how to run. */
+    data class ModelSpec(val name: String, val file: String, val url: String, val bytes: Long) {
         val sizeLabel get() = if (bytes >= 1_000_000_000) "%.1f GB".format(bytes / 1e9) else "${bytes / 1_000_000} MB"
     }
 
@@ -70,9 +67,11 @@ object Brain {
     private val _state = MutableStateFlow<State>(State.Off)
     val state: StateFlow<State> = _state
 
-    /** Last speed test, in tokens per second, so Settings can show it. */
-    private val _speed = MutableStateFlow<Float?>(null)
-    val speed: StateFlow<Float?> = _speed
+    /** What the speed test measured on this phone. */
+    data class Speed(val loadSeconds: Float, val firstWordSeconds: Float, val readPerSecond: Float, val writePerSecond: Float, val gpu: Boolean)
+
+    private val _speed = MutableStateFlow<Speed?>(null)
+    val speed: StateFlow<Speed?> = _speed
 
     private fun prefs(context: Context) = context.getSharedPreferences("brain", Context.MODE_PRIVATE)
 
@@ -85,7 +84,13 @@ object Brain {
     /** Call when the app starts or Settings opens: works out where things stand. */
     fun refresh(context: Context) {
         val c = context.applicationContext
-        _speed.value = prefs(c).getFloat("speed", -1f).takeIf { it > 0 }
+        // If the app died while trying the graphics chip, that chip can't run the model: stay on the CPU.
+        if (prefs(c).getBoolean("gpu_trying", false)) {
+            prefs(c).edit().putBoolean("gpu_trying", false).putBoolean("gpu_bad", true).putBoolean("gpu", false).apply()
+        }
+        _speed.value = prefs(c).getString("speed2", null)?.split(',')?.takeIf { it.size == 5 }?.let {
+            Speed(it[0].toFloat(), it[1].toFloat(), it[2].toFloat(), it[3].toFloat(), it[4] == "1")
+        }
         _state.value = when {
             !enabled(c) -> State.Off
             ready(c) -> State.Ready
@@ -181,27 +186,58 @@ object Brain {
     private var engine: Engine? = null
     private var idle: Job? = null
 
+    private fun useGpu(c: Context) = prefs(c).getBoolean("gpu", false) && !prefs(c).getBoolean("gpu_bad", false)
+
+    /**
+     * Runs [block] while a "trying the GPU" flag is saved. A graphics driver can kill the whole
+     * app in native code, which no try/catch sees; the flag left behind tells the next launch.
+     */
+    private inline fun <T> guardGpu(c: Context, gpu: Boolean, block: () -> T): T {
+        if (gpu) prefs(c).edit().putBoolean("gpu_trying", true).commit()
+        try {
+            return block()
+        } finally {
+            if (gpu) prefs(c).edit().putBoolean("gpu_trying", false).commit()
+        }
+    }
+
     private suspend fun engine(context: Context): Engine? {
         engine?.let { return it }
         if (!ready(context)) return null
         return withContext(Dispatchers.IO) {
-            runCatching {
+            fun load(gpu: Boolean) = guardGpu(context, gpu) {
                 Engine(
                     EngineConfig(
                         modelPath = modelFile(context).path,
-                        backend = Backend.CPU(),
+                        backend = if (gpu) Backend.GPU() else Backend.CPU(),
                         maxNumTokens = 1024,
                         cacheDir = context.cacheDir.path,
                     ),
                 ).also { it.initialize() }
+            }
+            val gpu = useGpu(context)
+            runCatching { load(gpu) }.recoverCatching {
+                if (!gpu) throw it
+                prefs(context).edit().putBoolean("gpu", false).putBoolean("gpu_bad", true).apply()
+                load(false)
             }.getOrNull()
         }?.also { engine = it }
     }
 
-    /** The model takes over a gigabyte of memory while loaded; give it back a minute after the last use. */
+    /** Start loading the model before it's needed (when a draft starts sounding heated). */
+    fun warmUp(context: Context) {
+        val c = context.applicationContext
+        if (!ready(c) || engine != null || lock.isLocked) return
+        MurmurApp.scope.launch {
+            lock.withLock { engine(c) }
+            scheduleUnload()
+        }
+    }
+
+    /** The model takes over a gigabyte of memory while loaded; give it back three minutes after the last use. */
     private fun scheduleUnload() {
         idle?.cancel()
-        idle = MurmurApp.scope.launch { delay(60_000); unload() }
+        idle = MurmurApp.scope.launch { delay(180_000); unload() }
     }
 
     private suspend fun unload() = lock.withLock { runCatching { engine?.close() }; engine = null }
@@ -213,6 +249,8 @@ object Brain {
     suspend fun ask(
         context: Context, system: String, prompt: String, maxTokens: Int = 160, temperature: Double = 0.4,
         examples: List<Pair<String, String>> = emptyList(),
+        /** Called with the answer so far as each word arrives (from a background thread). */
+        onPartial: ((String) -> Unit)? = null,
     ): String? {
         val c = context.applicationContext
         if (!ready(c)) return null
@@ -220,48 +258,80 @@ object Brain {
             val e = engine(c) ?: return@withLock null
             withContext(Dispatchers.IO) {
                 runCatching {
-                    e.createConversation(
+                    val conv = e.createConversation(
                         ConversationConfig(
                             systemInstruction = Contents.of(system),
                             // Worked examples go in as earlier turns of the chat.
                             initialMessages = examples.flatMap { (q, a) -> listOf(Message.user(q), Message.model(a)) },
                             samplerConfig = SamplerConfig(topK = 40, topP = 0.9, temperature = temperature, seed = 7),
                             maxOutputToken = maxTokens,
-                            chatTemplate = MODEL.chatTemplate,
-                            thinkingConfig = if (MODEL.chatTemplate != null) ThinkingConfig(enableThinking = false, thinkingTokenBudget = 0) else null,
                         ),
-                    ).use { conv ->
-                        val reply = conv.sendMessage(prompt)
-                        BrainPrompts.clean(reply.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text })
+                    )
+                    try {
+                        suspendCancellableCoroutine { cont ->
+                            val text = StringBuilder()
+                            conv.sendMessageAsync(prompt, object : MessageCallback {
+                                override fun onMessage(message: Message) {
+                                    message.contents.contents.filterIsInstance<Content.Text>().forEach { text.append(it.text) }
+                                    onPartial?.invoke(BrainPrompts.clean(text.toString()))
+                                }
+                                override fun onDone() { if (cont.isActive) cont.resume(BrainPrompts.clean(text.toString())) }
+                                override fun onError(throwable: Throwable) { if (cont.isActive) cont.resume(null) }
+                            })
+                        }
+                    } finally {
+                        conv.close()
                     }
                 }.getOrNull()
             }
         }.also { scheduleUnload() }
     }
 
-
-    /** Times a short rewrite to tell how usable the Brain is on this phone. */
-    suspend fun speedTest(context: Context): Float? {
-        val started = System.nanoTime()
-        val out = ask(context, "You rewrite text messages.", "Rewrite this kindly: \"why do you never answer my texts\"", maxTokens = 60) ?: return null
-        val seconds = (System.nanoTime() - started) / 1e9f
-        val tokens = (out.length / 4f).coerceAtLeast(1f) // about four characters a token
-        return (tokens / seconds).also {
-            _speed.value = it
-            prefs(context).edit().putFloat("speed", it).apply()
+    /**
+     * Measures loading, reading (prefill) and writing (decode) separately with LiteRT-LM's own
+     * benchmark, on the CPU and, once, on the graphics chip; then keeps whichever writes faster.
+     */
+    @OptIn(ExperimentalApi::class)
+    suspend fun speedTest(context: Context): Speed? {
+        val c = context.applicationContext
+        if (!ready(c)) return null
+        return lock.withLock {
+            runCatching { engine?.close() }; engine = null // the benchmark loads its own copy
+            withContext(Dispatchers.IO) {
+                val path = modelFile(c).path
+                fun run(gpu: Boolean) = runCatching {
+                    guardGpu(c, gpu) { benchmark(path, if (gpu) Backend.GPU() else Backend.CPU(), 256, 32, c.cacheDir.path) }
+                }.getOrNull()
+                val cpu = run(false) ?: return@withContext null
+                val gpu = if (prefs(c).getBoolean("gpu_bad", false)) null else run(true).also {
+                    if (it == null) prefs(c).edit().putBoolean("gpu_bad", true).apply()
+                }
+                val useGpu = gpu != null && gpu.lastDecodeTokensPerSecond > cpu.lastDecodeTokensPerSecond * 1.15
+                val best = if (useGpu) gpu else cpu
+                Speed(
+                    best.initTimeInSecond.toFloat(), best.timeToFirstTokenInSecond.toFloat(),
+                    best.lastPrefillTokensPerSecond.toFloat(), best.lastDecodeTokensPerSecond.toFloat(), useGpu,
+                ).also { sp ->
+                    prefs(c).edit().putBoolean("gpu", useGpu)
+                        .putString("speed2", listOf(sp.loadSeconds, sp.firstWordSeconds, sp.readPerSecond, sp.writePerSecond, if (useGpu) 1 else 0).joinToString(","))
+                        .apply()
+                    _speed.value = sp
+                }
+            }
         }
     }
 
     // ================================================================ what Murmur uses it for
 
     /** A calmer version of a heated draft, in the same voice. */
-    suspend fun calmDown(context: Context, draft: String): String? = ask(
+    suspend fun calmDown(context: Context, draft: String, onPartial: ((String) -> Unit)? = null): String? = ask(
         context,
         system = BrainPrompts.CALM,
         prompt = BrainPrompts.calmPrompt(draft),
         maxTokens = 80,
         temperature = 0.3,
         examples = BrainPrompts.CALM_EXAMPLES.map { (a, b) -> BrainPrompts.calmPrompt(a) to b },
+        onPartial = onPartial?.let { cb -> { text: String -> BrainPrompts.parseCalm(text)?.let(cb) } },
     )?.let(BrainPrompts::parseCalm)
         ?.takeIf { it.length < draft.length * 3 + 60 && !it.equals(draft.trim(), ignoreCase = true) }
 

@@ -110,7 +110,7 @@ fun BrainCard() {
                         Spacer(Modifier.width(12.dp))
                         Text(
                             when {
-                                testing -> "Thinking… the first run loads the model"
+                                testing -> "Testing the processor and the graphics chip… about a minute"
                                 testFailed -> "The model couldn't run on this phone"
                                 speed != null -> speedLabel(speed!!)
                                 else -> "See how fast it is on your phone"
@@ -158,11 +158,9 @@ fun BrainCard() {
     )
 }
 
-private fun speedLabel(tps: Float): String {
-    val verdict = when {
-        tps >= 12 -> "quick"
-        tps >= 5 -> "usable"
-        else -> "slow on this phone"
-    }
-    return "%.1f tokens a second, %s".format(tps, verdict)
+/** Writing speed is what you feel; a typical rewrite is about 20 tokens. */
+private fun speedLabel(s: Brain.Speed): String {
+    val rewrite = s.firstWordSeconds + 20 / s.writePerSecond.coerceAtLeast(0.1f)
+    return "Writes %.1f tokens/s · reads %.0f tokens/s · loads in %.0fs on the %s.\nA calm rewrite takes about %.0f seconds once loaded."
+        .format(s.writePerSecond, s.readPerSecond, s.loadSeconds, if (s.gpu) "graphics chip" else "processor", rewrite)
 }

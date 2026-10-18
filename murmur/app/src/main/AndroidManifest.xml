@@ -40,6 +40,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Murmur">
 
+        <!-- Lets Murmur Brain try the graphics chip (OpenCL); optional, falls back to the processor -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <uses-native-library android:name="libvndksupport.so" android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
