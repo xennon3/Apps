@@ -1,0 +1,56 @@
+name: LogoSync (Windows app)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'logosync/**'
+      - '.github/workflows/logosync-windows.yml'
+
+permissions:
+  contents: write   # to publish the download page (GitHub Release)
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: logosync
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            logosync/requirements.txt
+            logosync/requirements-dev.txt
+      - run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - run: python -m pytest -q
+      - run: >
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name LogoSync
+          --icon assets\icon.ico --add-data "assets\icon.png;assets" run.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LogoSync-Windows
+          path: logosync/dist/LogoSync.exe
+          if-no-files-found: error
+      # One always-current download page: github.com/<owner>/<repo>/releases/tag/logosync-latest
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: logosync-latest
+          target_commitish: ${{ github.sha }}
+          name: LogoSync for Windows (latest)
+          make_latest: false
+          body: |
+            **LogoSync**: renames team logo PNGs to the abbreviations sent by a UDP feed.
+
+            - **LogoSync.exe**: one file, nothing to install. Double-click to run.
+
+            The app is unsigned: if Windows SmartScreen warns, click **More info → Run anyway**.
+            The first time it listens, Windows Firewall asks for network access: allow **Private networks**.
+
+            Built from ${{ github.sha }}.
+          files: logosync/dist/LogoSync.exe
