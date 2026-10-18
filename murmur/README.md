@@ -2,9 +2,9 @@
 
 A texting app for Android that replaces your phone's default SMS app. It does what Messages does, plus a few things that save you from yourself.
 
-| Conversation | Heat meter | First run |
+| Conversation | Brain tab | Add to calendar |
 |---|---|---|
-| ![](app/src/test/snapshots/images/app.murmur.ui_ScreenshotTest_conversation.png) | ![](app/src/test/snapshots/images/app.murmur.ui_ScreenshotTest_heated.png) | ![](app/src/test/snapshots/images/app.murmur.ui_ScreenshotTest_onboarding.png) |
+| ![](app/src/test/snapshots/images/app.murmur.ui_ScreenshotTest_conversation.png) | ![](app/src/test/snapshots/images/app.murmur.ui_ScreenshotTest_brainTab.png) | ![](app/src/test/snapshots/images/app.murmur.ui_ScreenshotTest_planChip.png) |
 
 ## What's different
 
@@ -55,7 +55,7 @@ You need JDK 17+ and the Android SDK (platform 35).
 ```sh
 cd murmur
 ./gradlew assembleRelease          # → app/build/outputs/apk/release/app-release.apk
-./gradlew testDebugUnitTest        # MMS codec, scam shield, repeats, Brain prompts and answer parsing, date phrases, codes, heat and segment tests
+./gradlew testDebugUnitTest        # MMS codec, scam shield, repeats, Brain prompts and answer parsing, date phrases, codes, anger check and segment tests
 ./gradlew recordPaparazziDebug     # re-render the screenshots above, no phone needed
 ```
 
@@ -68,7 +68,7 @@ APKs are signed with `app/sideload.keystore` (password `murmur`), a throwaway ke
 - `data/`
   - `SmsRepository`: reads and writes the phone's shared SMS/MMS store and contacts.
   - `PendingStore`: texts waiting to go out, in the undo window or scheduled.
-  - `Vibes`: the heat meter, code detection, segment counting and avatar colours.
+  - `Vibes`: the late-night anger check, code detection, segment counting and avatar colours.
   - `Sims`: dual-SIM list and your own numbers.
   - `ScamShield`: scam detection.
   - `Repeat`: rules for repeating messages.
