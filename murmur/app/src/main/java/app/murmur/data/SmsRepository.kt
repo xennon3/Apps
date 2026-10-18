@@ -3,6 +3,7 @@ package app.murmur.data
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.provider.BlockedNumberContract
 import android.provider.ContactsContract
 import android.provider.Telephony
 import java.util.concurrent.ConcurrentHashMap
@@ -171,6 +172,7 @@ class SmsRepository(private val context: Context) {
                     val inbound = box == Telephony.Mms.MESSAGE_BOX_INBOX
                     val text = StringBuilder()
                     val images = ArrayList<Uri>()
+                    var audio: Uri? = null
                     resolver.query(
                         Uri.parse("content://mms/part"),
                         arrayOf("_id", "ct", "text"), "mid = ?", arrayOf(id.toString()), null,
@@ -184,6 +186,8 @@ class SmsRepository(private val context: Context) {
                                 }
                                 ct.startsWith("image/") ->
                                     images += Uri.parse("content://mms/part/" + p.getLong(0))
+                                ct.startsWith("audio/") || ct == "application/ogg" ->
+                                    audio = Uri.parse("content://mms/part/" + p.getLong(0))
                             }
                         }
                     }
@@ -201,6 +205,7 @@ class SmsRepository(private val context: Context) {
                         },
                         images = images,
                         subId = c.getInt(3),
+                        audio = audio,
                     )
                 }
             }
@@ -233,9 +238,14 @@ class SmsRepository(private val context: Context) {
             )?.use { c ->
                 while (c.moveToNext()) {
                     val id = c.getLong(0)
-                    val (text, pictures) = mmsSummary(id)
+                    val (text, pictures, voice) = mmsSummary(id)
                     val body = listOfNotNull(
-                        if (pictures > 0) (if (pictures == 1) "📷 Photo" else "📷 $pictures photos") else null,
+                        when {
+                            voice -> "🎙 Voice note"
+                            pictures == 1 -> "📷 Photo"
+                            pictures > 1 -> "📷 $pictures photos"
+                            else -> null
+                        },
                         text.ifBlank { null },
                     ).joinToString("  ").ifBlank { "Picture message" }
                     out += Triple(mmsSender(id), body, c.getLong(1) * 1000)
@@ -245,9 +255,10 @@ class SmsRepository(private val context: Context) {
         return out.sortedBy { it.third }.takeLast(limit)
     }
 
-    private fun mmsSummary(id: Long): Pair<String, Int> {
+    private fun mmsSummary(id: Long): Triple<String, Int, Boolean> {
         val text = StringBuilder()
         var pictures = 0
+        var voice = false
         resolver.query(
             Uri.parse("content://mms/part"), arrayOf("ct", "text"), "mid = ?", arrayOf(id.toString()), null,
         )?.use { p ->
@@ -255,9 +266,10 @@ class SmsRepository(private val context: Context) {
                 val ct = p.getString(0).orEmpty()
                 if (ct == "text/plain") text.append(p.getString(1).orEmpty())
                 if (ct.startsWith("image/")) pictures++
+                if (ct.startsWith("audio/")) voice = true
             }
         }
-        return text.toString() to pictures
+        return Triple(text.toString(), pictures, voice)
     }
 
     data class Hit(val id: Long, val threadId: Long, val address: String, val body: String, val date: Long)
@@ -283,6 +295,14 @@ class SmsRepository(private val context: Context) {
         runCatching { resolver.update(Telephony.Sms.CONTENT_URI, values, where, args) }
         runCatching { resolver.update(Telephony.Mms.CONTENT_URI, values, where, args) }
     }
+
+    /** Adds a number to the phone's own block list (the default SMS app is allowed to). */
+    fun block(address: String): Boolean = runCatching {
+        resolver.insert(
+            BlockedNumberContract.BlockedNumbers.CONTENT_URI,
+            ContentValues().apply { put(BlockedNumberContract.BlockedNumbers.COLUMN_ORIGINAL_NUMBER, address) },
+        ) != null
+    }.getOrDefault(false)
 
     fun deleteThread(threadId: Long) {
         runCatching {

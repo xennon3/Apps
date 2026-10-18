@@ -31,6 +31,16 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("group_mms", true)
         set(v) = sp.edit().putBoolean("group_mms", v).apply()
 
+    /** Messages the user said aren't scams, so the warning stays away. */
+    fun scamDismissed(key: String) = sp.getBoolean("scam_ok_$key", false)
+
+    fun dismissScam(key: String) = sp.edit().putBoolean("scam_ok_$key", true).apply()
+
+    /** Transcripts of received voice notes, keyed by the audio part. */
+    fun transcript(key: String): String? = sp.getString("transcript_$key", null)
+
+    fun setTranscript(key: String, text: String) = sp.edit().putString("transcript_$key", text).apply()
+
     /** Seconds a sent message waits before it really leaves, so it can be pulled back. 0 = off. */
     var undoSeconds: Int
         get() = sp.getInt("undo_seconds", 5)

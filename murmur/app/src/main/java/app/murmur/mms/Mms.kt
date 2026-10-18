@@ -21,6 +21,7 @@ import app.murmur.data.PendingStore
 import app.murmur.data.Sims
 import app.murmur.data.SmsRepository
 import app.murmur.notify.Notifier
+import app.murmur.voice.Voice
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -118,14 +119,20 @@ object Mms {
 
     fun send(context: Context, threadId: Long, recipients: List<String>, body: String, attachment: File?, subId: Int) {
         val parts = ArrayList<Pdu.Part>()
-        val imageName = attachment?.let { if (it.name.endsWith(".gif")) "image.gif" else "image.jpg" }
+        val voice = Voice.isVoice(attachment?.path)
+        val mediaName = attachment?.let {
+            when {
+                voice -> "voice.amr"
+                it.name.endsWith(".gif") -> "image.gif"
+                else -> "image.jpg"
+            }
+        }
         val textName = if (body.isNotBlank()) "text.txt" else null
-        parts += Pdu.Part("application/smil", Pdu.smil(imageName, textName).toByteArray(), contentId = "<smil>", contentLocation = "smil.xml", charset = Pdu.UTF8)
+        val smil = if (voice) Pdu.smil(null, textName, audioName = mediaName) else Pdu.smil(mediaName, textName)
+        parts += Pdu.Part("application/smil", smil.toByteArray(), contentId = "<smil>", contentLocation = "smil.xml", charset = Pdu.UTF8)
         if (attachment != null && attachment.exists()) {
-            parts += Pdu.Part(
-                if (imageName == "image.gif") "image/gif" else "image/jpeg",
-                attachment.readBytes(), name = imageName, contentId = "<image>", contentLocation = imageName,
-            )
+            val type = when (mediaName) { "voice.amr" -> Voice.MIME; "image.gif" -> "image/gif"; else -> "image/jpeg" }
+            parts += Pdu.Part(type, attachment.readBytes(), name = mediaName, contentId = if (voice) "<audio>" else "<image>", contentLocation = mediaName)
         }
         if (textName != null) parts += Pdu.Part("text/plain", body.toByteArray(), contentId = "<text>", contentLocation = textName, charset = Pdu.UTF8)
 
@@ -218,7 +225,7 @@ object Mms {
                 location?.let { put("ct_l", it) }
                 if (!subject.isNullOrBlank()) { put("sub", subject); put("sub_cs", Pdu.UTF8) }
                 if (subId >= 0) put("sub_id", subId)
-                put("text_only", if (parts.none { it.contentType.startsWith("image/") }) 1 else 0)
+                put("text_only", if (parts.none { it.contentType.startsWith("image/") || it.contentType.startsWith("audio/") }) 1 else 0)
                 put("m_size", parts.sumOf { it.data.size })
             }
             val msg = resolver.insert(Telephony.Mms.CONTENT_URI, values) ?: return@runCatching null
@@ -239,6 +246,7 @@ object Mms {
                 }
                 val partUri = resolver.insert(Uri.parse("content://mms/$id/part"), pv)
                 if (partUri != null && !p.contentType.startsWith("text/") && p.contentType != "application/smil") {
+                    // Binary parts (pictures, audio) are written to the file the store just made for them.
                     resolver.openOutputStream(partUri)?.use { it.write(p.data) }
                 }
             }

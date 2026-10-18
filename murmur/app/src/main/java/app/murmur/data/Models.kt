@@ -30,6 +30,8 @@ data class Message(
     val delivery: Delivery,
     val images: List<Uri> = emptyList(),
     val subId: Int = -1,
+    /** A voice note or other audio clip, if the message carries one. */
+    val audio: Uri? = null,
 )
 
 /** A message that has been written but not handed to the radio yet. */
@@ -44,4 +46,6 @@ data class Pending(
     /** A picture already shrunk to fit an MMS, kept in Murmur's own storage until it's sent. */
     val attachment: String? = null,
     val subId: Int = -1,
+    /** A [Repeat] rule: after it goes out, the next one is queued automatically. */
+    val repeat: String? = null,
 )

@@ -9,6 +9,7 @@ import app.murmur.MurmurApp
 import app.murmur.data.Pending
 import app.murmur.data.PendingStore
 import app.murmur.data.Prefs
+import app.murmur.data.Repeat
 import app.murmur.mms.Mms
 import java.io.File
 import kotlinx.coroutines.delay
@@ -30,14 +31,16 @@ object Outbox {
     fun sendImmediately(context: Context, threadId: Long, address: String, body: String, attachment: String? = null, subId: Int = -1): Pending =
         enqueue(context, threadId, address, body, System.currentTimeMillis(), false, attachment, subId)
 
-    fun schedule(context: Context, threadId: Long, address: String, body: String, at: Long, attachment: String? = null, subId: Int = -1): Pending =
-        enqueue(context, threadId, address, body, at, true, attachment, subId)
+    fun schedule(
+        context: Context, threadId: Long, address: String, body: String, at: Long,
+        attachment: String? = null, subId: Int = -1, repeat: String? = null,
+    ): Pending = enqueue(context, threadId, address, body, at, true, attachment, subId, repeat)
 
     private fun enqueue(
         context: Context, threadId: Long, address: String, body: String, at: Long, scheduled: Boolean,
-        attachment: String?, subId: Int,
+        attachment: String?, subId: Int, repeat: String? = null,
     ): Pending {
-        val p = PendingStore.get(context).add(threadId, address, body, at, scheduled, attachment, subId)
+        val p = PendingStore.get(context).add(threadId, address, body, at, scheduled, attachment, subId, repeat)
         if (!scheduled && at - System.currentTimeMillis() <= 0) {
             fire(context, p.id)
         } else {
@@ -87,6 +90,7 @@ object Outbox {
             try {
                 val p = PendingStore.get(context).take(id) ?: return@launch
                 disarm(context, id)
+                if (p.repeat != null) queueNext(context, p)
                 val recipients = p.address.split(' ', ';').filter { it.isNotBlank() }
                 val group = recipients.size > 1 && Prefs(context).groupMms
                 if (p.attachment != null || group) {
@@ -98,6 +102,18 @@ object Outbox {
                 done?.invoke()
             }
         }
+    }
+
+    /** A repeating message just went out: line up the next one (with its own copy of any picture). */
+    private fun queueNext(context: Context, p: Pending) {
+        val next = Repeat.next(p.repeat!!, p.at, after = System.currentTimeMillis())
+        val copy = p.attachment?.let { path ->
+            runCatching {
+                val src = File(path)
+                File(PendingStore.outgoingDir(context), "r" + System.nanoTime() + "." + src.extension).also { src.copyTo(it) }.path
+            }.getOrNull()
+        }
+        enqueue(context, p.threadId, p.address, p.body, next, true, copy, p.subId, p.repeat)
     }
 
     /** Re-arm everything after a reboot, and send anything that came due while the phone was off. */

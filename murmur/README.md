@@ -17,7 +17,10 @@ A texting app for Android that replaces your phone's default SMS app. It does wh
 - **Pictures and group chats (MMS).** Tap the picture button to send a photo. It's turned upright and shrunk to fit your carrier's size limit. Picture and group messages download automatically, and tapping a photo opens it full screen with pinch to zoom. If a download fails (MMS needs mobile data, even on Wi-Fi), the notification has a **Try again** button.
 - **Group chats** go to everyone as one conversation, so replies reach the whole group. Settings can switch this to separate texts.
 - **Dual SIM.** A chip above the message box picks the SIM for each conversation. Until you choose, Murmur answers on the SIM the other person last wrote to. Each message shows which SIM it used.
-- **Filters:** All, Unread, People (in your contacts), Unknown (not in your contacts), Codes.
+- **Voice notes.** Tap the mic (it shows when the message box is empty), talk, tap stop. Listen back before sending, and fix the transcript Android writes on the phone (Android 13+). The transcript goes with the note, so anyone can read it instead of listening. Notes are AMR audio, which any phone, iPhones included, can play, and about 3 minutes fit a standard MMS. When playing, tap the waveform to jump, change speed (1×, 1.5×, 2×), or raise the phone to your ear to hear it through the earpiece. Received notes without a transcript get a "Show transcript" button.
+- **Scam shield.** Murmur flags texts that look like scams: links pretending to be USPS, banks or toll agencies, shortened links, bare number addresses and scam-prone domains (.top, .xyz…), "reply Y to activate the link", and urgency from strangers. Flagged texts get a red warning with the reasons, a **Block sender** button, links drawn in red that ask before opening, a "Suspicious" filter, and a "⚠ Likely scam" notification without the reply button. "It's fine" clears a false alarm. All checks run on the phone.
+- **Repeating messages.** In the send-later sheet, choose Every day, Weekdays, Every week, Every month (the 31st stays the 31st, or the last day of a shorter month) or Every year, then pick the first time. Murmur sends it again on that schedule, catching up if the phone was off. A clock badge on the main screen opens a list of everything scheduled, with Send now, Stop repeating and Cancel.
+- **Filters:** All, Unread, People (in your contacts), Unknown (not in your contacts), Codes, Suspicious.
 - **Pins, drafts, search.** Pin conversations to the top, keep a draft per conversation, and search names and the text of every message.
 - The basics: reply from the notification, mark as read, delivery reports, a counter that shows when a text will split into several, contact photos, "respond via message" when you decline a call, and dark and light themes.
 
@@ -26,7 +29,7 @@ Everything stays on the phone. Murmur has no internet permission, so it cannot u
 ## Not done yet
 
 - **RCS** (Google's chat features: typing dots, read receipts, high-res media over data). Google doesn't let other apps use it.
-- **Video, audio and contact cards.** Murmur sends photos only. Received ones that aren't photos still save to the phone, but Murmur shows only their text.
+- **Video and contact cards.** Murmur sends photos and voice notes only. Received videos and contact cards still save to the phone, but Murmur shows only their text.
 - **Your own number in group chats.** Murmur hides you from a group's member list using the number Android reports for your SIM. Some carriers don't report it, and then you may appear as a member of your own groups.
 
 ## Install on your phone
@@ -45,7 +48,7 @@ You need JDK 17+ and the Android SDK (platform 35).
 ```sh
 cd murmur
 ./gradlew assembleRelease          # → app/build/outputs/apk/release/app-release.apk
-./gradlew testDebugUnitTest        # MMS codec, codes, heat and segment tests
+./gradlew testDebugUnitTest        # MMS codec, scam shield, repeats, codes, heat and segment tests
 ./gradlew recordPaparazziDebug     # re-render the screenshots above, no phone needed
 ```
 
@@ -60,6 +63,8 @@ APKs are signed with `app/sideload.keystore` (password `murmur`), a throwaway ke
   - `PendingStore`: texts waiting to go out, in the undo window or scheduled.
   - `Vibes`: the heat meter, code detection, segment counting and avatar colours.
   - `Sims`: dual-SIM list and your own numbers.
+  - `ScamShield`: scam detection.
+  - `Repeat`: rules for repeating messages.
   - `Prefs`: settings.
 - `mms/`
   - `Pdu`: reads and writes the MMS wire format.
@@ -68,5 +73,6 @@ APKs are signed with `app/sideload.keystore` (password `murmur`), a throwaway ke
   - `Outbox`: every message leaves through here. It waits, then fires on an alarm or a timer, whichever comes first. Pictures and group chats go as MMS, everything else as SMS.
   - `SmsSender`: hands a text to the radio.
   - `Receivers`: incoming SMS, MMS notices, sent and delivered reports, scheduled sends, boot, and respond-via-message.
+- `voice/Voice`: records AMR, plays with speed control and raise-to-ear, and transcribes with Android's speech recognizer.
 - `notify/Notifier`: notification channels, inline reply, the Copy-code button, and reply reminders.
 - `ui/`: Jetpack Compose screens.

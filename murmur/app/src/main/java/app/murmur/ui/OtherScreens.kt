@@ -33,6 +33,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Bedtime
 import androidx.compose.material.icons.outlined.Dialpad
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.GppMaybe
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.LocalFireDepartment
 import androidx.compose.material.icons.outlined.NotificationsActive
@@ -52,6 +54,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -76,6 +79,13 @@ import androidx.compose.ui.unit.sp
 import app.murmur.data.Phone
 import app.murmur.data.Prefs
 import app.murmur.data.SmsRepository
+import app.murmur.data.PendingStore
+import app.murmur.data.Repeat
+import app.murmur.sms.Outbox
+import app.murmur.voice.Voice
+import androidx.compose.material.icons.outlined.Repeat
+import androidx.compose.runtime.collectAsState
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -181,6 +191,8 @@ fun OnboardingScreen(
             Feature(Icons.Outlined.LocalFireDepartment, "Heat meter", "The send button warms up as a message gets angrier, so you see it before they do.")
             Feature(Icons.Outlined.Key, "Codes, copied", "Login codes get a Copy button right in the notification.")
             Feature(Icons.Outlined.NotificationsActive, "Remind me to reply", "Snooze a conversation and Murmur nudges you later.")
+            Feature(Icons.Outlined.Mic, "Voice notes", "Talk instead of type. Each note comes with a transcript anyone can read.")
+            Feature(Icons.Outlined.GppMaybe, "Scam shield", "Fake toll, parcel and bank texts get a warning, and their links ask before opening.")
             Feature(Icons.Outlined.Image, "Pictures & group chats", "Send and receive photos and group messages. Dual-SIM phones pick the SIM per chat.")
             Spacer(Modifier.height(24.dp))
 
@@ -342,11 +354,92 @@ fun SettingsScreen(isDefault: Boolean, onMakeDefault: () -> Unit, onBack: () -> 
                 },
             )
             Text(
-                "Murmur 1.1 · texts, codes and drafts never leave this phone.",
+                "Murmur 1.2 · texts, codes and drafts never leave this phone.",
                 Modifier.padding(16.dp).navigationBarsPadding(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+// ---------- everything scheduled ----------
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ScheduledScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
+    val context = LocalContext.current
+    val repo = remember { SmsRepository(context) }
+    val all by PendingStore.get(context).all.collectAsState()
+    val scheduled = all.filter { it.scheduled }.sortedBy { it.at }
+    var titles by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
+    LaunchedEffect(scheduled.map { it.threadId }.toSet()) {
+        titles = withContext(Dispatchers.IO) {
+            val convos = runCatching { repo.conversations() }.getOrDefault(emptyList()).associateBy { it.threadId }
+            scheduled.associate { p -> p.threadId to (convos[p.threadId]?.title ?: Phone.pretty(p.address)) }
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+                title = { Text("Scheduled") },
+            )
+        },
+    ) { pad ->
+        if (scheduled.isEmpty()) {
+            Column(Modifier.fillMaxSize().padding(pad).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Spacer(Modifier.height(48.dp))
+                Text("Nothing scheduled", style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "In any conversation, hold the send button to send later or on a repeat: every morning, every weekday, every birthday.",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            return@Scaffold
+        }
+        LazyColumn(Modifier.fillMaxSize().padding(pad)) {
+            items(scheduled, key = { it.id }) { p ->
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.fillMaxWidth().padding(16.dp, 6.dp),
+                    onClick = { onOpen(p.threadId) },
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                if (p.repeat != null) Icons.Outlined.Repeat else Icons.Outlined.Schedule, null,
+                                Modifier.size(18.dp), tint = MaterialTheme.colorScheme.secondary,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(titles[p.threadId] ?: "…", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                        }
+                        Text(
+                            When.future(context, p.at) + (Repeat.describe(p.repeat)?.let { "  ·  $it" } ?: ""),
+                            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            when {
+                                Voice.isVoice(p.attachment) -> "🎙 Voice note" + p.body.removePrefix("🎙 ").let { if (it.isBlank()) "" else ": $it" }
+                                p.attachment != null -> "📷 " + p.body.ifBlank { "Photo" }
+                                else -> p.body
+                            },
+                            style = MaterialTheme.typography.bodyMedium, maxLines = 3,
+                        )
+                        Row {
+                            TextButton(onClick = { Outbox.sendNow(context, p.id) }) { Text("Send now") }
+                            if (p.repeat != null) TextButton(onClick = { PendingStore.get(context).setRepeat(p.id, null) }) { Text("Stop repeating") }
+                            TextButton(onClick = {
+                                Outbox.undoWithAttachment(context, p.id)?.attachment?.let { File(it).delete() }
+                            }) { Text("Cancel", color = MaterialTheme.colorScheme.error) }
+                        }
+                    }
+                }
+            }
         }
     }
 }

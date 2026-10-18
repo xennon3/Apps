@@ -35,6 +35,7 @@ import app.murmur.ui.ConversationsScreen
 import app.murmur.ui.MurmurTheme
 import app.murmur.ui.NewMessageScreen
 import app.murmur.ui.OnboardingScreen
+import app.murmur.ui.ScheduledScreen
 import app.murmur.ui.SettingsScreen
 import app.murmur.ui.ThreadScreen
 import kotlinx.coroutines.CoroutineScope
@@ -48,6 +49,7 @@ sealed interface Screen {
     data class Thread(val threadId: Long, val prefill: String = "") : Screen
     data class New(val prefill: String = "") : Screen
     data object Settings : Screen
+    data object Scheduled : Screen
 }
 
 class MainActivity : ComponentActivity() {
@@ -119,6 +121,7 @@ class MainActivity : ComponentActivity() {
                             onOpen = { push(Screen.Thread(it)) },
                             onNew = { push(Screen.New()) },
                             onSettings = { push(Screen.Settings) },
+                            onScheduled = { push(Screen.Scheduled) },
                             onMakeDefault = { stack = listOf(Screen.Onboarding) },
                         )
                         is Screen.Thread -> ThreadScreen(
@@ -133,6 +136,7 @@ class MainActivity : ComponentActivity() {
                             onBack = ::pop,
                             onPick = { address -> openAddress(address, screen.prefill, replace = true) },
                         )
+                        Screen.Scheduled -> ScheduledScreen(onBack = ::pop, onOpen = { push(Screen.Thread(it)) })
                         Screen.Settings -> SettingsScreen(
                             isDefault = isDefault,
                             onMakeDefault = ::requestRole,

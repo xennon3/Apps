@@ -1,5 +1,27 @@
 package app.murmur.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.material.icons.outlined.GppMaybe
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.Repeat
+import androidx.compose.material3.FilterChip
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
+import androidx.core.content.ContextCompat
+import app.murmur.data.Repeat
+import app.murmur.data.ScamShield
+import app.murmur.voice.Voice
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
@@ -168,6 +190,64 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
     val sims = remember { Sims.active(context) }
     var subId by remember { mutableIntStateOf(prefs.sim(threadId) ?: -1) }
     var viewing by remember { mutableStateOf<Uri?>(null) }
+    var repeatKind by remember { mutableStateOf<Repeat.Kind?>(null) }
+    var linkPrompt by remember { mutableStateOf<Pair<String, ScamShield.Verdict?>?>(null) }
+    var scamTick by remember { mutableIntStateOf(0) }
+    var transcripts by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+
+    // Voice notes
+    val recorder = remember { Voice.Recorder(context) }
+    var recording by remember { mutableStateOf(false) }
+    var recElapsed by remember { mutableLongStateOf(0L) }
+    val levels = remember { mutableStateListOf<Float>() }
+    var voiceFile by remember { mutableStateOf<File?>(null) }
+    var voiceTranscript by remember { mutableStateOf("") }
+    var transcribing by remember { mutableStateOf(false) }
+    val maxVoiceMs = remember(subId) { Voice.maxMillis(Mms.maxBytes(context, subId)) }
+    val canTranscribe = remember { Voice.canTranscribe(context) }
+
+    fun finishRecording() {
+        recording = false
+        val f = recorder.stop() ?: run {
+            Toast.makeText(context, "Too short. Hold on a little longer", Toast.LENGTH_SHORT).show(); return
+        }
+        voiceFile = f
+        voiceTranscript = ""
+        if (canTranscribe) {
+            transcribing = true
+            scope.launch {
+                voiceTranscript = Voice.transcribe(context, Uri.fromFile(f)).orEmpty()
+                transcribing = false
+            }
+        }
+    }
+
+    fun startRecording() {
+        Voice.Player.stop()
+        if (!recorder.start()) {
+            Toast.makeText(context, "Couldn't use the microphone", Toast.LENGTH_SHORT).show(); return
+        }
+        recording = true
+        levels.clear()
+        scope.launch {
+            while (recording) {
+                recElapsed = recorder.elapsed
+                levels += recorder.level()
+                if (levels.size > 200) levels.removeAt(0)
+                if (recElapsed >= maxVoiceMs) { finishRecording(); break }
+                delay(80)
+            }
+        }
+    }
+
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) startRecording()
+        else Toast.makeText(context, "Murmur needs the microphone to record voice notes", Toast.LENGTH_LONG).show()
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { if (recording) recorder.cancel(); Voice.Player.stop() }
+    }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -200,7 +280,15 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
     val address = convo?.addresses?.joinToString(" ").orEmpty()
 
     fun doSend(body: String) {
-        if ((body.isBlank() && attachment == null) || address.isBlank()) return
+        if (address.isBlank()) return
+        voiceFile?.let { f ->
+            val caption = voiceTranscript.trim()
+            Outbox.send(context, threadId, address, if (caption.isEmpty()) "" else "🎙 $caption", f.path, subId)
+            voiceFile = null; voiceTranscript = ""
+            scope.launch { listState.animateScrollToItem(0) }
+            return
+        }
+        if (body.isBlank() && attachment == null) return
         Outbox.send(context, threadId, address, body.trim(), attachment, subId)
         attachment = null
         text = ""
@@ -209,8 +297,17 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
     }
 
     fun doSchedule(at: Long) {
+        val repeat = repeatKind?.let { Repeat.encode(it, at) }
+        repeatKind = null
+        voiceFile?.let { f ->
+            val caption = voiceTranscript.trim()
+            Outbox.schedule(context, threadId, address, if (caption.isEmpty()) "" else "🎙 $caption", at, f.path, subId, repeat)
+            voiceFile = null; voiceTranscript = ""
+            Toast.makeText(context, "Scheduled for ${When.future(context, at)}", Toast.LENGTH_SHORT).show()
+            return
+        }
         if ((text.isBlank() && attachment == null) || address.isBlank()) return
-        Outbox.schedule(context, threadId, address, text.trim(), at, attachment, subId)
+        Outbox.schedule(context, threadId, address, text.trim(), at, attachment, subId, repeat)
         attachment = null
         Toast.makeText(context, "Scheduled for ${When.future(context, at)}", Toast.LENGTH_SHORT).show()
         text = ""
@@ -218,12 +315,25 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
     }
 
     fun trySend() {
+        if (voiceFile != null) { doSend(""); return }
         val heat = Vibes.heat(text)
         if (prefs.sleepOnIt && Vibes.isLateNight() && heat != Vibes.Heat.CALM) sleepPrompt = true
         else doSend(text)
     }
 
     val rows = remember(messages, pending) { buildRows(messages, pending) }
+    val verdicts = remember(messages, convo, scamTick) {
+        val known = convo?.known == true
+        messages.filter { it.box == MsgBox.IN && it.body.isNotBlank() && !prefs.scamDismissed(it.key) }
+            .associate { it.key to ScamShield.analyze(it.body, it.address, known) }
+            .filterValues { it.flagged }
+    }
+
+    fun openLink(url: String, verdict: ScamShield.Verdict?) {
+        if (verdict?.flagged == true) { linkPrompt = url to verdict; return }
+        val full = if (url.contains("://")) url else "https://$url"
+        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(full))) }
+    }
 
     Scaffold(
         topBar = {
@@ -303,12 +413,41 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
                             onLongPress = { actionsFor = row.m },
                             onImage = { viewing = it },
                             simLabel = if (sims.size > 1) sims.firstOrNull { it.subId == row.m.subId }?.label else null,
+                            scam = verdicts[row.m.key],
+                            onLink = { url -> openLink(url, verdicts[row.m.key]) },
+                            onBlock = {
+                                scope.launch(Dispatchers.IO) {
+                                    val ok = repo.block(row.m.address)
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, if (ok) "Blocked. You won't get texts from this number" else "Couldn't block this number", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                            onNotScam = { prefs.dismissScam(row.m.key); scamTick++ },
+                            transcript = row.m.audio?.let { transcripts[row.m.key] ?: prefs.transcript(row.m.key) },
+                            onTranscribe = if (canTranscribe && row.m.audio != null) {
+                                {
+                                    transcripts = transcripts + (row.m.key to "…")
+                                    scope.launch {
+                                        val t = Voice.transcribe(context, row.m.audio).orEmpty().ifBlank { "(no words caught)" }
+                                        prefs.setTranscript(row.m.key, t)
+                                        transcripts = transcripts + (row.m.key to t)
+                                    }
+                                }
+                            } else null,
                         )
                         is Item.Wait -> WaitingBubble(
                             row.p,
                             onUndo = {
-                                Outbox.undoWithAttachment(context, row.p.id)?.let { text = it.body; attachment = it.attachment }
+                                Outbox.undoWithAttachment(context, row.p.id)?.let {
+                                    if (Voice.isVoice(it.attachment)) {
+                                        voiceFile = File(it.attachment!!); voiceTranscript = it.body.removePrefix("🎙 ")
+                                    } else {
+                                        text = it.body; attachment = it.attachment
+                                    }
+                                }
                             },
+                            onStopRepeat = { PendingStore.get(context).setRepeat(row.p.id, null) },
                             onSendNow = { Outbox.sendNow(context, row.p.id) },
                         )
                     }
@@ -336,14 +475,45 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
                 subId = subId,
                 onSim = { subId = it; prefs.setSim(threadId, it) },
                 group = (convo?.addresses?.size ?: 1) > 1,
+                voice = {
+                    when {
+                        recording -> RecordingBar(recElapsed, maxVoiceMs, levels, onCancel = { recording = false; recorder.cancel() }, onStop = ::finishRecording)
+                        voiceFile != null -> VoicePreview(
+                            Uri.fromFile(voiceFile!!), Voice.durationOf(voiceFile!!), voiceTranscript, transcribing, canTranscribe,
+                            onTranscript = { voiceTranscript = it },
+                            onDelete = { Voice.Player.stop(); voiceFile?.delete(); voiceFile = null; voiceTranscript = "" },
+                            modifier = Modifier.weight(1f),
+                        )
+                        else -> return@Composer false
+                    }
+                    true
+                },
+                hasVoice = voiceFile != null,
+                onMic = {
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startRecording()
+                    else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                },
             )
         }
     }
 
     // ---------- sheets & dialogs ----------
 
-    if (scheduleSheet) ModalBottomSheet(onDismissRequest = { scheduleSheet = false }) {
+    if (scheduleSheet) ModalBottomSheet(onDismissRequest = { scheduleSheet = false; if (!customPicker) repeatKind = null }) {
         Text("Send later", Modifier.padding(24.dp, 0.dp, 24.dp, 8.dp), style = MaterialTheme.typography.titleLarge)
+        LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            item { FilterChip(selected = repeatKind == null, onClick = { repeatKind = null }, label = { Text("Once") }) }
+            items(Repeat.Kind.entries) { k ->
+                FilterChip(
+                    selected = repeatKind == k, onClick = { repeatKind = k }, label = { Text(k.label) },
+                    leadingIcon = if (repeatKind == k) { { Icon(Icons.Outlined.Repeat, null, Modifier.size(16.dp)) } } else null,
+                )
+            }
+        }
+        if (repeatKind != null) Text(
+            "Pick when the first one goes. It then repeats (${repeatKind!!.label.lowercase()}) until you tap Stop repeating.",
+            Modifier.padding(24.dp, 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         val now = System.currentTimeMillis()
         val choices = listOf(
             "In 1 hour" to now + 3_600_000,
@@ -459,6 +629,31 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
     )
 
     viewing?.let { PictureViewer(it) { viewing = null } }
+
+    linkPrompt?.let { (url, verdict) ->
+        AlertDialog(
+            onDismissRequest = { linkPrompt = null },
+            icon = { Icon(Icons.Outlined.GppMaybe, null, tint = Flame) },
+            title = { Text("This link looks risky") },
+            text = {
+                Column {
+                    Text(url, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(8.dp))
+                    verdict?.reasons?.take(4)?.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
+                    Spacer(Modifier.height(8.dp))
+                    Text("Real companies don't text links asking you to pay, log in or confirm details. When in doubt, open their app or type their address yourself.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = { TextButton(onClick = { linkPrompt = null }) { Text("Stay safe") } },
+            dismissButton = {
+                TextButton(onClick = {
+                    linkPrompt = null
+                    val full = if (url.contains("://")) url else "https://$url"
+                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(full))) }
+                }) { Text("Open anyway", color = MaterialTheme.colorScheme.error) }
+            },
+        )
+    }
 }
 
 /** Full-screen picture: pinch to zoom, tap to close. */
@@ -531,6 +726,8 @@ private fun buildRows(messages: List<Message>, pending: List<Pending>): List<Ite
 internal fun Bubble(
     row: Item.Msg, convo: Conversation?, seed: String, onLongPress: () -> Unit,
     onImage: (Uri) -> Unit = {}, simLabel: String? = null,
+    scam: ScamShield.Verdict? = null, onLink: (String) -> Unit = {}, onBlock: () -> Unit = {}, onNotScam: () -> Unit = {},
+    transcript: String? = null, onTranscribe: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val m = row.m
@@ -576,14 +773,33 @@ internal fun Bubble(
                     )
                     Spacer(Modifier.height(4.dp))
                 }
-                if (m.body.isNotBlank()) Text(
-                    m.body,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = if (mine) scheme.onPrimary else scheme.onSurface,
-                )
+                val ink = if (mine) scheme.onPrimary else scheme.onSurface
+                m.audio?.let { VoiceNotePlayer(it, mine) }
+                val isCaption = m.audio != null && m.body.startsWith("🎙 ")
+                when {
+                    isCaption -> Text(
+                        m.body.removePrefix("🎙 "), Modifier.padding(top = 6.dp),
+                        style = MaterialTheme.typography.bodyMedium, fontStyle = FontStyle.Italic, color = ink.copy(alpha = 0.9f),
+                    )
+                    m.body.isNotBlank() -> Text(
+                        linkified(m.body, if (scam != null) Flame else ink, onLink),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = ink,
+                    )
+                    m.audio != null && transcript != null -> Text(
+                        if (transcript == "…") "Transcribing…" else transcript, Modifier.padding(top = 6.dp),
+                        style = MaterialTheme.typography.bodyMedium, fontStyle = FontStyle.Italic, color = ink.copy(alpha = 0.9f),
+                    )
+                    m.audio != null && onTranscribe != null -> Text(
+                        "Show transcript",
+                        Modifier.padding(top = 6.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onTranscribe).padding(4.dp),
+                        style = MaterialTheme.typography.labelLarge, color = ink,
+                    )
+                }
             }
         }
-        if (code != null) {
+        if (scam != null) ScamBanner(scam, onBlock, onNotScam)
+        if (code != null && scam == null) {
             AssistChip(
                 onClick = { copy(context, code) },
                 label = { Text("Copy $code") },
@@ -617,7 +833,7 @@ internal fun Bubble(
 }
 
 @Composable
-internal fun WaitingBubble(p: Pending, onUndo: () -> Unit, onSendNow: () -> Unit) {
+internal fun WaitingBubble(p: Pending, onUndo: () -> Unit, onSendNow: () -> Unit, onStopRepeat: () -> Unit = {}) {
     val context = LocalContext.current
     val scheme = MaterialTheme.colorScheme
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -637,7 +853,13 @@ internal fun WaitingBubble(p: Pending, onUndo: () -> Unit, onSendNow: () -> Unit
                 .padding(horizontal = 14.dp, vertical = 9.dp),
         ) {
             Column {
-                p.attachment?.let { path ->
+                if (Voice.isVoice(p.attachment)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.Mic, null, Modifier.size(18.dp), tint = scheme.primary)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Voice note · " + clock(Voice.durationOf(File(p.attachment!!))), style = MaterialTheme.typography.labelLarge, color = scheme.onSurface)
+                    }
+                } else p.attachment?.let { path ->
                     val bmp = rememberImage(Uri.fromFile(File(path)), 600)
                     if (bmp != null) Image(
                         bmp, "Picture",
@@ -646,7 +868,10 @@ internal fun WaitingBubble(p: Pending, onUndo: () -> Unit, onSendNow: () -> Unit
                     )
                     if (p.body.isNotBlank()) Spacer(Modifier.height(4.dp))
                 }
-                if (p.body.isNotBlank()) Text(p.body, style = MaterialTheme.typography.bodyLarge, color = scheme.onSurface)
+                if (p.body.isNotBlank()) Text(
+                    p.body.removePrefix("🎙 "), style = MaterialTheme.typography.bodyLarge, color = scheme.onSurface,
+                    fontStyle = if (Voice.isVoice(p.attachment)) FontStyle.Italic else FontStyle.Normal,
+                )
             }
         }
         Row(
@@ -655,9 +880,13 @@ internal fun WaitingBubble(p: Pending, onUndo: () -> Unit, onSendNow: () -> Unit
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             if (p.scheduled) {
-                Icon(Icons.Outlined.Schedule, null, Modifier.size(14.dp), tint = scheme.secondary)
-                Text(When.future(context, p.at), style = MaterialTheme.typography.labelMedium, color = scheme.secondary)
-                TextButton(onClick = onUndo) { Text("Edit") }
+                Icon(if (p.repeat != null) Icons.Outlined.Repeat else Icons.Outlined.Schedule, null, Modifier.size(14.dp), tint = scheme.secondary)
+                Column {
+                    Text(When.future(context, p.at), style = MaterialTheme.typography.labelMedium, color = scheme.secondary)
+                    Repeat.describe(p.repeat)?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = scheme.secondary) }
+                }
+                if (p.repeat != null) TextButton(onClick = onStopRepeat) { Text("Stop repeating") }
+                else TextButton(onClick = onUndo) { Text("Edit") }
                 TextButton(onClick = onSendNow) { Text("Send now") }
             } else {
                 Box(contentAlignment = Alignment.Center) {
@@ -683,6 +912,7 @@ internal fun Composer(
     text: String, onText: (String) -> Unit, enabled: Boolean, onSend: () -> Unit, onSchedule: () -> Unit,
     attachment: String? = null, preparing: Boolean = false, onAttach: () -> Unit = {}, onRemoveAttachment: () -> Unit = {},
     sims: List<Sims.Sim> = emptyList(), subId: Int = -1, onSim: (Int) -> Unit = {}, group: Boolean = false,
+    voice: @Composable RowScope.() -> Boolean = { false }, hasVoice: Boolean = false, onMic: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
@@ -748,7 +978,7 @@ internal fun Composer(
                 IconButton(onClick = onAttach, modifier = Modifier.padding(bottom = 4.dp)) {
                     Icon(Icons.Outlined.AddPhotoAlternate, "Add a picture", tint = scheme.primary)
                 }
-                TextField(
+                if (!voice()) TextField(
                     value = text,
                     onValueChange = onText,
                     placeholder = { Text("Message") },
@@ -769,26 +999,28 @@ internal fun Composer(
                     },
                 )
                 Spacer(Modifier.width(8.dp))
-                val active = (text.isNotBlank() || attachment != null) && !preparing
+                val active = (text.isNotBlank() || attachment != null || hasVoice) && !preparing
+                val mic = !active && !preparing && onMic != null
                 Box(
                     Modifier.padding(bottom = 2.dp).size(50.dp).clip(CircleShape)
-                        .background(if (active) ring else scheme.surfaceVariant)
+                        .background(if (active) ring else if (mic) scheme.primaryContainer else scheme.surfaceVariant)
                         .combinedClickable(
-                            enabled = active,
-                            onClick = onSend,
+                            enabled = active || mic,
+                            onClick = { if (mic) onMic!!() else onSend() },
                             onLongClick = onSchedule,
                             onClickLabel = "Send",
                             onLongClickLabel = "Send later",
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
+                    if (mic) Icon(Icons.Outlined.Mic, "Record a voice note", tint = scheme.onPrimaryContainer)
+                    else Icon(
                         Icons.AutoMirrored.Filled.Send, "Send (hold to schedule)",
                         tint = if (active) scheme.onPrimary else scheme.onSurfaceVariant,
                     )
                 }
             }
-            if (text.isNotBlank() || attachment != null) Text(
+            if (text.isNotBlank() || attachment != null || hasVoice) Text(
                 "Hold send to schedule",
                 Modifier.align(Alignment.End).padding(end = 6.dp, top = 2.dp),
                 style = MaterialTheme.typography.labelSmall,
@@ -846,4 +1078,57 @@ private fun DateTimePicker(onDismiss: () -> Unit, onPicked: (Long) -> Unit) {
 private fun copy(context: android.content.Context, text: String) {
     context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Message", text))
     if (android.os.Build.VERSION.SDK_INT < 33) Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+}
+
+
+/** Message text with tappable links; links in a suspected scam are drawn in warning red. */
+private fun linkified(body: String, linkColor: Color, onLink: (String) -> Unit): AnnotatedString {
+    val links = ScamShield.links(body)
+    if (links.isEmpty()) return AnnotatedString(body)
+    return buildAnnotatedString {
+        var cursor = 0
+        for (link in links) {
+            val at = body.indexOf(link, cursor)
+            if (at < 0) continue
+            append(body.substring(cursor, at))
+            withLink(
+                LinkAnnotation.Clickable(
+                    tag = link,
+                    styles = TextLinkStyles(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)),
+                    linkInteractionListener = { onLink(link) },
+                ),
+            ) { append(link) }
+            cursor = at + link.length
+        }
+        append(body.substring(cursor))
+    }
+}
+
+@Composable
+private fun ScamBanner(v: ScamShield.Verdict, onBlock: () -> Unit, onNotScam: () -> Unit) {
+    val danger = v.risk == ScamShield.Risk.DANGER
+    Surface(
+        color = if (danger) Flame.copy(alpha = 0.16f) else Ember.copy(alpha = 0.14f),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.padding(top = 6.dp).widthIn(max = 300.dp),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.GppMaybe, null, Modifier.size(18.dp), tint = if (danger) Flame else Ember)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    if (danger) "This looks like a scam" else "Be careful with this one",
+                    style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            v.reasons.take(3).forEach {
+                Text("• $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Row {
+                TextButton(onClick = onBlock) { Text("Block sender", color = if (danger) Flame else Ember) }
+                TextButton(onClick = onNotScam) { Text("It's fine") }
+            }
+        }
+    }
 }

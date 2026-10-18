@@ -71,13 +71,16 @@ import app.murmur.data.Conversation
 import app.murmur.data.PendingStore
 import app.murmur.data.Prefs
 import app.murmur.data.SmsRepository
+import app.murmur.data.ScamShield
 import app.murmur.data.Vibes
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private enum class Filter(val label: String) { ALL("All"), UNREAD("Unread"), PEOPLE("People"), UNKNOWN("Unknown"), CODES("Codes") }
+private enum class Filter(val label: String) { ALL("All"), UNREAD("Unread"), PEOPLE("People"), UNKNOWN("Unknown"), CODES("Codes"), SUSPICIOUS("Suspicious") }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -87,6 +90,7 @@ fun ConversationsScreen(
     onOpen: (Long) -> Unit,
     onNew: () -> Unit,
     onSettings: () -> Unit,
+    onScheduled: () -> Unit,
     onMakeDefault: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -120,6 +124,7 @@ fun ConversationsScreen(
             Filter.PEOPLE -> c.known
             Filter.UNKNOWN -> !c.known
             Filter.CODES -> Vibes.code(c.snippet) != null
+            Filter.SUSPICIOUS -> c.suspicious()
         }
     }.filter { c ->
         query.isBlank() || c.title.contains(query, true) || c.addresses.any { it.contains(query) }
@@ -152,6 +157,11 @@ fun ConversationsScreen(
                 actions = {
                     IconButton(onClick = { searching = !searching; if (!searching) query = "" }) {
                         Icon(if (searching) Icons.Outlined.Close else Icons.Outlined.Search, "Search")
+                    }
+                    if (pending.any { it.scheduled }) IconButton(onClick = onScheduled) {
+                        BadgedBox(badge = { Badge { Text("${pending.count { it.scheduled }}") } }) {
+                            Icon(Icons.Outlined.Schedule, "Scheduled messages")
+                        }
                     }
                     IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, "Settings") }
                 },
@@ -237,6 +247,13 @@ fun ConversationsScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             val draft = remember(c.threadId, version) { prefs.draft(c.threadId) }
                             val n = scheduledThreads[c.threadId] ?: 0
+                            if (c.suspicious()) {
+                                Text(
+                                    "⚠ Possible scam  ",
+                                    style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
                             if (n > 0) {
                                 Icon(Icons.Outlined.Schedule, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.secondary)
                                 Spacer(Modifier.width(4.dp))
@@ -325,6 +342,7 @@ private fun Empty(filter: Filter, query: String) {
         filter == Filter.UNREAD -> "All caught up" to "Nothing is waiting for you."
         filter == Filter.CODES -> "No codes" to "Login and verification codes show up here, with a Copy button."
         filter == Filter.UNKNOWN -> "No strangers" to "Texts from numbers not in your contacts land here."
+        filter == Filter.SUSPICIOUS -> "Nothing fishy" to "Texts that look like scams (fake tolls, parcels, banks) show up here with a warning."
         else -> "Quiet in here" to "Start a conversation with the New button."
     }
     Column(
@@ -336,3 +354,6 @@ private fun Empty(filter: Filter, query: String) {
         Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
+
+private fun Conversation.suspicious() =
+    addresses.size == 1 && ScamShield.analyze(snippet, addresses[0], known).flagged

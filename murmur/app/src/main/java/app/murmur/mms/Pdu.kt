@@ -372,13 +372,14 @@ object Pdu {
     }
 
     /** A SMIL layout that puts the picture above the text, which every phone understands. */
-    fun smil(imageName: String?, textName: String?): String = buildString {
+    fun smil(imageName: String?, textName: String?, audioName: String? = null): String = buildString {
         append("<smil><head><layout><root-layout/>")
         if (imageName != null) append("<region id=\"Image\" fit=\"meet\" top=\"0\" left=\"0\" height=\"80%\" width=\"100%\"/>")
         if (textName != null) append("<region id=\"Text\" top=\"80%\" left=\"0\" height=\"20%\" width=\"100%\" fit=\"scroll\"/>")
         append("</layout></head><body><par dur=\"5000ms\">")
         if (imageName != null) append("<img src=\"$imageName\" region=\"Image\"/>")
         if (textName != null) append("<text src=\"$textName\" region=\"Text\"/>")
+        if (audioName != null) append("<audio src=\"$audioName\"/>")
         append("</par></body></smil>")
     }
 }

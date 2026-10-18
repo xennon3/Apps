@@ -29,6 +29,7 @@ import kotlinx.coroutines.launch
 import app.murmur.R
 import app.murmur.data.Phone
 import app.murmur.data.SmsRepository
+import app.murmur.data.ScamShield
 import app.murmur.data.Vibes
 import app.murmur.sms.Outbox
 
@@ -120,6 +121,8 @@ object Notifier {
 
         val latest = unread.last().second
         val code = Vibes.code(latest)
+        val sender = unread.last().first
+        val scam = ScamShield.analyze(latest, sender, repo.contact(sender).name != null)
         val reply = NotificationCompat.Action.Builder(
             0, "Reply", action(context, NotificationActionReceiver.REPLY, threadId, mutable = true),
         ).addRemoteInput(RemoteInput.Builder(KEY_REPLY).setLabel("Message").build())
@@ -135,6 +138,13 @@ object Notifier {
             .setContentIntent(openThread(context, threadId))
             .setAutoCancel(true)
             .apply {
+                if (scam.flagged) {
+                    setSubText(if (scam.risk == ScamShield.Risk.DANGER) "⚠ Likely scam" else "⚠ Possible scam")
+                    setColor(0xFFFF5252.toInt())
+                    addAction(0, "Block", action(context, NotificationActionReceiver.BLOCK, threadId, sender))
+                    addAction(0, "Read", action(context, NotificationActionReceiver.MARK_READ, threadId))
+                    return@apply
+                }
                 if (code != null) addAction(0, "Copy $code", action(context, NotificationActionReceiver.COPY, threadId, code))
                 addAction(reply)
                 addAction(0, "Read", action(context, NotificationActionReceiver.MARK_READ, threadId))
@@ -277,6 +287,12 @@ class NotificationActionReceiver : BroadcastReceiver() {
                 Notifier.cancel(context, threadId)
             }
             REMIND_FIRE -> Notifier.nudge(context, threadId)
+            BLOCK -> {
+                intent.getStringExtra("extra")?.let(repo::block)
+                repo.markRead(threadId)
+                Notifier.cancel(context, threadId)
+                if (Build.VERSION.SDK_INT < 33) Toast.makeText(context, "Blocked", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -287,5 +303,6 @@ class NotificationActionReceiver : BroadcastReceiver() {
         const val REMIND = "app.murmur.REMIND"
         const val REMIND_FIRE = "app.murmur.REMIND_FIRE"
         const val MMS_RETRY = "app.murmur.MMS_RETRY"
+        const val BLOCK = "app.murmur.BLOCK"
     }
 }

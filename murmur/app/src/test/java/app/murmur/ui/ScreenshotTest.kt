@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +41,8 @@ class ScreenshotTest {
     @Test fun conversation() = paparazzi.snapshot { MurmurTheme { FakeThread("Can we talk about tonight?") } }
 
     @Test fun heated() = paparazzi.snapshot { MurmurTheme { FakeThread("ARE YOU KIDDING ME?? You ALWAYS do this") } }
+
+    @Test fun voiceAndScam() = paparazzi.snapshot { MurmurTheme { VoiceAndScam() } }
 
     @Test fun dualSimGroup() = paparazzi.snapshot { MurmurTheme { FakeThread("who's bringing chips?", dualSim = true) } }
 }
@@ -83,5 +86,29 @@ private fun FakeThread(draft: String, dualSim: Boolean = false) {
             Sims.Sim(2, 1, "SIM 2", "Mint", 0xFF4DD0E1.toInt()),
         ) else emptyList()
         Composer(text = draft, onText = {}, enabled = true, onSend = {}, onSchedule = {}, sims = sims, subId = 2, group = dualSim)
+    }
+}
+
+@Composable
+private fun VoiceAndScam() {
+    val convo = Conversation(2, listOf("+15559998888"), "(555) 999-8888", null, "", NOW, false, false, false)
+    val voice = Message("m1", 1, Box.IN, "+15559998888", "🎙 hey it's me, call me back when you're free", NOW - 3_600_000, Delivery.NONE, audio = android.net.Uri.parse("content://mms/part/1"))
+    val mine = Message("m2", 2, Box.OUT, "", "", NOW - 3_000_000, Delivery.SENT, audio = android.net.Uri.parse("content://mms/part/2"))
+    val scamBody = "USPS: Your package could not be delivered due to an incomplete address. Update here: https://usps-redelivery.top/track"
+    val scam = Message("s3", 3, Box.IN, "+15559998888", scamBody, NOW - 60_000, Delivery.NONE)
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 12.dp)) {
+        Spacer(Modifier.height(40.dp))
+        Bubble(Item.Msg(voice, true, true), convo, "+15559998888", onLongPress = {})
+        Bubble(Item.Msg(mine, true, true), convo, "+15559998888", onLongPress = {})
+        Bubble(
+            Item.Msg(scam, true, true), convo, "+15559998888", onLongPress = {},
+            scam = app.murmur.data.ScamShield.analyze(scamBody, "+15559998888", false),
+        )
+        WaitingBubble(Pending(11, 2, "+15559998888", "Good morning! ☀️", NOW + 86_400_000, true, repeat = "weekdays"), {}, {})
+        Spacer(Modifier.weight(1f))
+        Composer(
+            text = "", onText = {}, enabled = true, onSend = {}, onSchedule = {},
+            voice = { RecordingBar(14_000, 180_000, List(60) { i -> (kotlin.math.sin(i / 2.0).toFloat() + 1f) / 2f * (0.3f + (i % 7) / 10f) }, {}, {}); true },
+        )
     }
 }

@@ -13,12 +13,12 @@ import java.io.File
  * Kept on disk so a scheduled message survives the app being closed or the phone restarting.
  */
 class PendingStore private constructor(context: Context) :
-    SQLiteOpenHelper(context, "pending.db", null, 2) {
+    SQLiteOpenHelper(context, "pending.db", null, 3) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             "CREATE TABLE pending (_id INTEGER PRIMARY KEY AUTOINCREMENT, thread_id INTEGER, " +
-                "address TEXT, body TEXT, at INTEGER, scheduled INTEGER, attachment TEXT, sub_id INTEGER DEFAULT -1)",
+                "address TEXT, body TEXT, at INTEGER, scheduled INTEGER, attachment TEXT, sub_id INTEGER DEFAULT -1, repeat TEXT)",
         )
     }
 
@@ -27,6 +27,7 @@ class PendingStore private constructor(context: Context) :
             db.execSQL("ALTER TABLE pending ADD COLUMN attachment TEXT")
             db.execSQL("ALTER TABLE pending ADD COLUMN sub_id INTEGER DEFAULT -1")
         }
+        if (oldVersion < 3) db.execSQL("ALTER TABLE pending ADD COLUMN repeat TEXT")
     }
 
     private val _all = MutableStateFlow(load())
@@ -34,7 +35,7 @@ class PendingStore private constructor(context: Context) :
 
     private fun load(): List<Pending> =
         readableDatabase.query(
-            "pending", arrayOf("_id", "thread_id", "address", "body", "at", "scheduled", "attachment", "sub_id"),
+            "pending", arrayOf("_id", "thread_id", "address", "body", "at", "scheduled", "attachment", "sub_id", "repeat"),
             null, null, null, null, "at ASC",
         ).use { c ->
             buildList {
@@ -42,7 +43,7 @@ class PendingStore private constructor(context: Context) :
                     Pending(
                         id = c.getLong(0), threadId = c.getLong(1), address = c.getString(2),
                         body = c.getString(3), at = c.getLong(4), scheduled = c.getInt(5) == 1,
-                        attachment = c.getString(6), subId = c.getInt(7),
+                        attachment = c.getString(6), subId = c.getInt(7), repeat = c.getString(8),
                     ),
                 )
             }
@@ -51,15 +52,15 @@ class PendingStore private constructor(context: Context) :
     @Synchronized
     fun add(
         threadId: Long, address: String, body: String, at: Long, scheduled: Boolean,
-        attachment: String? = null, subId: Int = -1,
+        attachment: String? = null, subId: Int = -1, repeat: String? = null,
     ): Pending {
         val id = writableDatabase.insert("pending", null, ContentValues().apply {
             put("thread_id", threadId); put("address", address); put("body", body)
             put("at", at); put("scheduled", if (scheduled) 1 else 0)
-            put("attachment", attachment); put("sub_id", subId)
+            put("attachment", attachment); put("sub_id", subId); put("repeat", repeat)
         })
         _all.value = load()
-        return Pending(id, threadId, address, body, at, scheduled, attachment, subId)
+        return Pending(id, threadId, address, body, at, scheduled, attachment, subId, repeat)
     }
 
     /** Removes the row and returns it, or null if someone else (undo, the alarm) got there first. */
@@ -69,6 +70,12 @@ class PendingStore private constructor(context: Context) :
         val n = writableDatabase.delete("pending", "_id = ?", arrayOf(id.toString()))
         _all.value = load()
         return if (n == 1) p else null
+    }
+
+    @Synchronized
+    fun setRepeat(id: Long, repeat: String?) {
+        writableDatabase.update("pending", ContentValues().apply { put("repeat", repeat) }, "_id = ?", arrayOf(id.toString()))
+        _all.value = load()
     }
 
     @Synchronized
