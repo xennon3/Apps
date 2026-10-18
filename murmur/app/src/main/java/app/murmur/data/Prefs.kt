@@ -41,6 +41,16 @@ class Prefs(context: Context) {
 
     fun setBrainScam(key: String, verdict: String) = sp.edit().putString("brainscam_$key", verdict).apply()
 
+    /** Murmur Brain's reading of a text for a plan ("title|when|place", or "-"), null if not asked yet. */
+    fun plan(key: String): String? = sp.getString("plan_$key", null)
+
+    fun setPlan(key: String, v: String) = sp.edit().putString("plan_$key", v).apply()
+
+    /** Murmur Brain's sorting of a text: REPLY, INFO or PROMO. */
+    fun triage(key: String): String? = sp.getString("triage_$key", null)
+
+    fun setTriage(key: String, v: String) = sp.edit().putString("triage_$key", v).apply()
+
     /** Transcripts of received voice notes, keyed by the audio part. */
     fun transcript(key: String): String? = sp.getString("transcript_$key", null)
 
@@ -56,8 +66,4 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("sleep_on_it", true)
         set(v) = sp.edit().putBoolean("sleep_on_it", v).apply()
 
-    /** Show the tone meter on the send button. */
-    var heatMeter: Boolean
-        get() = sp.getBoolean("heat_meter", true)
-        set(v) = sp.edit().putBoolean("heat_meter", v).apply()
 }

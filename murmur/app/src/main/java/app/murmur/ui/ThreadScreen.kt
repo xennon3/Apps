@@ -22,6 +22,10 @@ import androidx.core.content.ContextCompat
 import app.murmur.brain.Brain
 import androidx.compose.material.icons.outlined.AutoAwesome
 import app.murmur.data.Repeat
+import app.murmur.brain.BrainPrompts
+import app.murmur.brain.PlanTime
+import android.provider.CalendarContract
+import androidx.compose.material.icons.outlined.Event
 import app.murmur.data.ScamShield
 import app.murmur.voice.Voice
 import android.content.ClipData
@@ -198,9 +202,11 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
     var transcripts by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     val brainState by Brain.state.collectAsState()
     val brainReady = brainState == Brain.State.Ready
-    var calming by remember { mutableStateOf(false) }
-    var calmSuggestion by remember { mutableStateOf<String?>(null) }
     var brainVerdicts by remember { mutableStateOf<Map<String, ScamShield.Verdict>>(emptyMap()) }
+    var plans by remember { mutableStateOf<Map<String, Pair<BrainPrompts.Plan, PlanTime.When>>>(emptyMap()) }
+    var unreadAtOpen by remember { mutableIntStateOf(-1) }
+    var catchUp by remember { mutableStateOf<String?>(null) }
+    var catchingUp by remember { mutableStateOf(false) }
 
     // Voice notes
     val recorder = remember { Voice.Recorder(context) }
@@ -269,6 +275,7 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
 
     LaunchedEffect(threadId, version) {
         val (c, m) = withContext(Dispatchers.IO) {
+            if (unreadAtOpen < 0) unreadAtOpen = repo.unreadCount(threadId)
             repo.markRead(threadId)
             (repo.conversation(threadId) ?: fallbackConversation(repo, threadId)) to repo.messages(threadId)
         }
@@ -358,6 +365,62 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
         }
     }
 
+    // Murmur Brain: plans in recent texts ("dinner friday at 7") become an Add to calendar chip.
+    LaunchedEffect(messages, brainReady) {
+        if (!brainReady) return@LaunchedEffect
+        val now = System.currentTimeMillis()
+        val candidates = messages.takeLast(20).asReversed()
+            .filter { it.body.isNotBlank() && now - it.date < 14 * 86_400_000L && PlanTime.mightHavePlan(it.body) }
+        for (m in candidates) {
+            val stored = prefs.plan(m.key) ?: run {
+                val found = Brain.findPlan(context, m.body.removePrefix("🎙 "))
+                BrainPrompts.encodePlan(found).also { prefs.setPlan(m.key, it) }
+            }
+            val plan = BrainPrompts.decodePlan(stored) ?: continue
+            val time = PlanTime.resolve(plan.whenText, m.date, plan.title) ?: continue
+            if (time.start < now - 2 * 3_600_000L) continue // already over
+            plans = plans + (m.key to (plan to time))
+        }
+    }
+
+    fun startCatchUp() {
+        if (catchingUp) return
+        catchingUp = true
+        catchUp = ""
+        scope.launch {
+            val group = (convo?.addresses?.size ?: 1) > 1
+            val names = HashMap<String, String>()
+            val lines = messages.takeLast(maxOf(40, unreadAtOpen + 10)).map { m ->
+                val who = when {
+                    m.box == MsgBox.OUT -> "You"
+                    group -> names.getOrPut(m.address) { withContext(Dispatchers.IO) { repo.contact(m.address).name ?: Phone.pretty(m.address) } }
+                    else -> convo?.title ?: "Them"
+                }
+                val what = listOfNotNull(
+                    if (m.images.isNotEmpty()) "[photo]" else null,
+                    if (m.audio != null && !m.body.startsWith("🎙")) "[voice note]" else null,
+                    m.body.replace('\n', ' ').ifBlank { null },
+                ).joinToString(" ")
+                "$who: $what"
+            }
+            // Keep the newest part of the chat that fits comfortably in the model's memory.
+            val transcript = lines.asReversed().fold(StringBuilder()) { acc, l -> if (acc.length + l.length > 5000) acc else acc.insert(0, l + "\n") }.toString()
+            catchUp = Brain.summarize(context, transcript) { partial -> catchUp = partial } ?: "Murmur Brain couldn't summarize this chat. Try again in a moment."
+            catchingUp = false
+        }
+    }
+
+    fun addToCalendar(plan: BrainPrompts.Plan, time: PlanTime.When) {
+        val intent = Intent(Intent.ACTION_INSERT).setData(CalendarContract.Events.CONTENT_URI)
+            .putExtra(CalendarContract.Events.TITLE, plan.title)
+            .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, time.start)
+            .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, time.start + if (time.allDay) 86_400_000L else 3_600_000L)
+            .putExtra(CalendarContract.EXTRA_EVENT_ALL_DAY, time.allDay)
+            .apply { if (plan.place.isNotBlank()) putExtra(CalendarContract.Events.EVENT_LOCATION, plan.place) }
+        runCatching { context.startActivity(intent) }
+            .onFailure { Toast.makeText(context, "No calendar app found", Toast.LENGTH_SHORT).show() }
+    }
+
     fun openLink(url: String, verdict: ScamShield.Verdict?) {
         if (verdict?.flagged == true) { linkPrompt = url to verdict; return }
         val full = if (url.contains("://")) url else "https://$url"
@@ -390,6 +453,11 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
                     Box {
                         IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreVert, "More") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            if (brainReady && messages.size >= 3) DropdownMenuItem(
+                                text = { Text("Catch me up") },
+                                leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null) },
+                                onClick = { menu = false; startCatchUp() },
+                            )
                             DropdownMenuItem(
                                 text = { Text("Remind me to reply") },
                                 leadingIcon = { Icon(Icons.Outlined.NotificationsActive, null) },
@@ -412,6 +480,15 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
         },
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(top = pad.calculateTopPadding()).imePadding()) {
+            if (brainReady && unreadAtOpen >= 8 && catchUp == null) {
+                AssistChip(
+                    onClick = ::startCatchUp,
+                    label = { Text("Catch me up on $unreadAtOpen new messages") },
+                    leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(18.dp)) },
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                )
+            }
             reminder?.let { at ->
                 AssistChip(
                     onClick = { Notifier.clearReminder(context, threadId); reminder = null },
@@ -453,6 +530,8 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
                                 }
                             },
                             onNotScam = { prefs.dismissScam(row.m.key); scamTick++ },
+                            plan = plans[row.m.key],
+                            onAddPlan = { p, t -> addToCalendar(p, t) },
                             transcript = row.m.audio?.let { transcripts[row.m.key] ?: prefs.transcript(row.m.key) },
                             onTranscribe = if (canTranscribe && row.m.audio != null) {
                                 {
@@ -490,30 +569,6 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
                     )
                 }
             }
-            calmSuggestion?.let { suggestion ->
-                Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    shape = RoundedCornerShape(20.dp),
-                    modifier = Modifier.fillMaxWidth().padding(12.dp, 4.dp),
-                ) {
-                    Column(Modifier.padding(14.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                if (calming) "Writing a calmer version…" else "A calmer way to say it",
-                                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        Text(suggestion, style = MaterialTheme.typography.bodyLarge)
-                        if (!calming) Row {
-                            TextButton(onClick = { text = suggestion; calmSuggestion = null }) { Text("Use this", fontWeight = FontWeight.Bold) }
-                            TextButton(onClick = { calmSuggestion = null }) { Text("Keep mine") }
-                        }
-                    }
-                }
-            }
             Composer(
                 text = text,
                 onText = { text = it },
@@ -542,19 +597,6 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
                     true
                 },
                 hasVoice = voiceFile != null,
-                calming = calming,
-                onCalm = if (brainReady) {
-                    {
-                        calming = true
-                        scope.launch {
-                            val draft = text
-                            // Words appear as the model writes them.
-                            calmSuggestion = Brain.calmDown(context, draft) { partial -> calmSuggestion = partial }
-                            calming = false
-                            if (calmSuggestion == null) Toast.makeText(context, "Murmur Brain couldn't come up with a rewrite", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                } else null,
                 onMic = {
                     if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startRecording()
                     else micPermission.launch(Manifest.permission.RECORD_AUDIO)
@@ -696,6 +738,30 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
 
     viewing?.let { PictureViewer(it) { viewing = null } }
 
+    catchUp?.let { summary ->
+        ModalBottomSheet(onDismissRequest = { if (!catchingUp) catchUp = null }) {
+            Column(Modifier.padding(24.dp, 0.dp, 24.dp, 32.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Catch me up", style = MaterialTheme.typography.titleLarge)
+                }
+                Spacer(Modifier.height(12.dp))
+                if (summary.isEmpty()) Text(
+                    "Reading the conversation…", style = MaterialTheme.typography.bodyMedium,
+                    fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                ) else Text(summary, style = MaterialTheme.typography.bodyLarge)
+                if (!catchingUp) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Written by Murmur Brain on this phone. It can get details wrong.",
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+
     linkPrompt?.let { (url, verdict) ->
         AlertDialog(
             onDismissRequest = { linkPrompt = null },
@@ -794,6 +860,7 @@ internal fun Bubble(
     onImage: (Uri) -> Unit = {}, simLabel: String? = null,
     scam: ScamShield.Verdict? = null, onLink: (String) -> Unit = {}, onBlock: () -> Unit = {}, onNotScam: () -> Unit = {},
     transcript: String? = null, onTranscribe: (() -> Unit)? = null,
+    plan: Pair<BrainPrompts.Plan, PlanTime.When>? = null, onAddPlan: (BrainPrompts.Plan, PlanTime.When) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val m = row.m
@@ -865,6 +932,20 @@ internal fun Bubble(
             }
         }
         if (scam != null) ScamBanner(scam, onBlock, onNotScam)
+        if (plan != null && scam == null) {
+            val (p, t) = plan
+            AssistChip(
+                onClick = { onAddPlan(p, t) },
+                label = {
+                    Text(
+                        "Add to calendar · ${p.title}, " + if (t.allDay) When.day(context, t.start) else When.future(context, t.start),
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                },
+                leadingIcon = { Icon(Icons.Outlined.Event, null, Modifier.size(16.dp)) },
+                modifier = Modifier.padding(top = 4.dp).widthIn(max = 300.dp),
+            )
+        }
         if (code != null && scam == null) {
             AssistChip(
                 onClick = { copy(context, code) },
@@ -979,23 +1060,10 @@ internal fun Composer(
     attachment: String? = null, preparing: Boolean = false, onAttach: () -> Unit = {}, onRemoveAttachment: () -> Unit = {},
     sims: List<Sims.Sim> = emptyList(), subId: Int = -1, onSim: (Int) -> Unit = {}, group: Boolean = false,
     voice: @Composable RowScope.() -> Boolean = { false }, hasVoice: Boolean = false, onMic: (() -> Unit)? = null,
-    calming: Boolean = false, onCalm: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
-    val prefs = remember { Prefs(context) }
     val scheme = MaterialTheme.colorScheme
-    val heat = if (prefs.heatMeter) Vibes.heat(text) else Vibes.Heat.CALM
-    val ring by animateColorAsState(
-        when (heat) {
-            Vibes.Heat.CALM -> scheme.primary
-            Vibes.Heat.WARM -> Ember
-            Vibes.Heat.HOT -> Flame
-        },
-        tween(400), label = "heat",
-    )
     val (segments, left) = Vibes.segments(text)
-    // The draft is getting heated: start loading Murmur Brain now, so "Calm it down" answers quickly.
-    if (onCalm != null && heat != Vibes.Heat.CALM) LaunchedEffect(Unit) { Brain.warmUp(context) }
 
     Surface(color = scheme.surfaceContainer) {
         Column(Modifier.navigationBarsPadding().padding(8.dp)) {
@@ -1008,27 +1076,6 @@ internal fun Composer(
                     textAlign = TextAlign.Center,
                 )
                 return@Column
-            }
-            if (text.isNotBlank() && (heat == Vibes.Heat.HOT || (heat == Vibes.Heat.WARM && onCalm != null))) {
-                Row(Modifier.padding(start = 16.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        if (heat == Vibes.Heat.HOT) "This reads a little heated." else "This reads a little sharp.",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (heat == Vibes.Heat.HOT) Flame else Ember,
-                    )
-                    if (onCalm != null) {
-                        Spacer(Modifier.width(8.dp))
-                        AssistChip(
-                            onClick = { if (!calming) onCalm() },
-                            label = { Text(if (calming) "Thinking…" else "Calm it down") },
-                            leadingIcon = {
-                                if (calming) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-                                else Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp))
-                            },
-                            modifier = Modifier.height(30.dp),
-                        )
-                    }
-                }
             }
             if (attachment != null || preparing) {
                 Box(Modifier.padding(start = 52.dp, bottom = 6.dp)) {
@@ -1085,7 +1132,7 @@ internal fun Composer(
                 val mic = !active && !preparing && onMic != null
                 Box(
                     Modifier.padding(bottom = 2.dp).size(50.dp).clip(CircleShape)
-                        .background(if (active) ring else if (mic) scheme.primaryContainer else scheme.surfaceVariant)
+                        .background(if (active) scheme.primary else if (mic) scheme.primaryContainer else scheme.surfaceVariant)
                         .combinedClickable(
                             enabled = active || mic,
                             onClick = { if (mic) onMic() else onSend() },

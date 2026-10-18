@@ -210,7 +210,7 @@ object Brain {
                     EngineConfig(
                         modelPath = modelFile(context).path,
                         backend = if (gpu) Backend.GPU() else Backend.CPU(),
-                        maxNumTokens = 1024,
+                        maxNumTokens = 2048, // room for a chat history plus the texts found for a question
                         cacheDir = context.cacheDir.path,
                     ),
                 ).also { it.initialize() }
@@ -323,17 +323,46 @@ object Brain {
 
     // ================================================================ what Murmur uses it for
 
-    /** A calmer version of a heated draft, in the same voice. */
-    suspend fun calmDown(context: Context, draft: String, onPartial: ((String) -> Unit)? = null): String? = ask(
+    private fun ex(list: List<Pair<String, String>>, wrap: (String) -> String = { it }) = list.map { (q, a) -> wrap(q) to a }
+
+    /** Should a chat question be answered from the user's texts? */
+    suspend fun needsMessages(context: Context, question: String): Boolean =
+        ask(context, BrainPrompts.ROUTE, question, maxTokens = 4, temperature = 0.0, examples = BrainPrompts.ROUTE_EXAMPLES)
+            ?.let(BrainPrompts::needsMessages) ?: false
+
+    suspend fun searchTerms(context: Context, question: String): List<String> =
+        ask(context, BrainPrompts.SEARCH, question, maxTokens = 30, temperature = 0.1, examples = BrainPrompts.SEARCH_EXAMPLES)
+            ?.let(BrainPrompts::parseTerms).orEmpty()
+
+    /**
+     * One chat reply. [history] is the earlier conversation as (user, assistant) pairs, given to
+     * the model as real chat turns; [prompt] may already include texts found for the question.
+     */
+    suspend fun chat(
+        context: Context, history: List<Pair<String, String>>, prompt: String, withMessages: Boolean,
+        onPartial: (String) -> Unit,
+    ): String? = ask(
         context,
-        system = BrainPrompts.CALM,
-        prompt = BrainPrompts.calmPrompt(draft),
-        maxTokens = 80,
-        temperature = 0.3,
-        examples = BrainPrompts.CALM_EXAMPLES.map { (a, b) -> BrainPrompts.calmPrompt(a) to b },
-        onPartial = onPartial?.let { cb -> { text: String -> BrainPrompts.parseCalm(text)?.let(cb) } },
-    )?.let(BrainPrompts::parseCalm)
-        ?.takeIf { it.length < draft.length * 3 + 60 && !it.equals(draft.trim(), ignoreCase = true) }
+        system = if (withMessages) BrainPrompts.CHAT_MESSAGES else BrainPrompts.CHAT_GENERAL,
+        prompt = prompt,
+        maxTokens = 320,
+        temperature = 0.6,
+        examples = history,
+        onPartial = onPartial,
+    )
+
+    /** A plan in a text ("dinner friday at 7 at Luigi's"), or null. */
+    suspend fun findPlan(context: Context, text: String): BrainPrompts.Plan? =
+        ask(context, BrainPrompts.EVENT, text.replace('\n', ' '), maxTokens = 40, temperature = 0.0, examples = BrainPrompts.EVENT_EXAMPLES)
+            ?.let(BrainPrompts::parseEvent)
+
+    suspend fun triage(context: Context, text: String): BrainPrompts.Triage? =
+        ask(context, BrainPrompts.TRIAGE, text.replace('\n', ' '), maxTokens = 4, temperature = 0.0, examples = BrainPrompts.TRIAGE_EXAMPLES)
+            ?.let(BrainPrompts::parseTriage)
+
+    /** Three bullet points about a conversation, streamed as they're written. */
+    suspend fun summarize(context: Context, transcript: String, onPartial: (String) -> Unit): String? =
+        ask(context, BrainPrompts.SUMMARY, transcript, maxTokens = 160, temperature = 0.2, onPartial = onPartial)
 
     /** A second opinion on a text the rule-based shield wasn't sure about. */
     suspend fun scamCheck(context: Context, message: String): BrainPrompts.ScamOpinion? {
@@ -343,7 +372,7 @@ object Brain {
             prompt = BrainPrompts.scamQuestion(message),
             maxTokens = 32,
             temperature = 0.1,
-            examples = BrainPrompts.SCAM_EXAMPLES.map { (a, b) -> BrainPrompts.scamQuestion(a) to b },
+            examples = ex(BrainPrompts.SCAM_EXAMPLES, BrainPrompts::scamQuestion),
         ) ?: return null
         return BrainPrompts.parseScamAnswer(answer)
     }

@@ -31,7 +31,10 @@ import androidx.core.content.ContextCompat
 import app.murmur.data.Phone
 import app.murmur.data.Prefs
 import app.murmur.data.SmsRepository
+import app.murmur.ui.BrainChatScreen
 import app.murmur.ui.ConversationsScreen
+import app.murmur.ui.RootTabs
+import app.murmur.ui.Tab
 import app.murmur.ui.MurmurTheme
 import app.murmur.ui.NewMessageScreen
 import app.murmur.ui.OnboardingScreen
@@ -60,6 +63,7 @@ class MainActivity : ComponentActivity() {
     private var version by mutableIntStateOf(0)
     private var isDefault by mutableStateOf(false)
     private var askedForRole by mutableStateOf(false)
+    private var tab by mutableStateOf(Tab.MESSAGES)
 
     private val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
         override fun onChange(selfChange: Boolean) { version++ }
@@ -115,14 +119,23 @@ class MainActivity : ComponentActivity() {
                                 stack = listOf(Screen.List)
                             },
                         )
-                        Screen.List -> ConversationsScreen(
-                            version = version,
-                            isDefault = isDefault,
-                            onOpen = { push(Screen.Thread(it)) },
-                            onNew = { push(Screen.New()) },
-                            onSettings = { push(Screen.Settings) },
-                            onScheduled = { push(Screen.Scheduled) },
-                            onMakeDefault = { stack = listOf(Screen.Onboarding) },
+                        Screen.List -> RootTabs(
+                            tab = tab,
+                            onTab = { tab = it },
+                            messages = {
+                                ConversationsScreen(
+                                    version = version,
+                                    isDefault = isDefault,
+                                    onOpen = { push(Screen.Thread(it)) },
+                                    onNew = { push(Screen.New()) },
+                                    onSettings = { push(Screen.Settings) },
+                                    onScheduled = { push(Screen.Scheduled) },
+                                    onMakeDefault = { stack = listOf(Screen.Onboarding) },
+                                )
+                            },
+                            brain = {
+                                BrainChatScreen(onOpenThread = { push(Screen.Thread(it)) }, onSettings = { push(Screen.Settings) })
+                            },
                         )
                         is Screen.Thread -> ThreadScreen(
                             threadId = screen.threadId,

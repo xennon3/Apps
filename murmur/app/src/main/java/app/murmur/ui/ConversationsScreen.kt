@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -72,6 +74,8 @@ import app.murmur.data.PendingStore
 import app.murmur.data.Prefs
 import app.murmur.data.SmsRepository
 import app.murmur.data.ScamShield
+import app.murmur.brain.Brain
+import app.murmur.brain.BrainPrompts
 import app.murmur.data.Vibes
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -80,7 +84,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private enum class Filter(val label: String) { ALL("All"), UNREAD("Unread"), PEOPLE("People"), UNKNOWN("Unknown"), CODES("Codes"), SUSPICIOUS("Suspicious") }
+private enum class Filter(val label: String) { ALL("All"), NEEDS_REPLY("Needs reply"), UNREAD("Unread"), PEOPLE("People"), UNKNOWN("Unknown"), CODES("Codes"), SUSPICIOUS("Suspicious") }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -106,9 +110,32 @@ fun ConversationsScreen(
     var confirmDelete by remember { mutableStateOf<Conversation?>(null) }
     var localBump by remember { mutableStateOf(0) }
     val pending by PendingStore.get(context).all.collectAsState()
+    val brainState by Brain.state.collectAsState()
+    var needsReply by remember { mutableStateOf<Set<Long>>(emptySet()) }
 
     LaunchedEffect(version, localBump) {
         conversations = withContext(Dispatchers.IO) { runCatching { repo.conversations() }.getOrDefault(emptyList()) }
+    }
+    // Which recent conversations end with a text waiting on you. A question mark is enough on its
+    // own; with Murmur Brain on, requests without one ("pick up milk on the way") count too.
+    LaunchedEffect(conversations, brainState) {
+        val list = conversations ?: return@LaunchedEffect
+        val brain = brainState == Brain.State.Ready
+        val now = System.currentTimeMillis()
+        val found = HashSet<Long>()
+        for (c in list.filter { now - it.date < 7 * 86_400_000L }.take(30)) {
+            val last = withContext(Dispatchers.IO) { repo.lastText(c.threadId) } ?: continue
+            if (!last.incoming || Vibes.code(last.body) != null) continue
+            if (ScamShield.analyze(last.body, last.address, c.known).flagged) continue
+            val reply = when {
+                last.body.contains('?') -> true
+                prefs.triage(last.key) != null -> prefs.triage(last.key) == BrainPrompts.Triage.REPLY.name
+                brain -> Brain.triage(context, last.body)?.also { prefs.setTriage(last.key, it.name) } == BrainPrompts.Triage.REPLY
+                else -> false
+            }
+            if (reply) { found += c.threadId; needsReply = needsReply + c.threadId }
+        }
+        needsReply = found
     }
     LaunchedEffect(query) {
         if (query.length < 2) { hits = emptyList(); return@LaunchedEffect }
@@ -120,6 +147,7 @@ fun ConversationsScreen(
     val shown = conversations.orEmpty().filter { c ->
         when (filter) {
             Filter.ALL -> true
+            Filter.NEEDS_REPLY -> c.threadId in needsReply
             Filter.UNREAD -> c.unread
             Filter.PEOPLE -> c.known
             Filter.UNKNOWN -> !c.known
@@ -133,6 +161,7 @@ fun ConversationsScreen(
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        contentWindowInsets = WindowInsets.statusBars, // the tab bar below handles the bottom
         topBar = {
             TopAppBar(
                 scrollBehavior = scrollBehavior,
@@ -203,7 +232,10 @@ fun ConversationsScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(Filter.entries) { f ->
-                        FilterChip(selected = filter == f, onClick = { filter = f }, label = { Text(f.label) })
+                        FilterChip(
+                            selected = filter == f, onClick = { filter = f },
+                            label = { Text(if (f == Filter.NEEDS_REPLY && needsReply.isNotEmpty()) "${f.label} · ${needsReply.size}" else f.label) },
+                        )
                     }
                 }
             }
@@ -247,6 +279,13 @@ fun ConversationsScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             val draft = remember(c.threadId, version) { prefs.draft(c.threadId) }
                             val n = scheduledThreads[c.threadId] ?: 0
+                            if (c.threadId in needsReply && !c.suspicious()) {
+                                Text(
+                                    "↩ Waiting on you  ",
+                                    style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                )
+                            }
                             if (c.suspicious()) {
                                 Text(
                                     "⚠ Possible scam  ",
@@ -340,6 +379,7 @@ private fun Empty(filter: Filter, query: String) {
     val (title, body) = when {
         query.isNotBlank() -> "Nothing matches \"$query\"" to "Try a name, a number or a word from the message."
         filter == Filter.UNREAD -> "All caught up" to "Nothing is waiting for you."
+        filter == Filter.NEEDS_REPLY -> "Nobody's waiting on you" to "Recent texts that ask you something show up here."
         filter == Filter.CODES -> "No codes" to "Login and verification codes show up here, with a Copy button."
         filter == Filter.UNKNOWN -> "No strangers" to "Texts from numbers not in your contacts land here."
         filter == Filter.SUSPICIOUS -> "Nothing fishy" to "Texts that look like scams (fake tolls, parcels, banks) show up here with a warning."

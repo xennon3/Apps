@@ -288,6 +288,54 @@ class SmsRepository(private val context: Context) {
         return out
     }
 
+    /**
+     * Texts that best match a set of search words: each word found in a message scores a
+     * point, and a word that names the conversation ("jen", "mom") scores two.
+     */
+    fun searchByWords(words: List<String>, titles: Map<Long, String>, limit: Int = 10): List<Hit> {
+        if (words.isEmpty()) return emptyList()
+        val score = HashMap<Long, Int>()
+        val hits = HashMap<Long, Hit>()
+        for (w in words) {
+            for (h in searchMessages(w, 60)) {
+                hits[h.id] = h
+                score[h.id] = (score[h.id] ?: 0) + 1
+            }
+        }
+        // A name on its own ("what did jen say") pulls in that conversation's latest texts.
+        for ((threadId, title) in titles) {
+            val named = words.filter { w -> title.lowercase().split(' ', ',').any { it == w } }
+            if (named.isEmpty()) continue
+            for (h in hits.values.filter { it.threadId == threadId }) score[h.id] = (score[h.id] ?: 0) + 2 * named.size
+            if (hits.values.none { it.threadId == threadId }) {
+                messages(threadId, 6).filter { it.key.startsWith("s") }.forEach { m ->
+                    val h = Hit(m.id, threadId, m.address, m.body, m.date)
+                    hits[h.id] = h; score[h.id] = 1
+                }
+            }
+        }
+        return hits.values.sortedWith(compareByDescending<Hit> { score[it.id] ?: 0 }.thenByDescending { it.date }).take(limit)
+    }
+
+    /** The newest text in a thread: (is it incoming, its key, body, date). */
+    data class Last(val incoming: Boolean, val key: String, val body: String, val date: Long, val address: String)
+
+    fun lastText(threadId: Long): Last? = runCatching {
+        resolver.query(
+            Telephony.Sms.CONTENT_URI, arrayOf("_id", "type", "body", "date", "address"),
+            "thread_id = ?", arrayOf(threadId.toString()), "date DESC LIMIT 1",
+        )?.use { c ->
+            if (!c.moveToFirst()) null
+            else Last(c.getInt(1) == Telephony.Sms.MESSAGE_TYPE_INBOX, "s" + c.getLong(0), c.getString(2).orEmpty(), c.getLong(3), c.getString(4).orEmpty())
+        }
+    }.getOrNull()
+
+    fun unreadCount(threadId: Long): Int = runCatching {
+        resolver.query(
+            Telephony.Sms.CONTENT_URI, arrayOf("_id"), "thread_id = ? AND read = 0 AND type = 1", arrayOf(threadId.toString()), null,
+        )?.use { it.count } ?: 0
+    }.getOrDefault(0)
+
     fun markRead(threadId: Long) {
         val values = ContentValues().apply { put("read", 1); put("seen", 1) }
         val where = "thread_id = ? AND read = 0"

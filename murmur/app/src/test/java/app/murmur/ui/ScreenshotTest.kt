@@ -40,20 +40,13 @@ class ScreenshotTest {
 
     @Test fun conversation() = paparazzi.snapshot { MurmurTheme { FakeThread("Can we talk about tonight?") } }
 
-    @Test fun heated() = paparazzi.snapshot { MurmurTheme { FakeThread("ARE YOU KIDDING ME?? You ALWAYS do this") } }
-
     @Test fun voiceAndScam() = paparazzi.snapshot { MurmurTheme { VoiceAndScam() } }
 
-    @Test fun brain() = paparazzi.snapshot {
-        MurmurTheme {
-            Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-                Spacer(Modifier.height(40.dp))
-                BrainCard()
-                Spacer(Modifier.weight(1f))
-                Composer(text = "seriously?? you never listen to me", onText = {}, enabled = true, onSend = {}, onSchedule = {}, onCalm = {})
-            }
-        }
+    @Test fun brainTab() = paparazzi.snapshot {
+        MurmurTheme { RootTabs(tab = Tab.BRAIN, onTab = {}, messages = {}, brain = { BrainChatScreen(onOpenThread = {}, onSettings = {}) }) }
     }
+
+    @Test fun planChip() = paparazzi.snapshot { MurmurTheme { PlanScene() } }
 
     @Test fun dualSimGroup() = paparazzi.snapshot { MurmurTheme { FakeThread("who's bringing chips?", dualSim = true) } }
 }
@@ -121,5 +114,17 @@ private fun VoiceAndScam() {
             text = "", onText = {}, enabled = true, onSend = {}, onSchedule = {},
             voice = { RecordingBar(14_000, 180_000, List(60) { i -> (kotlin.math.sin(i / 2.0).toFloat() + 1f) / 2f * (0.3f + (i % 7) / 10f) }, {}, {}); true },
         )
+    }
+}
+
+@Composable
+private fun PlanScene() {
+    val convo = Conversation(3, listOf("+15551234567"), "Maya Chen", null, "", NOW, false, true, false)
+    val m = Message("s1", 1, Box.IN, "+15551234567", "dinner friday at 7 at Luigi's? 🍝", NOW - 60_000, Delivery.NONE)
+    val plan = app.murmur.brain.BrainPrompts.Plan("Dinner", "friday at 7", "Luigi's")
+    val time = app.murmur.brain.PlanTime.resolve("friday at 7", NOW, "Dinner")!!
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(12.dp)) {
+        Spacer(Modifier.height(40.dp))
+        Bubble(Item.Msg(m, true, true), convo, "+15551234567", onLongPress = {}, plan = plan to time)
     }
 }

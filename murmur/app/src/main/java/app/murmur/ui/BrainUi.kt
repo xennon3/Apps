@@ -77,8 +77,8 @@ fun BrainCard() {
             Spacer(Modifier.height(8.dp))
             when (val s = state) {
                 Brain.State.Off -> Text(
-                    "Adds two things: a \"Calm it down\" rewrite when the heat meter goes red, and a second opinion on " +
-                        "texts that might be scams but don't trip the usual checks.",
+                    "Adds the Brain tab (chat, and questions about your texts), Catch me up summaries, Add to calendar " +
+                        "for plans in texts, a smarter Needs reply list, and a second opinion on possible scams.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 is Brain.State.Downloading -> {
@@ -158,9 +158,9 @@ fun BrainCard() {
     )
 }
 
-/** Writing speed is what you feel; a typical rewrite is about 20 tokens. */
+/** Writing speed is what you feel; two sentences are about 40 tokens. */
 private fun speedLabel(s: Brain.Speed): String {
-    val rewrite = s.firstWordSeconds + 20 / s.writePerSecond.coerceAtLeast(0.1f)
-    return "Writes %.1f tokens/s · reads %.0f tokens/s · loads in %.0fs on the %s.\nA calm rewrite takes about %.0f seconds once loaded."
-        .format(s.writePerSecond, s.readPerSecond, s.loadSeconds, if (s.gpu) "graphics chip" else "processor", rewrite)
+    val reply = s.firstWordSeconds + 40 / s.writePerSecond.coerceAtLeast(0.1f)
+    return "Writes %.1f tokens/s · reads %.0f tokens/s · loads in %.0fs on the %s.\nA two-sentence answer takes about %.0f seconds once loaded."
+        .format(s.writePerSecond, s.readPerSecond, s.loadSeconds, if (s.gpu) "graphics chip" else "processor", reply)
 }

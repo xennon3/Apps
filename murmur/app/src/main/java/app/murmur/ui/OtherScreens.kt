@@ -36,7 +36,7 @@ import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.GppMaybe
 import androidx.compose.material.icons.outlined.Key
-import androidx.compose.material.icons.outlined.LocalFireDepartment
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.automirrored.outlined.Undo
@@ -188,7 +188,7 @@ fun OnboardingScreen(
             Feature(Icons.AutoMirrored.Outlined.Undo, "Undo send", "Every text waits a few seconds before it leaves. Changed your mind? Pull it back.")
             Feature(Icons.Outlined.Schedule, "Send later", "Hold the send button to schedule. It goes out even if the app is closed.")
             Feature(Icons.Outlined.Bedtime, "Sleep on it", "Writing something heated at 2am? Murmur offers to send it at 8 instead.")
-            Feature(Icons.Outlined.LocalFireDepartment, "Heat meter", "The send button warms up as a message gets angrier, so you see it before they do.")
+            Feature(Icons.Outlined.AutoAwesome, "Murmur Brain", "An optional AI that stays on your phone: ask it about your texts, catch up on busy chats, add plans to your calendar.")
             Feature(Icons.Outlined.Key, "Codes, copied", "Login codes get a Copy button right in the notification.")
             Feature(Icons.Outlined.NotificationsActive, "Remind me to reply", "Snooze a conversation and Murmur nudges you later.")
             Feature(Icons.Outlined.Mic, "Voice notes", "Talk instead of type. Each note comes with a transcript anyone can read.")
@@ -267,7 +267,6 @@ fun SettingsScreen(isDefault: Boolean, onMakeDefault: () -> Unit, onBack: () -> 
     val prefs = remember { Prefs(context) }
     var undo by remember { mutableIntStateOf(prefs.undoSeconds) }
     var sleep by remember { mutableStateOf(prefs.sleepOnIt) }
-    var heat by remember { mutableStateOf(prefs.heatMeter) }
     var groupMms by remember { mutableStateOf(prefs.groupMms) }
 
     Scaffold(
@@ -311,11 +310,6 @@ fun SettingsScreen(isDefault: Boolean, onMakeDefault: () -> Unit, onBack: () -> 
                 trailingContent = { Switch(sleep, { sleep = it; prefs.sleepOnIt = it }) },
             )
             ListItem(
-                headlineContent = { Text("Heat meter") },
-                supportingContent = { Text("Warm the send button when a message reads angry. Checked on the phone, never uploaded.") },
-                trailingContent = { Switch(heat, { heat = it; prefs.heatMeter = it }) },
-            )
-            ListItem(
                 headlineContent = { Text("Group chats") },
                 supportingContent = {
                     Text(
@@ -355,7 +349,7 @@ fun SettingsScreen(isDefault: Boolean, onMakeDefault: () -> Unit, onBack: () -> 
                 },
             )
             Text(
-                "Murmur 1.3.2 · texts, codes and drafts never leave this phone.",
+                "Murmur 1.4 · texts, codes and drafts never leave this phone.",
                 Modifier.padding(16.dp).navigationBarsPadding(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
