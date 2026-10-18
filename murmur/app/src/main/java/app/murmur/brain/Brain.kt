@@ -13,6 +13,7 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.ToolProvider
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.benchmark
@@ -220,7 +221,7 @@ object Brain {
                     EngineConfig(
                         modelPath = modelFile(context).path,
                         backend = if (gpu) Backend.GPU() else Backend.CPU(),
-                        maxNumTokens = 2048, // room for a chat history plus the texts found for a question
+                        maxNumTokens = 4096, // room for chat history, found texts, tool descriptions and web results
                         cacheDir = context.cacheDir.path,
                     ),
                 ).also { it.initialize() }
@@ -272,6 +273,8 @@ object Brain {
         examples: List<Pair<String, String>> = emptyList(),
         /** Called with the answer so far as each word arrives (from a background thread). */
         onPartial: ((String) -> Unit)? = null,
+        /** Tools the model may call on its own (web search, calculator, MCP…); results feed back in. */
+        tools: List<ToolProvider> = emptyList(),
     ): String? {
         val c = context.applicationContext
         if (!ready(c)) return null
@@ -291,6 +294,8 @@ object Brain {
                             },
                             samplerConfig = SamplerConfig(topK = 40, topP = 0.9, temperature = temperature, seed = 7),
                             maxOutputToken = maxTokens,
+                            tools = tools,
+                            automaticToolCalling = tools.isNotEmpty(),
                         ),
                     )
                     try {
@@ -369,6 +374,12 @@ object Brain {
         context: Context, history: List<Pair<String, String>>, prompt: String, system: String,
         onPartial: (String) -> Unit,
     ): String? = ask(context, system, prompt, maxTokens = 320, temperature = 0.6, examples = history, onPartial = onPartial)
+
+    /** A general question with tools available: the model decides which (if any) to call. */
+    suspend fun chatWithTools(
+        context: Context, history: List<Pair<String, String>>, prompt: String, system: String,
+        box: app.murmur.brain.tools.Toolbox, onPartial: (String) -> Unit,
+    ): String? = ask(context, system, prompt, maxTokens = 400, temperature = 0.3, examples = history, onPartial = onPartial, tools = box.providers())
 
     /** Who and what for "text mom I'm running late": the model words it, plain code is the fallback. */
     suspend fun draftSend(context: Context, request: String): BrainPrompts.SendDraft? =

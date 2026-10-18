@@ -1,6 +1,13 @@
 package app.murmur.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.outlined.Public
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -71,7 +78,8 @@ private val suggestions = listOf(
     "Text Mom that I'm running late",
     "Am I free Friday night?",
     "Remember that my sister is Priya",
-    "Give me 3 quick dinner ideas",
+    "What's 18% tip on $64.50?",
+    "Will it rain tomorrow?",
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -82,6 +90,7 @@ fun BrainChatScreen(onOpenThread: (Long) -> Unit, onSettings: () -> Unit) {
     val state by Brain.state.collectAsState()
     val turns by BrainChat.turns.collectAsState()
     val step by BrainChat.step.collectAsState()
+    val activity by BrainChat.activity.collectAsState()
     var input by rememberSaveable { mutableStateOf("") }
     val list = rememberLazyListState()
     val scheme = MaterialTheme.colorScheme
@@ -176,7 +185,8 @@ fun BrainChatScreen(onOpenThread: (Long) -> Unit, onSettings: () -> Unit) {
                                     Icon(Icons.Outlined.Search, null, Modifier.size(12.dp), tint = scheme.onSurfaceVariant)
                                     Spacer(Modifier.width(4.dp))
                                     Text(
-                                        "Looked in your texts for: " + t.searched.joinToString(", "),
+                                        (if (t.web.isNotEmpty() || t.used.contains("Web search")) "Searched the web for: " else "Looked in your texts for: ") +
+                                            t.searched.joinToString(", "),
                                         style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant,
                                     )
                                 }
@@ -188,15 +198,32 @@ fun BrainChatScreen(onOpenThread: (Long) -> Unit, onSettings: () -> Unit) {
                                     )
                                 }
                                 t.send?.let { card -> SendCardView(i, card) }
+                                if (t.web.isNotEmpty() && !t.writing) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
+                                    t.web.take(4).forEach { w ->
+                                        AssistChip(
+                                            onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(w.url))) } },
+                                            label = { Text(w.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                            leadingIcon = { Icon(Icons.Outlined.Public, null, Modifier.size(14.dp)) },
+                                            modifier = Modifier.widthIn(max = 220.dp),
+                                        )
+                                    }
+                                }
+                                if (!t.writing && t.send == null && t.text.length > 40) Text(
+                                    "Copy",
+                                    Modifier.padding(top = 2.dp).clip(RoundedCornerShape(8.dp)).clickable {
+                                        context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Murmur Brain", t.text))
+                                    }.padding(6.dp),
+                                    style = MaterialTheme.typography.labelSmall, color = scheme.primary,
+                                )
                                 if (t.sources.isNotEmpty() && !t.writing) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
                                     t.sources.forEach { s -> AssistChip(onClick = { onOpenThread(s.threadId) }, label = { Text(s.label) }) }
                                 }
                             }
                         }
                     }
-                    if (i == turns.lastIndex && step != BrainChat.Step.IDLE && step != BrainChat.Step.WRITING) {
+                    if (i == turns.lastIndex && step != BrainChat.Step.IDLE && (step != BrainChat.Step.WRITING || activity != null)) {
                         Text(
-                            if (step == BrainChat.Step.SEARCHING) "Looking through your texts…" else "Thinking…",
+                            activity ?: if (step == BrainChat.Step.SEARCHING) "Looking through your texts…" else "Thinking…",
                             Modifier.padding(start = 36.dp, top = 8.dp),
                             style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = scheme.onSurfaceVariant,
                         )

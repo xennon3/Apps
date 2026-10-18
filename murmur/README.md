@@ -24,6 +24,10 @@ A texting app for Android that replaces your phone's default SMS app. It does wh
   - **Send texts from the chat.** "Text Mom that I'm running late", "let the landlord know the sink is fixed", "text Jake where I am". Murmur shows a card with who it's for, the message to edit, other people the name could mean, and **Send**, **Schedule** or **Cancel**. Nothing goes out until you tap, and sends still use the undo window. Plain code decides that it's a send request; the model only words the text.
   - **Phone access (each off until you turn it on in Settings):** Calendar ("am I free Friday night?"), Contact details (numbers, emails, birthdays), Call history ("did Mom call today?") and Location (for "where I am" texts). Each is read on the phone and only when a question needs it.
   - **Memory.** Say "remember that my sister is Priya" or "forget …", or edit the list in Settings. Memory goes into every chat and helps with sending, so "text my sister" finds Priya. There's also a "How Murmur Brain talks" setting.
+  - **Tools.** For general questions the model can call tools on its own, using Gemma 4's built-in tool calling through LiteRT-LM. A calculator and a clock are always available, since small models get arithmetic wrong.
+  - **Web lookups (off by default).** Turn them on in Settings and the Brain can search the web (Brave Search, with your own free API key), look things up on Wikipedia, check the weather (Open-Meteo), convert currencies (Frankfurter), and read a link you paste. Only the search words the Brain writes go online, never your texts, memory or contacts. Answers say what was searched and link their sources.
+  - **Skills.** Instruction packs that switch on when a question matches, the way Claude's skills work: cooking, bill splitting (always with the calculator), translation, message polishing and gift ideas. You can write your own in Settings with a name, trigger words and instructions.
+  - **MCP servers (experimental).** Add a remote MCP server by URL (plus a token if it needs one), and its tools are offered to the Brain, up to 8. Servers that run as programs on a computer can't run on a phone. Tested against DeepWiki (`https://mcp.deepwiki.com/mcp`), which needs no sign-in.
   - **This chat panel.** The ✨ button in any conversation shows what the Brain found (upcoming plans, with Add buttons), what it's reading right now, **Catch me up**, and **Ask about this chat**.
   - **Add to calendar.** A text with a plan ("dinner friday at 7 at Luigi's?") gets a chip that opens your calendar app with the title, time and place filled in. The model picks out the plan, and plain code works out the date, because small models are bad at calendar arithmetic.
   - **Catch me up.** Opening a chat with 8 or more new messages offers a three-bullet summary of what was decided, what's still open and what was asked of you. It's also in the menu of any conversation.
@@ -87,6 +91,9 @@ APKs are signed with `app/sideload.keystore` (password `murmur`), a throwaway ke
 - `brain/`
   - `Brain`: downloads, loads and runs the model through LiteRT-LM.
   - `BrainChat`: the Brain tab. It handles remember/forget, send requests (with `Recipients` resolving "my sister"), and answers from texts, memory and phone data.
+  - `tools/`: the tools (`Tools.kt`), the MCP client (`Mcp.kt`) and their bridge to the engine (`Toolbox.kt`). This is plain Kotlin, tested against the real model and a live MCP server on a computer.
+  - `Skills`, `Extensions`: skills, web and MCP settings, and which tools a question gets.
+  - `Calc`: the calculator.
   - `PhoneData`: reads calendar, calls, contact details and location, only when switched on (`BrainAccess`). It also holds `BrainMemory`.
   - `PlanTime`: turns "friday at 7" into a date.
   - `BrainPrompts`: what Murmur asks it and how the answers are read. This is plain Kotlin, so the same prompts can be tried against the model on a computer.
@@ -109,3 +116,12 @@ Before shipping, I ran Murmur's real prompts on a computer (LiteRT-LM's JVM buil
 ### A crash only testing found
 
 Testing the send prompts showed that any emoji sent to the engine (🍝, 🎉) aborts the whole app: LiteRT-LM mishandles 4-byte characters passed in from Kotlin. Accented letters are fine. Murmur now strips those characters from everything it hands the model (`BrainPrompts.engineSafe`). The model still writes emoji in its replies; only input is filtered.
+
+### Tool testing (Gemma 4 E2B, desktop CPU)
+
+- **Tool choice:** 13 of 13 right (calculator, weather, exchange rates, web search, Wikipedia, clock), including using no tool for chat, jokes and recipes.
+- **Tools return finished sentences, never raw data.** Given raw JSON, the model "converted" $50 to €2,221 by applying the rate twice. A sentence fixed it.
+- **Skills are worded as guidance, not by name.** Given a named skill, the model told the user "the gift ideas tool isn't working".
+- **MCP:** connected to DeepWiki live, listed its 3 tools, and answered a question about a GitHub project through them. Page reading worked on a real page.
+- **Known limit:** translations into less common languages, such as Japanese, can be wrong. A 2-billion-parameter model is shaky outside English and big European languages.
+- **Speed:** lookups took 5 to 40 seconds on the desktop. Expect longer on a phone. A status line shows what the Brain is doing.

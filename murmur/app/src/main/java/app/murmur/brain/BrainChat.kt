@@ -44,6 +44,8 @@ object BrainChat {
         /** What else it looked at, e.g. "Calendar", "Memory". */
         val used: List<String> = emptyList(),
         val send: SendCard? = null,
+        /** Web pages an answer came from. */
+        val web: List<app.murmur.brain.tools.WebSource> = emptyList(),
     )
 
     enum class Step { IDLE, DECIDING, SEARCHING, WRITING }
@@ -53,6 +55,10 @@ object BrainChat {
 
     private val _step = MutableStateFlow(Step.IDLE)
     val step: StateFlow<Step> = _step
+
+    /** What a tool is doing right now, e.g. "Web search…", for the status line. */
+    private val _activity = MutableStateFlow<String?>(null)
+    val activity: StateFlow<String?> = _activity
 
     private var loaded = false
     private var job: Job? = null
@@ -74,6 +80,7 @@ object BrainChat {
                     o.optJSONArray("q")?.let { q -> List(q.length()) { q.getString(it) } }.orEmpty(),
                     o.optJSONArray("s")?.let { s -> List(s.length()) { s.getJSONObject(it).let { x -> Source(x.getLong("id"), x.getString("l")) } } }.orEmpty(),
                     used = o.optJSONArray("w")?.let { w -> List(w.length()) { w.getString(it) } }.orEmpty(),
+                    web = o.optJSONArray("web")?.let { w -> List(w.length()) { w.getJSONObject(it).let { x -> app.murmur.brain.tools.WebSource(x.getString("t"), x.getString("u")) } } }.orEmpty(),
                     send = o.optJSONObject("send")?.let { x ->
                         SendCard(x.getString("n"), x.getString("p"), x.getString("m"), SendState.valueOf(x.getString("st")), x.optLong("at"))
                             .let { if (it.state == SendState.WAITING) it.copy(state = SendState.CANCELLED) else it } // don't resurrect old drafts
@@ -91,6 +98,7 @@ object BrainChat {
                 if (t.searched.isNotEmpty()) put("q", JSONArray(t.searched))
                 if (t.sources.isNotEmpty()) put("s", JSONArray(t.sources.map { JSONObject().put("id", it.threadId).put("l", it.label) }))
                 if (t.used.isNotEmpty()) put("w", JSONArray(t.used))
+                if (t.web.isNotEmpty()) put("web", JSONArray(t.web.map { JSONObject().put("t", it.title).put("u", it.url) }))
                 t.send?.let { put("send", JSONObject().put("n", it.name).put("p", it.number).put("m", it.message).put("st", it.state.name).put("at", it.at)) }
             })
         }
@@ -150,7 +158,15 @@ object BrainChat {
         if (BrainPrompts.asksCalls(q)) PhoneData.calls(c).takeIf { it.isNotEmpty() }?.let { blocks += it; used += "Call history" }
         if (BrainPrompts.asksContact(q)) PhoneData.contacts(c, q, titles.values).takeIf { it.isNotEmpty() }?.let { blocks += it; used += "Contacts" }
 
-        val useTexts = used.isEmpty() && (BrainPrompts.mentionsTexts(q, titles.values) || Brain.needsMessages(c, q))
+        val skills = Skills.match(q, SkillStore.active(c))
+        if (skills.isNotEmpty()) { blocks += Skills.block(skills); used += skills.map { it.name + " skill" } }
+
+        val useTexts = used.none { it in setOf("Calendar", "Call history", "Contacts") } &&
+            (BrainPrompts.mentionsTexts(q, titles.values) || Brain.needsMessages(c, q))
+        if (!useTexts && used.none { it in setOf("Calendar", "Call history", "Contacts") }) {
+            answerWithTools(c, q, history, blocks, used, facts.isNotEmpty())
+            return
+        }
         var prompt = q
         var searched = emptyList<String>()
         var sources = emptyList<Source>()
@@ -179,6 +195,34 @@ object BrainChat {
             if (text.isNullOrBlank()) start.copy(text = "Sorry, I couldn't think of an answer. Murmur Brain may still be loading. Try again in a moment.", sources = emptyList(), writing = false)
             else start.copy(text = text, writing = false),
         )
+        save(c)
+    }
+
+    /**
+     * A general question: the model may call tools on its own (calculator, clock, and if switched on
+     * web search, Wikipedia, weather, exchange rates, reading a link, and MCP servers).
+     */
+    private suspend fun answerWithTools(c: Context, q: String, history: List<Pair<String, String>>, blocks: List<String>, used: MutableList<String>, hasMemory: Boolean) {
+        _step.value = Step.WRITING
+        val tools = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { BrainTools.forQuestion(c) }
+        val box = app.murmur.brain.tools.Toolbox(tools) { label -> _activity.value = "$label…" }
+        val canLookUp = tools.any { it.name == "web_search" || it.name == "wikipedia" }
+        val system = BrainPrompts.system(BrainPrompts.toolsSystem(canLookUp), BrainMemory.persona(c), blocks)
+        if (hasMemory) used += "Memory"
+        val start = Turn(false, "", writing = true, used = used.toList())
+        _turns.value = _turns.value + start
+        try {
+            val text = Brain.chatWithTools(c, history, q, system, box) { partial -> replaceLast(start.copy(text = partial, used = (used + box.labels).distinct())) }
+            replaceLast(
+                start.copy(
+                    text = text?.takeIf { it.isNotBlank() } ?: "Sorry, I couldn't think of an answer. Murmur Brain may still be loading. Try again in a moment.",
+                    writing = false, used = (used + box.labels).distinct(), web = box.sources.toList(),
+                    searched = box.log.filter { it.startsWith("Web search: ") }.map { it.removePrefix("Web search: ") },
+                ),
+            )
+        } finally {
+            _activity.value = null
+        }
         save(c)
     }
 

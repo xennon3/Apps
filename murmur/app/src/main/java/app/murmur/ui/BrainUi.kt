@@ -11,6 +11,13 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.key
 import app.murmur.brain.BrainAccess
 import app.murmur.brain.BrainMemory
+import app.murmur.brain.BrainWeb
+import app.murmur.brain.McpRegistry
+import app.murmur.brain.McpStore
+import app.murmur.brain.SkillStore
+import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -261,4 +268,168 @@ fun BrainExtras() {
         modifier = Modifier.fillMaxWidth().padding(16.dp, 4.dp),
         minLines = 2,
     )
+}
+
+/** Web lookups (Brave key), skills, and MCP servers. */
+@Composable
+fun BrainToolsSettings() {
+    val context = LocalContext.current
+    val scheme = MaterialTheme.colorScheme
+    val scope = rememberCoroutineScope()
+
+    // ---------- web
+    Text("Web lookups", Modifier.padding(16.dp, 20.dp, 16.dp, 4.dp), style = MaterialTheme.typography.titleSmall, color = scheme.primary)
+    var webOn by remember { mutableStateOf(BrainWeb.on(context)) }
+    var key by remember { mutableStateOf(BrainWeb.braveKey(context)) }
+    var keyStatus by remember { mutableStateOf<String?>(null) }
+    ListItem(
+        headlineContent = { Text("Let Murmur Brain look things up") },
+        supportingContent = {
+            Text(
+                "News, scores, opening hours, weather, exchange rates, Wikipedia, and reading links you paste. " +
+                    "Only the search words the Brain writes go online, never your texts, memory or contacts, and every answer " +
+                    "that used the web says so.",
+            )
+        },
+        trailingContent = { Switch(webOn, { webOn = it; BrainWeb.setOn(context, it) }) },
+    )
+    if (webOn) {
+        Column(Modifier.padding(16.dp, 0.dp)) {
+            Text(
+                "General web search uses Brave Search with your own free key. Without one, the Brain can still use Wikipedia, " +
+                    "weather, exchange rates and links.",
+                style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
+            )
+            OutlinedTextField(
+                value = key, onValueChange = { key = it; BrainWeb.setBraveKey(context, it); keyStatus = null },
+                label = { Text("Brave Search API key") }, singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = {
+                    runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(BrainWeb.BRAVE_SIGNUP))) }
+                }) { Text("Get a free key") }
+                TextButton(enabled = key.isNotBlank(), onClick = {
+                    keyStatus = "Testing…"
+                    scope.launch {
+                        keyStatus = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            runCatching {
+                                val r = app.murmur.brain.tools.WebSearchTool(key).run(com.google.gson.JsonObject().apply { addProperty("query", "weather") })
+                                if (r.sources.isNotEmpty()) "✓ Works" else "Connected, but no results came back"
+                            }.getOrElse { "Didn't work: ${it.message}. Check the key." }
+                        }
+                    }
+                }) { Text("Test key") }
+                keyStatus?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = if (it.startsWith("✓")) scheme.primary else scheme.error) }
+            }
+        }
+    }
+
+    // ---------- skills
+    Text("Skills", Modifier.padding(16.dp, 20.dp, 16.dp, 4.dp), style = MaterialTheme.typography.titleSmall, color = scheme.primary)
+    Text(
+        "Instruction packs the Brain switches on when a question matches, like \"split the bill\" or \"translate this\". " +
+            "Write your own for anything you ask often.",
+        Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
+    )
+    var skillTick by remember { mutableStateOf(0) }
+    var newSkill by remember { mutableStateOf(false) }
+    key(skillTick) {
+        SkillStore.all(context).forEach { s ->
+            ListItem(
+                headlineContent = { Text(s.name) },
+                supportingContent = { Text("When you say: " + s.triggers.take(5).joinToString(", "), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                trailingContent = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (!s.builtIn) IconButton(onClick = { SkillStore.removeCustom(context, s); skillTick++ }) { Icon(Icons.Outlined.Close, "Delete skill") }
+                        Switch(SkillStore.enabled(context, s), { SkillStore.setEnabled(context, s, it); skillTick++ })
+                    }
+                },
+            )
+        }
+    }
+    TextButton(onClick = { newSkill = true }, modifier = Modifier.padding(horizontal = 8.dp)) { Text("+ Write a skill") }
+    if (newSkill) {
+        var name by remember { mutableStateOf("") }
+        var triggers by remember { mutableStateOf("") }
+        var text by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { newSkill = false },
+            title = { Text("New skill") },
+            text = {
+                Column {
+                    OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, placeholder = { Text("Workout coach") })
+                    OutlinedTextField(triggers, { triggers = it }, label = { Text("Switch on when I say (comma-separated)") }, placeholder = { Text("workout, gym, exercise") })
+                    OutlinedTextField(text, { text = it }, label = { Text("Instructions") }, minLines = 3, placeholder = { Text("Suggest a 20-minute routine with no equipment, as a short list.") })
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = name.isNotBlank() && triggers.isNotBlank() && text.isNotBlank(), onClick = {
+                    SkillStore.addCustom(context, name, triggers, text); newSkill = false; skillTick++
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { newSkill = false }) { Text("Cancel") } },
+        )
+    }
+
+    // ---------- MCP
+    Text("MCP servers (experimental)", Modifier.padding(16.dp, 20.dp, 16.dp, 4.dp), style = MaterialTheme.typography.titleSmall, color = scheme.primary)
+    Text(
+        "Connect remote MCP servers by URL and the Brain can use their tools. Servers that run as programs on a computer " +
+            "can't run on a phone, and many need a sign-in. The Brain handles about 8 tools well, so only the first 8 are offered. " +
+            "Questions you ask that use these tools are sent to that server.",
+        Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
+    )
+    var mcpTick by remember { mutableStateOf(0) }
+    var adding by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    key(mcpTick) {
+        McpStore.list(context).forEach { e ->
+            ListItem(
+                headlineContent = { Text(e.url.removePrefix("https://"), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                supportingContent = { Text(status[e.url] ?: "Tap Check to connect and list its tools") },
+                trailingContent = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = {
+                            status = status + (e.url to "Connecting…")
+                            scope.launch {
+                                val s = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    runCatching { McpRegistry.connect(e).let { t -> "✓ ${t.size} tools: " + t.joinToString(", ") { it.name } } }
+                                        .getOrElse { "Couldn't connect: ${it.message}" }
+                                }
+                                status = status + (e.url to s)
+                            }
+                        }) { Text("Check") }
+                        IconButton(onClick = { McpStore.remove(context, e.url); mcpTick++ }) { Icon(Icons.Outlined.Close, "Remove server") }
+                    }
+                },
+            )
+        }
+    }
+    TextButton(onClick = { adding = true }, modifier = Modifier.padding(horizontal = 8.dp)) { Text("+ Add MCP server") }
+    if (adding) {
+        var url by remember { mutableStateOf("https://") }
+        var token by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { adding = false },
+            title = { Text("Add MCP server") },
+            text = {
+                Column {
+                    OutlinedTextField(url, { url = it }, label = { Text("Server URL") }, singleLine = true)
+                    OutlinedTextField(token, { token = it }, label = { Text("Token (if it needs one)") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+                    Text(
+                        "Try https://mcp.deepwiki.com/mcp: it explains any public GitHub project, no sign-in needed.",
+                        style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = url.startsWith("https://") && url.length > 10, onClick = {
+                    McpStore.add(context, url, token); adding = false; mcpTick++
+                }) { Text("Add") }
+            },
+            dismissButton = { TextButton(onClick = { adding = false }) { Text("Cancel") } },
+        )
+    }
 }

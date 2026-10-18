@@ -290,7 +290,7 @@ fun SettingsScreen(isDefault: Boolean, onMakeDefault: () -> Unit, onBack: () -> 
                 },
             )
             BrainCard()
-            if (Brain.enabled(context)) BrainExtras()
+            if (Brain.enabled(context)) { BrainExtras(); BrainToolsSettings() }
             ListItem(
                 headlineContent = { Text("Undo window") },
                 supportingContent = {
@@ -351,7 +351,7 @@ fun SettingsScreen(isDefault: Boolean, onMakeDefault: () -> Unit, onBack: () -> 
                 },
             )
             Text(
-                "Murmur 1.5 · texts, codes and drafts never leave this phone.",
+                "Murmur 1.6 · texts, codes and drafts never leave this phone.",
                 Modifier.padding(16.dp).navigationBarsPadding(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

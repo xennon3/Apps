@@ -77,6 +77,21 @@ object BrainPrompts {
         if (found.isEmpty()) "No matching text messages were found.\n\nQuestion: $question"
         else "Text messages that might help:\n" + found.joinToString("\n") + "\n\nQuestion: $question"
 
+    // ================================================================ tools
+
+    /**
+     * The system prompt when tools are available. Tested on Gemma 4 E2B: it picked the right tool
+     * (or none) for 13 of 13 questions. Lookup advice is only given when lookups are switched on.
+     */
+    fun toolsSystem(canLookUp: Boolean): String =
+        "You are Murmur, a friendly assistant inside a texting app on the user's phone. Most questions need no tool: " +
+            "just answer. Use a tool only when it helps, and never talk to the user about tools. For any math, use calculate. " +
+            (if (canLookUp) "You don't know anything recent: for news, sports results, prices, opening hours, events or " +
+                "anything that changes, use web_search. For facts about the world you aren't sure of, look them up " +
+                "instead of guessing. When you used the web, say where the answer came from. "
+            else "You can't browse the web; if asked for recent news, prices or opening hours, say web lookups are off in Settings. ") +
+            "Keep answers short."
+
     // ================================================================ sending texts from the chat
 
     /** Plain code decides it's a send request; the model only words it. */
@@ -250,6 +265,7 @@ object BrainPrompts {
     /** Small models sometimes leave reasoning tags or wrapping quotes; strip them. */
     fun clean(raw: String): String =
         raw.replace(Regex("(?s)<think>.*?</think>"), "")
+            .replace(Regex("^\\s*(\\*\\*)?Murmur:?(\\*\\*)?:?\\s*"), "")
             .replace("<think>", "").replace("</think>", "")
             .trim().trim('"', '“', '”').trim()
 
