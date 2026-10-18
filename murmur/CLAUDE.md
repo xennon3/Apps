@@ -1,0 +1,60 @@
+# Murmur: notes for the next session
+
+Murmur is a native Android SMS/MMS app (Kotlin, Jetpack Compose, minSdk 26, targetSdk 35) that replaces the default messaging app. It includes **Murmur Brain**, an optional on-device AI (Gemma 4 E2B through LiteRT-LM). `README.md` is the feature list. This file is how to work on it.
+
+## The user
+- They test on a **Moto G Stylus** (Snapdragon 6 Gen 3, 8 GB RAM). The Brain's speed test there showed about **6.6 tokens/s writing**.
+- They install APKs by sideloading. Android 13+ needs "Allow restricted settings" before the SMS role can be granted, and that's already done on their phone.
+- Their preferences: creative ideas, direct answers, and quick research before deciding.
+- Each release: bump `versionCode`/`versionName` in `app/build.gradle.kts` and the "Murmur x.y" line in `ui/OtherScreens.kt`. Build the release APK and send it to them. Commit and push to the session branch.
+- Current version: **1.6** (versionCode 10).
+
+## Build and check (all must pass before shipping)
+```sh
+export ANDROID_HOME=/opt/android-sdk   # install cmdline-tools + platforms;android-35 + build-tools;35.0.0 if missing
+./gradlew assembleRelease lintDebug testDebugUnitTest recordPaparazziDebug
+```
+- Unit tests cover the MMS codec, scam shield, repeats, calculator, date phrases, Brain prompt parsers, tools and MCP parsing.
+- Paparazzi renders screens to `app/src/test/snapshots/images/`. Look at them; they caught real colour bugs.
+- No emulator works here (no KVM). The phone is the only real device test.
+- `brainlab/` runs the real prompts against the real model on the desktop (see its README). **Any prompt change gets checked there first.**
+- CI: `.github/workflows/murmur-android.yml` builds the APK and updates the `murmur-latest` GitHub release.
+- Signing: `app/sideload.keystore` (password `murmur`) is a throwaway key so updates install over each other.
+
+## Map
+- `data/`: `SmsRepository` (Telephony provider, contacts, search), `PendingStore` (undo/scheduled/repeating sends, SQLite v3), `Prefs`, `Vibes` (codes, segments, the late-night anger check for "sleep on it"), `ScamShield`, `Repeat`, `Sims`.
+- `sms/`: `Outbox` is the only way a message leaves. It waits for the undo window or schedule, then fires via alarm or coroutine; SMS or MMS. Plus `SmsSender` and the receivers.
+- `mms/`: `Pdu` is the hand-written OMA MMS codec. `Mms` does sending, downloading and storing through Android's MMS service, with a FileProvider.
+- `voice/`: AMR voice notes: recording, playback with raise-to-ear, and transcription via SpeechRecognizer.
+- `brain/`:
+  - `Brain` (engine, download, `ask()`)
+  - `BrainChat` (the Brain tab pipeline)
+  - `BrainPrompts` (every prompt and parser; plain Kotlin)
+  - `PlanTime`, `Calc`, `Skills`, `Extensions` (web/skills/MCP settings and the tool list)
+  - `PhoneData` (calendar/calls/contacts/location, `BrainAccess`, `BrainMemory`)
+  - `tools/` (tools, MCP client and LiteRT bridge; plain Kotlin)
+- `CrashReport`: records Kotlin crashes, plus `ApplicationExitInfo` for native crashes and memory kills. Shown with **Copy details**; ask the user for these.
+
+## Hard-won rules (each one came from a real bug)
+- **Never send characters outside Unicode's basic plane (emoji) to LiteRT-LM.** It aborts the whole process. Everything goes through `BrainPrompts.engineSafe`.
+- **Brain requests must not be cancellable mid-flight.** `ask()` runs under `NonCancellable`. A cancelled load leaked a 2.6 GB engine and the app was killed for memory.
+- **Plain code decides, the model words it.** Send requests, remember/forget, which phone data to read, date maths (`PlanTime`) and arithmetic (`Calc`) are code. The model extracts, words and chooses tools.
+- **Tools return finished sentences, never raw JSON.** With raw JSON the model applied an exchange rate twice.
+- **Skills are worded as guidance, not by name.** A named skill was taken for a tool.
+- **Small models follow examples, not rules.** Use example chat turns (`initialMessages`); one-shot instructions failed.
+- **Don't store a model "no" when the model simply failed** (`Brain.planCheck` returns null to mean "retry later").
+- **Kotlin 2.3.21 is required** because the LiteRT-LM 0.18 jar has Kotlin 2.4 metadata. Native libraries are arm64 only.
+- **Murmur has the INTERNET permission** only because DownloadManager requires it for the model. Messages never go online. Web lookups (off by default) send only the model's search words.
+- **Qwen models were rejected.** Qwen3 0.6B and Qwen2.5 1.5B were too weak, and Qwen's bundled chat template breaks in LiteRT-LM. Gemma 4 E2B scored 8/8 on scam checks and 13/13 on tool choice.
+
+## Untested on a real phone (ask the user)
+- **1.6 features:** web lookups with their Brave key, skills, MCP via DeepWiki, the status line, speed of tool answers.
+- **Earlier features:** picture/group MMS with their carrier, voice-note transcription, graphics-chip (GPU) Brain backend.
+
+## Ideas not built yet
+- A "Needs reply" home-screen widget.
+- Reply suggestions in the user's style.
+- Polls in group chats.
+- "One year ago today".
+- Arrival texts (geofence).
+- The graphics-chip-specific Gemma file (`gemma-4-E2B-it-gpu.litertlm`, 2.0 GB) if the CPU feels slow.
