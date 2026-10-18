@@ -136,8 +136,8 @@ fun BrainCard() {
             Column {
                 Text(
                     "Murmur will download ${Brain.MODEL.name}, Google's open AI model, once (${Brain.MODEL.sizeLabel}, so Wi-Fi is best). After that it works with " +
-                        "no connection, and your messages never leave the phone. Android's download manager fetches " +
-                        "it, so Murmur itself still has no internet access.",
+                        "no connection, and your messages never leave the phone. This download is the only thing " +
+                        "Murmur ever uses the internet for.",
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(mobileData, { mobileData = it })

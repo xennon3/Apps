@@ -4,6 +4,7 @@ import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
+import android.util.Log
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
@@ -27,8 +28,8 @@ import java.io.File
 
 /**
  * Murmur Brain: a small language model (see [MODEL]) that runs entirely on
- * the phone through Google's LiteRT-LM. Murmur has no internet permission, so the model
- * is fetched once by Android's own download manager, and everything after that is local.
+ * the phone through Google's LiteRT-LM. The model is fetched once by Android's download
+ * manager (the only thing Murmur uses the internet for), and everything after that is local.
  */
 object Brain {
 
@@ -101,15 +102,22 @@ object Brain {
         if (ready(c)) { _state.value = State.Ready; return }
         modelFile(c).delete()
         val dm = c.getSystemService(DownloadManager::class.java)
-        val id = dm.enqueue(
-            DownloadManager.Request(Uri.parse(MODEL.url))
-                .setTitle("Murmur Brain")
-                .setDescription("${MODEL.name} language model, ${MODEL.sizeLabel}")
-                .setDestinationInExternalFilesDir(c, Environment.DIRECTORY_DOWNLOADS, MODEL.file)
-                .setAllowedOverMetered(allowMobileData)
-                .setAllowedOverRoaming(false)
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE),
-        )
+        val id = try {
+            dm.enqueue(
+                DownloadManager.Request(Uri.parse(MODEL.url))
+                    .setTitle("Murmur Brain")
+                    .setDescription("${MODEL.name} language model, ${MODEL.sizeLabel}")
+                    .setDestinationInExternalFilesDir(c, Environment.DIRECTORY_DOWNLOADS, MODEL.file)
+                    .setAllowedOverMetered(allowMobileData)
+                    .setAllowedOverRoaming(false)
+                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE),
+            )
+        } catch (e: Exception) {
+            // Never let a refused download take the app down; say what happened instead.
+            Log.w("MurmurBrain", "download refused", e)
+            _state.value = State.Failed("Android wouldn't start the download (${e.javaClass.simpleName}). Try again")
+            return
+        }
         prefs(c).edit().putLong("download", id).apply()
         _state.value = State.Downloading(0f, false)
         watch(c)
@@ -117,7 +125,9 @@ object Brain {
 
     fun turnOff(context: Context) {
         val c = context.applicationContext
-        prefs(c).getLong("download", -1).takeIf { it >= 0 }?.let { c.getSystemService(DownloadManager::class.java).remove(it) }
+        prefs(c).getLong("download", -1).takeIf { it >= 0 }?.let { id ->
+            runCatching { c.getSystemService(DownloadManager::class.java).remove(id) }
+        }
         prefs(c).edit().clear().apply()
         MurmurApp.scope.launch { unload() }
         modelFile(c).delete()
@@ -134,7 +144,7 @@ object Brain {
             while (true) {
                 val id = prefs(c).getLong("download", -1)
                 if (id < 0) return@launch
-                val row = dm.query(DownloadManager.Query().setFilterById(id))?.use { cur ->
+                val row = runCatching { dm.query(DownloadManager.Query().setFilterById(id)) }.getOrNull()?.use { cur ->
                     if (!cur.moveToFirst()) null
                     else Triple(
                         cur.getInt(cur.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)),

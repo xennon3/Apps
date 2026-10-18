@@ -20,7 +20,7 @@ A texting app for Android that replaces your phone's default SMS app. It does wh
 - **Voice notes.** Tap the mic (it shows when the message box is empty), talk, tap stop. Listen back before sending, and fix the transcript Android writes on the phone (Android 13+). The transcript goes with the note, so anyone can read it instead of listening. Notes are AMR audio, which any phone, iPhones included, can play, and about 3 minutes fit a standard MMS. When playing, tap the waveform to jump, change speed (1×, 1.5×, 2×), or raise the phone to your ear to hear it through the earpiece. Received notes without a transcript get a "Show transcript" button.
 - **Scam shield.** Murmur flags texts that look like scams: links pretending to be USPS, banks or toll agencies, shortened links, bare number addresses and scam-prone domains (.top, .xyz…), "reply Y to activate the link", and urgency from strangers. Flagged texts get a red warning with the reasons, a **Block sender** button, links drawn in red that ask before opening, a "Suspicious" filter, and a "⚠ Likely scam" notification without the reply button. "It's fine" clears a false alarm. All checks run on the phone.
 - **Repeating messages.** In the send-later sheet, choose Every day, Weekdays, Every week, Every month (the 31st stays the 31st, or the last day of a shorter month) or Every year, then pick the first time. Murmur sends it again on that schedule, catching up if the phone was off. A clock badge on the main screen opens a list of everything scheduled, with Send now, Stop repeating and Cancel.
-- **Murmur Brain (optional).** A switch in Settings downloads Gemma 4 E2B, Google's open AI model (2.6 GB, Apache 2.0), through Android's download manager. Murmur itself has no internet permission, and once the model is downloaded everything runs on the phone. It adds two things:
+- **Murmur Brain (optional).** A switch in Settings downloads Gemma 4 E2B, Google's open AI model (2.6 GB, Apache 2.0), through Android's download manager. That download is the only thing Murmur uses the internet for, and once the model is on the phone everything runs offline. It adds two things:
   - **Calm it down:** when the heat meter turns orange or red, a button rewrites the draft calmly in your own voice. You choose **Use this** or **Keep mine**.
   - **Scam second opinion:** recent texts from strangers that carry a link or ask for money, codes or details, and that passed the regular checks, get a one-line verdict from the model. Each message is checked once and the answer is remembered.
   The model loads only while it works and unloads a minute later. Settings has a speed test.
@@ -28,7 +28,7 @@ A texting app for Android that replaces your phone's default SMS app. It does wh
 - **Pins, drafts, search.** Pin conversations to the top, keep a draft per conversation, and search names and the text of every message.
 - The basics: reply from the notification, mark as read, delivery reports, a counter that shows when a text will split into several, contact photos, "respond via message" when you decline a call, and dark and light themes.
 
-Everything stays on the phone. Murmur has no internet permission, so it cannot upload anything.
+Everything stays on the phone. Murmur has no servers and no account. It holds the internet permission only because Android's download manager requires it for the optional Brain model download. Messages, codes and drafts are never sent anywhere.
 
 ## Not done yet
 

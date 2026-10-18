@@ -235,7 +235,7 @@ fun OnboardingScreen(
             }
             Spacer(Modifier.height(16.dp))
             Text(
-                "Everything stays on your phone. Murmur has no servers, no account and no internet permission.",
+                "Everything stays on your phone. Murmur has no servers and no account, and your messages never go online.",
                 style = MaterialTheme.typography.bodySmall,
                 color = scheme.onSurfaceVariant,
             )
@@ -355,7 +355,7 @@ fun SettingsScreen(isDefault: Boolean, onMakeDefault: () -> Unit, onBack: () -> 
                 },
             )
             Text(
-                "Murmur 1.3 · texts, codes and drafts never leave this phone.",
+                "Murmur 1.3.1 · texts, codes and drafts never leave this phone.",
                 Modifier.padding(16.dp).navigationBarsPadding(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

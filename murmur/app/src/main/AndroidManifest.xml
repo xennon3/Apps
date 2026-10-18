@@ -16,6 +16,10 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- Only for downloading the optional Murmur Brain model: Android's download manager
+         refuses requests from apps without it. Messages never go online. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Voice notes -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
