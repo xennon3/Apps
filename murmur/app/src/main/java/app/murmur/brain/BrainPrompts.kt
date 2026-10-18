@@ -77,6 +77,80 @@ object BrainPrompts {
         if (found.isEmpty()) "No matching text messages were found.\n\nQuestion: $question"
         else "Text messages that might help:\n" + found.joinToString("\n") + "\n\nQuestion: $question"
 
+    // ================================================================ sending texts from the chat
+
+    /** Plain code decides it's a send request; the model only words it. */
+    private val sendStart = Regex(
+        "(?i)^\\s*(please\\s+)?(text|send|message|msg|tell|ask|remind|reply to|answer|let)\\b(?!\\s+me\\b)",
+    )
+
+    fun isSendRequest(text: String): Boolean {
+        val t = text.trim()
+        if (!sendStart.containsMatchIn(t)) return false
+        // "let X know …" is a send; "let me …" and questions about texting aren't.
+        if (Regex("(?i)^\\s*let\\b").containsMatchIn(t) && !Regex("(?i)\\bknow\\b").containsMatchIn(t)) return false
+        return !Regex("(?i)^\\s*(text|send|message)\\s+(a|an|the|photo|picture|pic|voice)\\b").containsMatchIn(t)
+    }
+
+    const val SEND =
+        "The user is asking you to text someone. Reply in exactly this form: SEND: <who> | " +
+            "<the message, written the way the user would text it, in their voice>"
+
+    val SEND_EXAMPLES = listOf(
+        "text mom that I'm running 10 minutes late" to "SEND: mom | Running 10 minutes late!",
+        "ask priya if she wants to get lunch" to "SEND: priya | Want to get lunch?",
+        "tell jake happy birthday" to "SEND: jake | Happy birthday!",
+        "let the plumber know tuesday works" to "SEND: plumber | Tuesday works for me.",
+    )
+
+    data class SendDraft(val who: String, val message: String)
+
+    fun parseSend(answer: String): SendDraft? {
+        val line = clean(answer).lineSequence().map { it.trim().replace("*", "") }.firstOrNull { it.startsWith("SEND", true) } ?: return null
+        val parts = line.substringAfter(':').split('|', limit = 2).map { it.trim() }
+        if (parts.size < 2 || parts[0].isBlank() || parts[1].isBlank()) return null
+        return SendDraft(parts[0], parts[1])
+    }
+
+    /** If the model can't, split "text mom that I'm late" by hand: the word after the verb is who. */
+    fun fallbackSend(request: String): SendDraft? {
+        val m = Regex("(?i)^\\s*(?:please\\s+)?(?:text|send|message|msg|tell|ask|remind|reply to|answer|let)\\s+(?:a message to\\s+|to\\s+)?(my\\s+\\w+|the\\s+\\w+|\\w+)[\\s,:]+(?:know\\s+)?(?:that\\s+|saying\\s+|to say\\s+|:\\s*)?(.+)$")
+            .find(request.trim()) ?: return null
+        val msg = m.groupValues[2].trim().trimEnd('.').replaceFirstChar { it.uppercase() }
+        return SendDraft(m.groupValues[1].trim(), msg).takeIf { msg.isNotBlank() }
+    }
+
+    /** "text jake where I am": Murmur fills in a map link itself rather than letting the model guess. */
+    fun wantsLocation(text: String) = Regex("(?i)\\b(where i am|where i'm at|my location|my address right now|where i'm)\\b").containsMatchIn(text)
+
+    // ================================================================ memory
+
+    /** "remember that my sister is Priya" → "My sister is Priya". */
+    fun rememberCommand(text: String): String? =
+        Regex("(?i)^\\s*(?:please\\s+)?(?:remember|note|don't forget|dont forget|keep in mind)(?:\\s+that)?[\\s:,]+(.+)$")
+            .find(text)?.groupValues?.get(1)?.trim()?.trimEnd('.')?.replaceFirstChar { it.uppercase() }?.takeIf { it.length >= 3 }
+
+    /** "forget that I'm vegetarian" / "forget my sister" → the words to match against what's remembered. */
+    fun forgetCommand(text: String): String? =
+        Regex("(?i)^\\s*(?:please\\s+)?forget(?:\\s+(?:that|about))?[\\s:,]+(.+)$").find(text)?.groupValues?.get(1)?.trim()?.trimEnd('.')
+
+    fun memoryBlock(facts: List<String>) =
+        if (facts.isEmpty()) "" else "Things the user asked you to remember:\n" + facts.joinToString("\n") { "- $it" }
+
+    // ================================================================ which phone data a question needs
+
+    fun asksCalendar(q: String) = Regex("(?i)\\b(free|busy|calendar|schedule|appointments?|meetings?|events?|what do i have|what's on|whats on|plans? (for|on|this|tomorrow|tonight))\\b").containsMatchIn(q)
+
+    fun asksCalls(q: String) = Regex("(?i)\\b(call(ed|s|ing)?|missed|rang|phoned|last talk(ed)?|voicemail)\\b").containsMatchIn(q)
+
+    fun asksContact(q: String) = Regex("(?i)\\b(number|phone number|birthday|bday|email|e-mail|contact (info|details))\\b").containsMatchIn(q)
+
+    /** Everything Murmur knows for this question, as one system prompt. */
+    fun system(base: String, persona: String, blocks: List<String>): String =
+        listOf(base, persona.takeIf { it.isNotBlank() }?.let { "How the user wants you to talk: $it" })
+            .plus(blocks.filter { it.isNotBlank() })
+            .filterNotNull().joinToString("\n\n")
+
     // ================================================================ plans → calendar
 
     const val EVENT =
@@ -154,6 +228,24 @@ object BrainPrompts {
     )
 
     fun scamQuestion(message: String) = "Text: " + message.replace('\n', ' ').trim()
+
+    /**
+     * Text safe to hand to the engine. LiteRT-LM aborts the whole app on characters outside
+     * Unicode's basic plane (emoji like 🍝 or 😂, stored as surrogate pairs), so those are dropped
+     * before anything reaches it. Accented letters and most symbols are fine. Found by testing:
+     * "dinner at 7 🍝" killed the engine; "café" didn't.
+     */
+    fun engineSafe(text: String): String {
+        if (text.none { Character.isSurrogate(it) || it == '\uFE0F' }) return text
+        val out = StringBuilder(text.length)
+        var i = 0
+        while (i < text.length) {
+            val cp = text.codePointAt(i)
+            if (cp <= 0xFFFF && !Character.isSurrogate(text[i])) out.append(text[i])
+            i += Character.charCount(cp)
+        }
+        return out.toString().replace(Regex("[ \\t]{2,}"), " ").replace("\uFE0F", "").trim()
+    }
 
     /** Small models sometimes leave reasoning tags or wrapping quotes; strip them. */
     fun clean(raw: String): String =

@@ -284,9 +284,11 @@ object Brain {
                 runCatching {
                     val conv = e.createConversation(
                         ConversationConfig(
-                            systemInstruction = Contents.of(system),
+                            systemInstruction = Contents.of(BrainPrompts.engineSafe(system)),
                             // Worked examples go in as earlier turns of the chat.
-                            initialMessages = examples.flatMap { (q, a) -> listOf(Message.user(q), Message.model(a)) },
+                            initialMessages = examples.flatMap { (q, a) ->
+                                listOf(Message.user(BrainPrompts.engineSafe(q)), Message.model(BrainPrompts.engineSafe(a)))
+                            },
                             samplerConfig = SamplerConfig(topK = 40, topP = 0.9, temperature = temperature, seed = 7),
                             maxOutputToken = maxTokens,
                         ),
@@ -295,7 +297,7 @@ object Brain {
                         suspendCoroutine { cont ->
                             val text = StringBuilder()
                             val done = AtomicBoolean(false)
-                            conv.sendMessageAsync(prompt, object : MessageCallback {
+                            conv.sendMessageAsync(BrainPrompts.engineSafe(prompt), object : MessageCallback {
                                 override fun onMessage(message: Message) {
                                     message.contents.contents.filterIsInstance<Content.Text>().forEach { text.append(it.text) }
                                     onPartial?.invoke(BrainPrompts.clean(text.toString()))
@@ -361,20 +363,26 @@ object Brain {
 
     /**
      * One chat reply. [history] is the earlier conversation as (user, assistant) pairs, given to
-     * the model as real chat turns; [prompt] may already include texts found for the question.
+     * the model as real chat turns; [system] already carries memory and any phone data found.
      */
     suspend fun chat(
-        context: Context, history: List<Pair<String, String>>, prompt: String, withMessages: Boolean,
+        context: Context, history: List<Pair<String, String>>, prompt: String, system: String,
         onPartial: (String) -> Unit,
-    ): String? = ask(
-        context,
-        system = if (withMessages) BrainPrompts.CHAT_MESSAGES else BrainPrompts.CHAT_GENERAL,
-        prompt = prompt,
-        maxTokens = 320,
-        temperature = 0.6,
-        examples = history,
-        onPartial = onPartial,
-    )
+    ): String? = ask(context, system, prompt, maxTokens = 320, temperature = 0.6, examples = history, onPartial = onPartial)
+
+    /** Who and what for "text mom I'm running late": the model words it, plain code is the fallback. */
+    suspend fun draftSend(context: Context, request: String): BrainPrompts.SendDraft? =
+        ask(context, BrainPrompts.SEND, request, maxTokens = 60, temperature = 0.0, examples = BrainPrompts.SEND_EXAMPLES)
+            ?.let(BrainPrompts::parseSend) ?: BrainPrompts.fallbackSend(request)
+
+    /**
+     * The plan check for one text, ready to store: "title|when|place", "-" for no plan, or null
+     * if the model couldn't answer right now (so the text gets checked again later instead of
+     * being marked "no plan" for good).
+     */
+    suspend fun planCheck(context: Context, text: String): String? =
+        ask(context, BrainPrompts.EVENT, text.replace('\n', ' '), maxTokens = 40, temperature = 0.0, examples = BrainPrompts.EVENT_EXAMPLES)
+            ?.let { BrainPrompts.encodePlan(BrainPrompts.parseEvent(it)) }
 
     /** A plan in a text ("dinner friday at 7 at Luigi's"), or null. */
     suspend fun findPlan(context: Context, text: String): BrainPrompts.Plan? =

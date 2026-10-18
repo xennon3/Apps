@@ -1,6 +1,16 @@
 package app.murmur.ui
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.key
+import app.murmur.brain.BrainAccess
+import app.murmur.brain.BrainMemory
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -163,4 +173,92 @@ private fun speedLabel(s: Brain.Speed): String {
     val reply = s.firstWordSeconds + 40 / s.writePerSecond.coerceAtLeast(0.1f)
     return "Writes %.1f tokens/s · reads %.0f tokens/s · loads in %.0fs on the %s.\nA two-sentence answer takes about %.0f seconds once loaded."
         .format(s.writePerSecond, s.readPerSecond, s.loadSeconds, if (s.gpu) "graphics chip" else "processor", reply)
+}
+
+/** What Murmur Brain may use besides texts, what it remembers, and how it talks. */
+@Composable
+fun BrainExtras() {
+    val context = LocalContext.current
+    val scheme = MaterialTheme.colorScheme
+    var tick by remember { mutableStateOf(0) }
+    var asking by remember { mutableStateOf<BrainAccess.Source?>(null) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        val s = asking ?: return@rememberLauncherForActivityResult
+        val ok = result[s.permissions.first()] == true || BrainAccess.granted(context, s)
+        BrainAccess.set(context, s, ok)
+        if (!ok) Toast.makeText(context, "Android didn't allow it. You can allow it in Murmur's app info.", Toast.LENGTH_LONG).show()
+        asking = null; tick++
+    }
+
+    Text(
+        "What Murmur Brain can use", Modifier.padding(16.dp, 16.dp, 16.dp, 4.dp),
+        style = MaterialTheme.typography.titleSmall, color = scheme.primary,
+    )
+    Text(
+        "Your texts are always available to it. Everything below is off until you turn it on, is read only on this phone, " +
+            "and is only looked at when a question needs it.",
+        Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
+    )
+    key(tick) {
+        BrainAccess.Source.entries.forEach { s ->
+            val on = BrainAccess.on(context, s)
+            ListItem(
+                headlineContent = { Text(s.label) },
+                supportingContent = { Text(s.detail) },
+                trailingContent = {
+                    Switch(on, { want ->
+                        if (!want) { BrainAccess.set(context, s, false); tick++ }
+                        else if (BrainAccess.granted(context, s)) { BrainAccess.set(context, s, true); tick++ }
+                        else { asking = s; launcher.launch(s.permissions.toTypedArray()) }
+                    })
+                },
+            )
+        }
+    }
+
+    Text(
+        "Memory", Modifier.padding(16.dp, 16.dp, 16.dp, 4.dp),
+        style = MaterialTheme.typography.titleSmall, color = scheme.primary,
+    )
+    var facts by remember { mutableStateOf(BrainMemory.facts(context)) }
+    var newFact by remember { mutableStateOf("") }
+    Text(
+        "Things the Brain keeps in mind in every chat. Say \"remember that my sister is Priya\" in the Brain tab, or add them here. " +
+            "It uses these to answer and to work out who \"my sister\" is when you ask it to text someone.",
+        Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
+    )
+    facts.forEach { f ->
+        ListItem(
+            headlineContent = { Text(f) },
+            trailingContent = {
+                IconButton(onClick = { BrainMemory.remove(context, f); facts = BrainMemory.facts(context) }) {
+                    Icon(Icons.Outlined.Close, "Forget this")
+                }
+            },
+        )
+    }
+    Row(Modifier.padding(16.dp, 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            value = newFact, onValueChange = { newFact = it }, singleLine = true,
+            placeholder = { Text("e.g. I'm vegetarian") }, modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(8.dp))
+        TextButton(
+            enabled = newFact.isNotBlank(),
+            onClick = { BrainMemory.add(context, newFact.trim()); newFact = ""; facts = BrainMemory.facts(context) },
+        ) { Text("Add") }
+    }
+
+    Text(
+        "How Murmur Brain talks", Modifier.padding(16.dp, 16.dp, 16.dp, 4.dp),
+        style = MaterialTheme.typography.titleSmall, color = scheme.primary,
+    )
+    var persona by remember { mutableStateOf(BrainMemory.persona(context)) }
+    OutlinedTextField(
+        value = persona,
+        onValueChange = { persona = it; BrainMemory.setPersona(context, it) },
+        placeholder = { Text("e.g. Short and casual. Use British spelling.") },
+        modifier = Modifier.fillMaxWidth().padding(16.dp, 4.dp),
+        minLines = 2,
+    )
 }

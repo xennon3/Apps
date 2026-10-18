@@ -1,6 +1,7 @@
 package app.murmur.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +32,9 @@ import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -60,12 +64,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.murmur.brain.Brain
 import app.murmur.brain.BrainChat
+import app.murmur.data.Phone
 
 private val suggestions = listOf(
     "What's the wifi password someone sent me?",
-    "When did Mom say she's coming?",
+    "Text Mom that I'm running late",
+    "Am I free Friday night?",
+    "Remember that my sister is Priya",
     "Give me 3 quick dinner ideas",
-    "Help me word a birthday text for my sister",
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -162,6 +168,10 @@ fun BrainChatScreen(onOpenThread: (Long) -> Unit, onSettings: () -> Unit) {
                             }
                             Spacer(Modifier.width(8.dp))
                             Column(Modifier.weight(1f)) {
+                                if (t.used.isNotEmpty()) Text(
+                                    "Used: " + t.used.joinToString(", "),
+                                    style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant,
+                                )
                                 if (t.searched.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(Icons.Outlined.Search, null, Modifier.size(12.dp), tint = scheme.onSurfaceVariant)
                                     Spacer(Modifier.width(4.dp))
@@ -177,6 +187,7 @@ fun BrainChatScreen(onOpenThread: (Long) -> Unit, onSettings: () -> Unit) {
                                         style = MaterialTheme.typography.bodyLarge,
                                     )
                                 }
+                                t.send?.let { card -> SendCardView(i, card) }
                                 if (t.sources.isNotEmpty() && !t.writing) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
                                     t.sources.forEach { s -> AssistChip(onClick = { onOpenThread(s.threadId) }, label = { Text(s.label) }) }
                                 }
@@ -217,6 +228,76 @@ fun BrainChatScreen(onOpenThread: (Long) -> Unit, onSettings: () -> Unit) {
                         Icon(Icons.AutoMirrored.Filled.Send, "Ask", tint = if (canSend) scheme.onPrimary else scheme.onSurfaceVariant)
                     }
                 }
+            }
+        }
+    }
+}
+
+/** A drafted text: edit it, pick who, then Send, Schedule or Cancel. Nothing goes out on its own. */
+@Composable
+internal fun SendCardView(index: Int, card: BrainChat.SendCard) {
+    val context = LocalContext.current
+    val scheme = MaterialTheme.colorScheme
+    var later by remember { mutableStateOf(false) }
+    Surface(
+        color = scheme.surfaceContainer, shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.padding(top = 6.dp).fillMaxWidth().border(1.dp, scheme.outlineVariant, RoundedCornerShape(18.dp)),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Text("To ${card.name}  ·  ${Phone.pretty(card.number)}", style = MaterialTheme.typography.labelLarge, color = scheme.primary)
+            if (card.state == BrainChat.SendState.WAITING && card.alternatives.isNotEmpty()) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Not them?", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant, modifier = Modifier.align(Alignment.CenterVertically))
+                    card.alternatives.forEach { (n, num) ->
+                        SuggestionChip(onClick = { BrainChat.switchRecipient(context, index, n, num) }, label = { Text(n) })
+                    }
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            if (card.state == BrainChat.SendState.WAITING) {
+                TextField(
+                    value = card.message,
+                    onValueChange = { BrainChat.editCard(context, index, it) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = TextFieldDefaults.colors(
+                        focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
+                        focusedContainerColor = scheme.surfaceContainerHighest, unfocusedContainerColor = scheme.surfaceContainerHighest,
+                    ),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Button(onClick = { BrainChat.confirm(context, index) }, enabled = card.message.isNotBlank()) { Text("Send") }
+                    Spacer(Modifier.width(8.dp))
+                    Box {
+                        TextButton(onClick = { later = true }) { Text("Schedule") }
+                        DropdownMenu(expanded = later, onDismissRequest = { later = false }) {
+                            val now = System.currentTimeMillis()
+                            listOf(
+                                "In 1 hour" to now + 3_600_000L,
+                                "Tonight at 8" to When.nextAt(20),
+                                "Tomorrow at 9 AM" to When.nextAt(9).let { if (it - now < 3_600_000L * 4) it + 86_400_000L else it },
+                            ).forEach { (label, at) ->
+                                DropdownMenuItem(
+                                    text = { Text("$label  ·  ${When.future(context, at)}") },
+                                    onClick = { later = false; BrainChat.confirm(context, index, at) },
+                                )
+                            }
+                        }
+                    }
+                    TextButton(onClick = { BrainChat.cancelCard(context, index) }) { Text("Cancel") }
+                }
+            } else {
+                Text(card.message, style = MaterialTheme.typography.bodyLarge)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    when (card.state) {
+                        BrainChat.SendState.SENT -> "✓ Sent " + When.short(context, card.at) + ". Open the conversation within a few seconds to undo."
+                        BrainChat.SendState.SCHEDULED -> "⏱ Scheduled for " + When.future(context, card.at)
+                        else -> "Cancelled"
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (card.state == BrainChat.SendState.CANCELLED) scheme.onSurfaceVariant else scheme.primary,
+                )
             }
         }
     }

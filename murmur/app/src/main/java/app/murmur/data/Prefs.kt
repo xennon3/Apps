@@ -42,9 +42,10 @@ class Prefs(context: Context) {
     fun setBrainScam(key: String, verdict: String) = sp.edit().putString("brainscam_$key", verdict).apply()
 
     /** Murmur Brain's reading of a text for a plan ("title|when|place", or "-"), null if not asked yet. */
-    fun plan(key: String): String? = sp.getString("plan_$key", null)
+    // "plan2_": versions before 1.5 could store "no plan" when the model simply wasn't ready.
+    fun plan(key: String): String? = sp.getString("plan2_$key", null)
 
-    fun setPlan(key: String, v: String) = sp.edit().putString("plan_$key", v).apply()
+    fun setPlan(key: String, v: String) = sp.edit().putString("plan2_$key", v).apply()
 
     /** Murmur Brain's sorting of a text: REPLY, INFO or PROMO. */
     fun triage(key: String): String? = sp.getString("triage_$key", null)

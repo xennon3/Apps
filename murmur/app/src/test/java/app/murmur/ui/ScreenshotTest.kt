@@ -46,6 +46,18 @@ class ScreenshotTest {
         MurmurTheme { RootTabs(tab = Tab.BRAIN, onTab = {}, messages = {}, brain = { BrainChatScreen(onOpenThread = {}, onSettings = {}) }) }
     }
 
+    @Test fun sendCard() = paparazzi.snapshot {
+        MurmurTheme {
+            Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(12.dp)) {
+                Spacer(Modifier.height(40.dp))
+                Text("Here's the text. Nothing goes out until you tap Send.", color = MaterialTheme.colorScheme.onSurface)
+                SendCardView(0, app.murmur.brain.BrainChat.SendCard(
+                    "Mom", "+15551234567", "Running 10 minutes late!", alternatives = listOf("Mom (work)" to "+15559876543"),
+                ))
+            }
+        }
+    }
+
     @Test fun planChip() = paparazzi.snapshot { MurmurTheme { PlanScene() } }
 
     @Test fun dualSimGroup() = paparazzi.snapshot { MurmurTheme { FakeThread("who's bringing chips?", dualSim = true) } }

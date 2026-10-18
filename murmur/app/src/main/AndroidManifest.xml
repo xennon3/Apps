@@ -20,6 +20,13 @@
          refuses requests from apps without it. Messages never go online. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Murmur Brain extras: each is off until switched on in Settings, and read only on the phone -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+
     <!-- Voice notes -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />

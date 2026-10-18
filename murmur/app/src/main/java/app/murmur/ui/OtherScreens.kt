@@ -76,6 +76,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.murmur.brain.Brain
 import app.murmur.data.Phone
 import app.murmur.data.Prefs
 import app.murmur.data.SmsRepository
@@ -289,6 +290,7 @@ fun SettingsScreen(isDefault: Boolean, onMakeDefault: () -> Unit, onBack: () -> 
                 },
             )
             BrainCard()
+            if (Brain.enabled(context)) BrainExtras()
             ListItem(
                 headlineContent = { Text("Undo window") },
                 supportingContent = {
@@ -349,7 +351,7 @@ fun SettingsScreen(isDefault: Boolean, onMakeDefault: () -> Unit, onBack: () -> 
                 },
             )
             Text(
-                "Murmur 1.4.1 · texts, codes and drafts never leave this phone.",
+                "Murmur 1.5 · texts, codes and drafts never leave this phone.",
                 Modifier.padding(16.dp).navigationBarsPadding(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

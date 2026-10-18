@@ -53,6 +53,49 @@ class BrainTest {
         assertNull(BrainPrompts.parseTriage("hmm"))
     }
 
+    @Test fun dropsCharactersThatCrashTheEngine() {
+        assertEquals("dinner at 7", BrainPrompts.engineSafe("dinner at 7 🍝"))
+        assertEquals("happy birthday !", BrainPrompts.engineSafe("happy birthday 🎉🎂!"))
+        assertEquals("café ☀ ❤", BrainPrompts.engineSafe("café ☀️ ❤️"))
+        assertEquals("plain", BrainPrompts.engineSafe("plain"))
+    }
+
+    @Test fun recognisesSendRequests() {
+        for (q in listOf("text mom I'm late", "tell jake happy birthday", "let my landlord know the sink is fixed", "ask priya about lunch", "send sam a message saying thanks", "message jen: gate code?"))
+            assertTrue(q, BrainPrompts.isSendRequest(q))
+        for (q in listOf("let me think", "what did mom text me", "send a photo how?", "tell me a joke", "how do I text a photo"))
+            assertFalse(q, BrainPrompts.isSendRequest(q))
+    }
+
+    // Real answers Gemma 4 E2B gave in testing.
+    @Test fun readsSendDrafts() {
+        assertEquals(BrainPrompts.SendDraft("landlord", "Just letting you know the sink is fixed."), BrainPrompts.parseSend("SEND: landlord | Just letting you know the sink is fixed."))
+        assertEquals(BrainPrompts.SendDraft("jen", "Can you send me the gate code again?"), BrainPrompts.parseSend("SEND: jen | Can you send me the gate code again?"))
+        assertNull(BrainPrompts.parseSend("NONE"))
+    }
+
+    @Test fun splitsSendRequestsWithoutTheModel() {
+        assertEquals(BrainPrompts.SendDraft("mom", "I'm running late"), BrainPrompts.fallbackSend("text mom that I'm running late"))
+        assertEquals(BrainPrompts.SendDraft("my sister", "I'll be there at 6"), BrainPrompts.fallbackSend("text my sister I'll be there at 6"))
+        assertEquals(BrainPrompts.SendDraft("jen", "Can you send the code?"), BrainPrompts.fallbackSend("message jen: can you send the code?"))
+        assertEquals(BrainPrompts.SendDraft("landlord", "The sink is fixed"), BrainPrompts.fallbackSend("let landlord know the sink is fixed"))
+    }
+
+    @Test fun memoryCommands() {
+        assertEquals("My sister is Priya", BrainPrompts.rememberCommand("remember that my sister is Priya"))
+        assertEquals("I'm vegetarian", BrainPrompts.rememberCommand("please remember I'm vegetarian."))
+        assertNull(BrainPrompts.rememberCommand("do you remember what jake said"))
+        assertEquals("my sister", BrainPrompts.forgetCommand("forget about my sister"))
+        assertTrue(BrainPrompts.wantsLocation("text jake where I am"))
+    }
+
+    @Test fun picksPhoneData() {
+        assertTrue(BrainPrompts.asksCalendar("am I free friday night?"))
+        assertTrue(BrainPrompts.asksCalls("did mom call me today?"))
+        assertTrue(BrainPrompts.asksContact("what's priya's birthday"))
+        assertFalse(BrainPrompts.asksCalendar("tell me a joke"))
+    }
+
     @Test fun cleansReplies() {
         assertEquals("Hey, can we talk later?", BrainPrompts.clean("<think>\nok\n</think>\n\"Hey, can we talk later?\""))
     }

@@ -26,6 +26,9 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import app.murmur.data.Repeat
 import app.murmur.brain.BrainPrompts
 import app.murmur.brain.PlanTime
+import app.murmur.brain.BrainMemory
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import android.provider.CalendarContract
 import androidx.compose.material.icons.outlined.Event
 import app.murmur.data.ScamShield
@@ -209,6 +212,12 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
     var unreadAtOpen by remember { mutableIntStateOf(-1) }
     var catchUp by remember { mutableStateOf<String?>(null) }
     var catchingUp by remember { mutableStateOf(false) }
+    var brainSheet by remember { mutableStateOf(false) }
+    var brainStatus by remember { mutableStateOf<String?>(null) }
+    var planChecked by remember { mutableIntStateOf(0) }
+    var askText by remember { mutableStateOf("") }
+    var askAnswer by remember { mutableStateOf<String?>(null) }
+    var asking by remember { mutableStateOf(false) }
 
     // Voice notes
     val recorder = remember { Voice.Recorder(context) }
@@ -379,11 +388,13 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
         val now = System.currentTimeMillis()
         val candidates = messages.takeLast(20).asReversed()
             .filter { it.body.isNotBlank() && now - it.date < 14 * 86_400_000L && PlanTime.mightHavePlan(it.body) }
-        for (m in candidates) try {
-            val stored = prefs.plan(m.key) ?: run {
-                val found = Brain.findPlan(context, m.body.removePrefix("🎙 "))
-                BrainPrompts.encodePlan(found).also { prefs.setPlan(m.key, it) }
-            }
+        planChecked = 0
+        for ((n, m) in candidates.withIndex()) try {
+            brainStatus = "Reading recent texts for plans… ${n + 1} of ${candidates.size}"
+            val stored = prefs.plan(m.key)
+                ?: Brain.planCheck(context, m.body.removePrefix("🎙 "))?.also { prefs.setPlan(m.key, it) }
+                ?: continue // the model couldn't answer this time; try again next visit
+            planChecked++
             val plan = BrainPrompts.decodePlan(stored) ?: continue
             val time = PlanTime.resolve(plan.whenText, m.date, plan.title) ?: continue
             if (time.start < now - 2 * 3_600_000L) continue // already over
@@ -393,6 +404,7 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
         } catch (e: Exception) {
             Log.w("Murmur", "plan check failed", e) // one odd message must never close the app
         }
+        brainStatus = null
     }
 
     fun startCatchUp() {
@@ -419,6 +431,42 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
             val transcript = lines.asReversed().fold(StringBuilder()) { acc, l -> if (acc.length + l.length > 5000) acc else acc.insert(0, l + "\n") }.toString()
             catchUp = Brain.summarize(context, transcript) { partial -> catchUp = partial } ?: "Murmur Brain couldn't summarize this chat. Try again in a moment."
             catchingUp = false
+        }
+    }
+
+    fun transcript(limit: Int): String {
+        val group = (convo?.addresses?.size ?: 1) > 1
+        val lines = messages.takeLast(limit).map { m ->
+            val who = when {
+                m.box == MsgBox.OUT -> "You"
+                group -> repo.contact(m.address).name ?: Phone.pretty(m.address)
+                else -> convo?.title ?: "Them"
+            }
+            val what = listOfNotNull(
+                if (m.images.isNotEmpty()) "[photo]" else null,
+                if (m.audio != null && !m.body.startsWith("🎙")) "[voice note]" else null,
+                m.body.replace('\n', ' ').ifBlank { null },
+            ).joinToString(" ")
+            "[" + android.text.format.DateFormat.format("EEE MMM d", m.date) + "] $who: $what"
+        }
+        return lines.asReversed().fold(StringBuilder()) { acc, l -> if (acc.length + l.length > 5000) acc else acc.insert(0, l + "\n") }.toString()
+    }
+
+    fun askAboutChat() {
+        val q = askText.trim()
+        if (q.isEmpty() || asking) return
+        asking = true
+        askAnswer = ""
+        scope.launch {
+            val text = withContext(Dispatchers.IO) { transcript(80) }
+            val system = BrainPrompts.system(
+                BrainPrompts.CHAT_MESSAGES, BrainMemory.persona(context),
+                listOf(BrainPrompts.memoryBlock(BrainMemory.facts(context))),
+            )
+            val prompt = "This conversation with ${convo?.title ?: "them"}:\n$text\nQuestion: $q"
+            askAnswer = Brain.chat(context, emptyList(), prompt, system) { partial -> askAnswer = partial }
+                ?: "Murmur Brain couldn't answer just now. Try again in a moment."
+            asking = false
         }
     }
 
@@ -459,6 +507,9 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
                     }
                 },
                 actions = {
+                    if (brainReady) IconButton(onClick = { brainSheet = true }) {
+                        Icon(Icons.Outlined.AutoAwesome, "Murmur Brain for this chat", tint = MaterialTheme.colorScheme.primary)
+                    }
                     if (convo?.addresses?.size == 1) IconButton(onClick = {
                         context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(convo!!.addresses[0]))))
                     }) { Icon(Icons.Outlined.Call, "Call") }
@@ -749,6 +800,56 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
     )
 
     viewing?.let { PictureViewer(it) { viewing = null } }
+
+    if (brainSheet) ModalBottomSheet(onDismissRequest = { brainSheet = false }) {
+        Column(Modifier.padding(24.dp, 0.dp, 24.dp, 24.dp).imePadding()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text("Murmur Brain · this chat", style = MaterialTheme.typography.titleLarge)
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                brainStatus ?: when {
+                    plans.isNotEmpty() -> "Found ${plans.size} upcoming plan${if (plans.size == 1) "" else "s"} in recent texts."
+                    planChecked > 0 -> "Read $planChecked recent text${if (planChecked == 1) "" else "s"} that mention a day or time. No upcoming plans."
+                    else -> "No recent texts here mention a day or time, so there are no plans to add."
+                },
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            plans.values.forEach { (p, t) ->
+                ListItem(
+                    headlineContent = { Text(p.title) },
+                    supportingContent = { Text((if (t.allDay) When.day(context, t.start) else When.future(context, t.start)) + if (p.place.isNotBlank()) " · ${p.place}" else "") },
+                    leadingContent = { Icon(Icons.Outlined.Event, null) },
+                    trailingContent = { TextButton(onClick = { addToCalendar(p, t) }) { Text("Add") } },
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { brainSheet = false; startCatchUp() },
+                enabled = messages.size >= 3, modifier = Modifier.fillMaxWidth(),
+            ) { Text("Catch me up on this chat") }
+            Spacer(Modifier.height(16.dp))
+            Text("Ask about this chat", style = MaterialTheme.typography.titleSmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = askText, onValueChange = { askText = it }, singleLine = true,
+                    placeholder = { Text("e.g. what time did we say?") }, modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = ::askAboutChat, enabled = askText.isNotBlank() && !asking) { Text("Ask") }
+            }
+            askAnswer?.let { a ->
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    a.ifEmpty { "Reading the chat…" },
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontStyle = if (a.isEmpty()) FontStyle.Italic else FontStyle.Normal,
+                )
+            }
+        }
+    }
 
     catchUp?.let { summary ->
         ModalBottomSheet(onDismissRequest = { if (!catchingUp) catchUp = null }) {
