@@ -123,7 +123,7 @@ fun ConversationsScreen(
         val brain = brainState == Brain.State.Ready
         val now = System.currentTimeMillis()
         val found = HashSet<Long>()
-        for (c in list.filter { now - it.date < 7 * 86_400_000L }.take(30)) {
+        for (c in list.filter { now - it.date < 7 * 86_400_000L }.take(30)) try {
             val last = withContext(Dispatchers.IO) { repo.lastText(c.threadId) } ?: continue
             if (!last.incoming || Vibes.code(last.body) != null) continue
             if (ScamShield.analyze(last.body, last.address, c.known).flagged) continue
@@ -134,6 +134,10 @@ fun ConversationsScreen(
                 else -> false
             }
             if (reply) { found += c.threadId; needsReply = needsReply + c.threadId }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("Murmur", "reply check failed", e)
         }
         needsReply = found
     }

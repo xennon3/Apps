@@ -12,6 +12,8 @@ import kotlinx.coroutines.SupervisorJob
 class MurmurApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        CrashReport.install(this)
+        CrashReport.collect(this) // before Brain.refresh resets its record of the last session
         Notifier.createChannels(this)
         Brain.refresh(this)
     }

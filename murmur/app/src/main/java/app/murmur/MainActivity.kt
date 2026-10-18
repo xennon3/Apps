@@ -1,6 +1,20 @@
 package app.murmur
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
 import android.app.role.RoleManager
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -92,6 +106,29 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MurmurTheme {
+                var crash by remember { mutableStateOf(CrashReport.pending(this@MainActivity)) }
+                crash?.let { details ->
+                    AlertDialog(
+                        onDismissRequest = { CrashReport.dismiss(this@MainActivity); crash = null },
+                        title = { Text("Murmur closed unexpectedly") },
+                        text = {
+                            Column {
+                                Text("Sorry about that. These details say what happened. Copy them and send them over so it can be fixed.")
+                                Spacer(Modifier.height(10.dp))
+                                SelectionContainer {
+                                    Text(details, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Murmur crash", details))
+                                CrashReport.dismiss(this@MainActivity); crash = null
+                            }) { Text("Copy details") }
+                        },
+                        dismissButton = { TextButton(onClick = { CrashReport.dismiss(this@MainActivity); crash = null }) { Text("Dismiss") } },
+                    )
+                }
                 val top = stack.last()
                 BackHandler(enabled = stack.size > 1) { pop() }
                 AnimatedContent(

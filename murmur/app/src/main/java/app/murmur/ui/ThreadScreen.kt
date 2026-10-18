@@ -1,6 +1,8 @@
 package app.murmur.ui
 
 import android.Manifest
+import android.util.Log
+import kotlinx.coroutines.CancellationException
 import android.content.pm.PackageManager
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.lazy.LazyRow
@@ -345,14 +347,15 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
 
     // Murmur Brain: a second opinion on recent texts from strangers that carry a link or ask for something,
     // when the rules above let them through. Each message is asked about once.
-    LaunchedEffect(messages, brainReady) {
+    LaunchedEffect(messages.lastOrNull()?.key, brainReady) {
         if (!brainReady || convo?.known == true) return@LaunchedEffect
+        delay(1_500)
         val candidates = messages.asReversed().asSequence()
             .filter { it.box == MsgBox.IN && it.body.length > 20 && !prefs.scamDismissed(it.key) }
             .filter { ScamShield.links(it.body).isNotEmpty() || Regex("(?i)\\$|pay|account|code|verify|refund|prize|won|gift|invest|crypto|job").containsMatchIn(it.body) }
             .filter { !ScamShield.analyze(it.body, it.address, false).flagged }
             .take(5).toList()
-        for (m in candidates) {
+        for (m in candidates) try {
             val cached = prefs.brainScam(m.key) ?: run {
                 val opinion = Brain.scamCheck(context, m.body) ?: return@LaunchedEffect
                 (if (opinion.scam) "1|${opinion.reason}" else "0").also { prefs.setBrainScam(m.key, it) }
@@ -362,16 +365,21 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
                     ScamShield.Risk.CAUTION, listOf("Murmur Brain: " + cached.removePrefix("1|")), ScamShield.links(m.body),
                 ))
             }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("Murmur", "scam check failed", e)
         }
     }
 
     // Murmur Brain: plans in recent texts ("dinner friday at 7") become an Add to calendar chip.
-    LaunchedEffect(messages, brainReady) {
+    LaunchedEffect(messages.lastOrNull()?.key, brainReady) {
         if (!brainReady) return@LaunchedEffect
+        delay(1_500) // let the chat settle (it reloads once as it's marked read) before waking the model
         val now = System.currentTimeMillis()
         val candidates = messages.takeLast(20).asReversed()
             .filter { it.body.isNotBlank() && now - it.date < 14 * 86_400_000L && PlanTime.mightHavePlan(it.body) }
-        for (m in candidates) {
+        for (m in candidates) try {
             val stored = prefs.plan(m.key) ?: run {
                 val found = Brain.findPlan(context, m.body.removePrefix("🎙 "))
                 BrainPrompts.encodePlan(found).also { prefs.setPlan(m.key, it) }
@@ -380,6 +388,10 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
             val time = PlanTime.resolve(plan.whenText, m.date, plan.title) ?: continue
             if (time.start < now - 2 * 3_600_000L) continue // already over
             plans = plans + (m.key to (plan to time))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("Murmur", "plan check failed", e) // one odd message must never close the app
         }
     }
 

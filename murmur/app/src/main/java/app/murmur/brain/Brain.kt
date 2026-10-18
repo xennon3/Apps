@@ -23,8 +23,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.NonCancellable
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -82,12 +84,20 @@ object Brain {
     fun ready(context: Context) = enabled(context) && modelFile(context).let { it.exists() && it.length() == MODEL.bytes }
 
     /** Call when the app starts or Settings opens: works out where things stand. */
+    /** Called by the crash reporter: the app died last time while the graphics chip was running the model. */
+    fun gpuSessionDied(context: Context): Boolean = prefs(context.applicationContext).getBoolean("gpu_session", false)
+
+    fun blameGpu(context: Context) {
+        prefs(context.applicationContext).edit().putBoolean("gpu", false).putBoolean("gpu_bad", true).putBoolean("gpu_session", false).apply()
+    }
+
     fun refresh(context: Context) {
         val c = context.applicationContext
         // If the app died while trying the graphics chip, that chip can't run the model: stay on the CPU.
         if (prefs(c).getBoolean("gpu_trying", false)) {
             prefs(c).edit().putBoolean("gpu_trying", false).putBoolean("gpu_bad", true).putBoolean("gpu", false).apply()
         }
+        prefs(c).edit().putBoolean("gpu_session", false).apply()
         _speed.value = prefs(c).getString("speed2", null)?.split(',')?.takeIf { it.size == 5 }?.let {
             Speed(it[0].toFloat(), it[1].toFloat(), it[2].toFloat(), it[3].toFloat(), it[4] == "1")
         }
@@ -216,7 +226,12 @@ object Brain {
                 ).also { it.initialize() }
             }
             val gpu = useGpu(context)
-            runCatching { load(gpu) }.recoverCatching {
+            appContext = context.applicationContext
+            runCatching { load(gpu) }.onSuccess {
+                // While a graphics-chip engine is loaded, remember it: if Android kills the app for
+                // memory or a driver crash, the next launch switches the Brain to the processor.
+                if (gpu) prefs(context).edit().putBoolean("gpu_session", true).commit()
+            }.recoverCatching {
                 if (!gpu) throw it
                 prefs(context).edit().putBoolean("gpu", false).putBoolean("gpu_bad", true).apply()
                 load(false)
@@ -229,7 +244,7 @@ object Brain {
         val c = context.applicationContext
         if (!ready(c) || engine != null || lock.isLocked) return
         MurmurApp.scope.launch {
-            lock.withLock { engine(c) }
+            lock.withLock { withContext(NonCancellable) { engine(c) } }
             scheduleUnload()
         }
     }
@@ -240,7 +255,13 @@ object Brain {
         idle = MurmurApp.scope.launch { delay(180_000); unload() }
     }
 
-    private suspend fun unload() = lock.withLock { runCatching { engine?.close() }; engine = null }
+    private suspend fun unload() = lock.withLock {
+        runCatching { engine?.close() }
+        engine = null
+        prefs(appContext ?: return@withLock).edit().putBoolean("gpu_session", false).apply()
+    }
+
+    private var appContext: Context? = null
 
     /**
      * One question, one answer. Returns null if the Brain is off, still downloading, or the
@@ -255,8 +276,11 @@ object Brain {
         val c = context.applicationContext
         if (!ready(c)) return null
         return lock.withLock {
-            val e = engine(c) ?: return@withLock null
-            withContext(Dispatchers.IO) {
+            // NonCancellable: once started, a load or an answer always finishes and cleans up.
+            // Abandoning one halfway (a screen closing, a list refreshing) used to leave a 2.6 GB
+            // model loaded but unreferenced, and the next request loaded a second copy.
+            withContext(Dispatchers.IO + NonCancellable) {
+                val e = engine(c) ?: return@withContext null
                 runCatching {
                     val conv = e.createConversation(
                         ConversationConfig(
@@ -268,15 +292,16 @@ object Brain {
                         ),
                     )
                     try {
-                        suspendCancellableCoroutine { cont ->
+                        suspendCoroutine { cont ->
                             val text = StringBuilder()
+                            val done = AtomicBoolean(false)
                             conv.sendMessageAsync(prompt, object : MessageCallback {
                                 override fun onMessage(message: Message) {
                                     message.contents.contents.filterIsInstance<Content.Text>().forEach { text.append(it.text) }
                                     onPartial?.invoke(BrainPrompts.clean(text.toString()))
                                 }
-                                override fun onDone() { if (cont.isActive) cont.resume(BrainPrompts.clean(text.toString())) }
-                                override fun onError(throwable: Throwable) { if (cont.isActive) cont.resume(null) }
+                                override fun onDone() { if (done.compareAndSet(false, true)) cont.resume(BrainPrompts.clean(text.toString())) }
+                                override fun onError(throwable: Throwable) { if (done.compareAndSet(false, true)) cont.resume(null) }
                             })
                         }
                     } finally {
