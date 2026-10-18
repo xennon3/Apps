@@ -19,6 +19,8 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.core.content.ContextCompat
+import app.murmur.brain.Brain
+import androidx.compose.material.icons.outlined.AutoAwesome
 import app.murmur.data.Repeat
 import app.murmur.data.ScamShield
 import app.murmur.voice.Voice
@@ -194,6 +196,11 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
     var linkPrompt by remember { mutableStateOf<Pair<String, ScamShield.Verdict?>?>(null) }
     var scamTick by remember { mutableIntStateOf(0) }
     var transcripts by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    val brainState by Brain.state.collectAsState()
+    val brainReady = brainState == Brain.State.Ready
+    var calming by remember { mutableStateOf(false) }
+    var calmSuggestion by remember { mutableStateOf<String?>(null) }
+    var brainVerdicts by remember { mutableStateOf<Map<String, ScamShield.Verdict>>(emptyMap()) }
 
     // Voice notes
     val recorder = remember { Voice.Recorder(context) }
@@ -326,7 +333,29 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
         val known = convo?.known == true
         messages.filter { it.box == MsgBox.IN && it.body.isNotBlank() && !prefs.scamDismissed(it.key) }
             .associate { it.key to ScamShield.analyze(it.body, it.address, known) }
-            .filterValues { it.flagged }
+            .filterValues { it.flagged } + brainVerdicts.filterKeys { !prefs.scamDismissed(it) }
+    }
+
+    // Murmur Brain: a second opinion on recent texts from strangers that carry a link or ask for something,
+    // when the rules above let them through. Each message is asked about once.
+    LaunchedEffect(messages, brainReady) {
+        if (!brainReady || convo?.known == true) return@LaunchedEffect
+        val candidates = messages.asReversed().asSequence()
+            .filter { it.box == MsgBox.IN && it.body.length > 20 && !prefs.scamDismissed(it.key) }
+            .filter { ScamShield.links(it.body).isNotEmpty() || Regex("(?i)\\$|pay|account|code|verify|refund|prize|won|gift|invest|crypto|job").containsMatchIn(it.body) }
+            .filter { !ScamShield.analyze(it.body, it.address, false).flagged }
+            .take(5).toList()
+        for (m in candidates) {
+            val cached = prefs.brainScam(m.key) ?: run {
+                val opinion = Brain.scamCheck(context, m.body) ?: return@LaunchedEffect
+                (if (opinion.scam) "1|${opinion.reason}" else "0").also { prefs.setBrainScam(m.key, it) }
+            }
+            if (cached.startsWith("1|")) {
+                brainVerdicts = brainVerdicts + (m.key to ScamShield.Verdict(
+                    ScamShield.Risk.CAUTION, listOf("Murmur Brain: " + cached.removePrefix("1|")), ScamShield.links(m.body),
+                ))
+            }
+        }
     }
 
     fun openLink(url: String, verdict: ScamShield.Verdict?) {
@@ -461,6 +490,27 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
                     )
                 }
             }
+            calmSuggestion?.let { suggestion ->
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.fillMaxWidth().padding(12.dp, 4.dp),
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(6.dp))
+                            Text("A calmer way to say it", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(suggestion, style = MaterialTheme.typography.bodyLarge)
+                        Row {
+                            TextButton(onClick = { text = suggestion; calmSuggestion = null }) { Text("Use this", fontWeight = FontWeight.Bold) }
+                            TextButton(onClick = { calmSuggestion = null }) { Text("Keep mine") }
+                        }
+                    }
+                }
+            }
             Composer(
                 text = text,
                 onText = { text = it },
@@ -489,6 +539,18 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
                     true
                 },
                 hasVoice = voiceFile != null,
+                calming = calming,
+                onCalm = if (brainReady) {
+                    {
+                        calming = true
+                        scope.launch {
+                            val draft = text
+                            calmSuggestion = Brain.calmDown(context, draft)
+                            calming = false
+                            if (calmSuggestion == null) Toast.makeText(context, "Murmur Brain couldn't come up with a rewrite", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } else null,
                 onMic = {
                     if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startRecording()
                     else micPermission.launch(Manifest.permission.RECORD_AUDIO)
@@ -913,6 +975,7 @@ internal fun Composer(
     attachment: String? = null, preparing: Boolean = false, onAttach: () -> Unit = {}, onRemoveAttachment: () -> Unit = {},
     sims: List<Sims.Sim> = emptyList(), subId: Int = -1, onSim: (Int) -> Unit = {}, group: Boolean = false,
     voice: @Composable RowScope.() -> Boolean = { false }, hasVoice: Boolean = false, onMic: (() -> Unit)? = null,
+    calming: Boolean = false, onCalm: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
@@ -940,13 +1003,26 @@ internal fun Composer(
                 )
                 return@Column
             }
-            if (heat == Vibes.Heat.HOT && text.isNotBlank()) {
-                Text(
-                    "This reads a little heated.",
-                    Modifier.padding(start = 16.dp, bottom = 4.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Flame,
-                )
+            if (text.isNotBlank() && (heat == Vibes.Heat.HOT || (heat == Vibes.Heat.WARM && onCalm != null))) {
+                Row(Modifier.padding(start = 16.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (heat == Vibes.Heat.HOT) "This reads a little heated." else "This reads a little sharp.",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (heat == Vibes.Heat.HOT) Flame else Ember,
+                    )
+                    if (onCalm != null) {
+                        Spacer(Modifier.width(8.dp))
+                        AssistChip(
+                            onClick = { if (!calming) onCalm() },
+                            label = { Text(if (calming) "Thinking…" else "Calm it down") },
+                            leadingIcon = {
+                                if (calming) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                                else Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp))
+                            },
+                            modifier = Modifier.height(30.dp),
+                        )
+                    }
+                }
             }
             if (attachment != null || preparing) {
                 Box(Modifier.padding(start = 52.dp, bottom = 6.dp)) {
@@ -1006,7 +1082,7 @@ internal fun Composer(
                         .background(if (active) ring else if (mic) scheme.primaryContainer else scheme.surfaceVariant)
                         .combinedClickable(
                             enabled = active || mic,
-                            onClick = { if (mic) onMic!!() else onSend() },
+                            onClick = { if (mic) onMic() else onSend() },
                             onLongClick = onSchedule,
                             onClickLabel = "Send",
                             onLongClickLabel = "Send later",

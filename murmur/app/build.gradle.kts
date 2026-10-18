@@ -13,8 +13,11 @@ android {
         applicationId = "app.murmur"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.3"
+
+        // The on-device model runtime ships native code; phones like the Moto G Stylus are arm64.
+        ndk { abiFilters += listOf("arm64-v8a") }
     }
 
     // A fixed key so each new APK installs over the last one.
@@ -32,7 +35,7 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("sideload")
         }
         debug {
@@ -44,8 +47,11 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
+}
+
+kotlin {
+    compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
 }
 
 dependencies {
@@ -59,5 +65,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    // Murmur Brain: runs a small language model on the phone
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.18.0")
     testImplementation("junit:junit:4.13.2")
 }

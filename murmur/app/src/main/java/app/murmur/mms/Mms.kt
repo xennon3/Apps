@@ -104,13 +104,13 @@ object Mms {
 
             var quality = 85
             do {
-                bytes = ByteArrayOutputStream().also { bmp!!.compress(Bitmap.CompressFormat.JPEG, quality, it) }.toByteArray()
+                bytes = ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, quality, it) }.toByteArray()
                 quality -= 10
             } while (bytes.size > budget && quality >= 35)
             if (bytes.size <= budget || maxSide <= 320) break
             maxSide = (maxSide * 0.7f).toInt()
         }
-        bmp?.recycle()
+        bmp.recycle()
         out.writeBytes(bytes)
         out
     }.getOrNull()

@@ -44,6 +44,17 @@ class ScreenshotTest {
 
     @Test fun voiceAndScam() = paparazzi.snapshot { MurmurTheme { VoiceAndScam() } }
 
+    @Test fun brain() = paparazzi.snapshot {
+        MurmurTheme {
+            Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                Spacer(Modifier.height(40.dp))
+                BrainCard()
+                Spacer(Modifier.weight(1f))
+                Composer(text = "seriously?? you never listen to me", onText = {}, enabled = true, onSend = {}, onSchedule = {}, onCalm = {})
+            }
+        }
+    }
+
     @Test fun dualSimGroup() = paparazzi.snapshot { MurmurTheme { FakeThread("who's bringing chips?", dualSim = true) } }
 }
 

@@ -289,6 +289,7 @@ fun SettingsScreen(isDefault: Boolean, onMakeDefault: () -> Unit, onBack: () -> 
                     }) { Text("Change") }
                 },
             )
+            BrainCard()
             ListItem(
                 headlineContent = { Text("Undo window") },
                 supportingContent = {
@@ -354,7 +355,7 @@ fun SettingsScreen(isDefault: Boolean, onMakeDefault: () -> Unit, onBack: () -> 
                 },
             )
             Text(
-                "Murmur 1.2 · texts, codes and drafts never leave this phone.",
+                "Murmur 1.3 · texts, codes and drafts never leave this phone.",
                 Modifier.padding(16.dp).navigationBarsPadding(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

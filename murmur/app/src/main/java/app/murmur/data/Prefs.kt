@@ -36,6 +36,11 @@ class Prefs(context: Context) {
 
     fun dismissScam(key: String) = sp.edit().putBoolean("scam_ok_$key", true).apply()
 
+    /** Murmur Brain's verdict on a message: "1|reason" for a scam, "0" for fine, null if not asked yet. */
+    fun brainScam(key: String): String? = sp.getString("brainscam_$key", null)
+
+    fun setBrainScam(key: String, verdict: String) = sp.edit().putString("brainscam_$key", verdict).apply()
+
     /** Transcripts of received voice notes, keyed by the audio part. */
     fun transcript(key: String): String? = sp.getString("transcript_$key", null)
 

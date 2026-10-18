@@ -1,6 +1,7 @@
 package app.murmur
 
 import android.app.Application
+import app.murmur.brain.Brain
 import app.murmur.notify.Notifier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -10,6 +11,7 @@ class MurmurApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Notifier.createChannels(this)
+        Brain.refresh(this)
     }
 
     companion object {
