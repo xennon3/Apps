@@ -1,0 +1,50 @@
+name: Murmur (Android app)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'murmur/**'
+      - '.github/workflows/murmur-android.yml'
+
+permissions:
+  contents: write   # to publish the download page (GitHub Release)
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: murmur
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew testDebugUnitTest assembleRelease
+      - run: cp app/build/outputs/apk/release/app-release.apk Murmur.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Murmur-Android
+          path: murmur/Murmur.apk
+          if-no-files-found: error
+      # One always-current download page: github.com/<owner>/<repo>/releases/tag/murmur-latest
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: murmur-latest
+          target_commitish: ${{ github.sha }}
+          name: Murmur for Android (latest)
+          make_latest: false
+          body: |
+            **Murmur**: a kinder texting app for Android 8+.
+
+            Open this page on your phone, tap **Murmur.apk**, then open the download.
+            Android will ask to allow installs from your browser; allow it once.
+
+            After installing, open Murmur and tap **Make Murmur my messaging app**.
+            On Android 13+ if that's refused: Settings → Apps → Murmur → ⋮ → **Allow restricted settings**, then try again.
+
+            Built from ${{ github.sha }}.
+          files: murmur/Murmur.apk

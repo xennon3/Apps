@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- a speech bubble with three sound ripples: a murmur -->
+    <path android:fillColor="#FFF4EEFF"
+        android:pathData="M34,36 h40 a8,8 0 0 1 8,8 v18 a8,8 0 0 1 -8,8 h-22 l-12,10 v-10 h-6 a8,8 0 0 1 -8,-8 v-18 a8,8 0 0 1 8,-8z" />
+    <path android:fillColor="#FFFF8A65"
+        android:pathData="M42,50 a3,3 0 1 1 0,6 a3,3 0 1 1 0,-6z" />
+    <path android:fillColor="#FFB388FF"
+        android:pathData="M54,47 a6,6 0 1 1 0,12 a6,6 0 1 1 0,-12z" />
+    <path android:fillColor="#FF7C4DFF"
+        android:pathData="M66,50 a3,3 0 1 1 0,6 a3,3 0 1 1 0,-6z" />
+</vector>
