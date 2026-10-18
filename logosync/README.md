@@ -29,6 +29,21 @@ Try it without the real server: **Tools → Try the demo**. It makes 15 made-up 
 - **Undo last sync** puts the names back. If the PC or app stops in the middle of a sync, it's rolled back automatically the next time the folder is opened.
 - Teams that haven't arrived in the feed yet are left alone, and the sync asks first if any are missing. A partial feed can't rename what it never received.
 - If a logo is renamed by hand outside LogoSync, the mapping finds and follows it by its image content.
+- Only **Replace logo** / **Restore** change an image's content, and the previous image is always backed up first.
+
+## Replacing a logo (new artwork)
+
+New artwork for a team, without touching its mapping:
+
+1. On **2 · Team mapping**, select the team and click **Replace logo…** (or right-click the row, or just **drag a PNG onto the row**).
+2. LogoSync shows the old and new logo side by side over a checkerboard, so you can see transparency. A file that isn't a readable PNG can't be used.
+   You're warned (but not stopped) if the size differs or the new one has no transparency. Nothing is ever resized or re-saved.
+3. Click **Replace logo**. The file keeps its current name (e.g. `MIAM.png`) and the team keeps its ID, so the next sync works as before and the new art follows the team.
+
+The old image is saved first in `%APPDATA%\LogoSync\logo-history\`. **Logo history…** lists every earlier version with its date and size.
+**Restore selected version** brings one back, and saves the image it replaces too, so a restore can also be undone. The new file is
+written under a temporary name and swapped in with one atomic step, so a failure (or a locked file) leaves the old logo in place.
+The feed only ever renames files and never changes an image.
 
 ## The feed
 

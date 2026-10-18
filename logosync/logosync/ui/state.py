@@ -13,6 +13,7 @@ from ..core.library import list_logos
 from ..core.mapping import reconcile
 from ..core.models import Team
 from ..core.renamer import recover_interrupted
+from ..core.replace import cleanup_leftovers
 from ..core.store import Store
 from ..core.udp import UdpListener
 
@@ -64,6 +65,7 @@ class AppState(QObject):
         self.folder = path
         self.folder_id = self.store.folder_id(path)
         messages = recover_interrupted(self.store, self.folder_id, path)
+        cleanup_leftovers(path)
         messages += reconcile(self.store, self.folder_id, path)
         self._watcher.addPath(str(path))
         self.settings.setValue("folder", str(path))

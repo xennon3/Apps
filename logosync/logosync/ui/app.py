@@ -32,6 +32,9 @@ HOW_IT_WORKS = """<h3>How LogoSync works</h3>
 most of it; you check and Save.</li>
 <li><b>Preview &amp; sync</b>: see every old → new name, then click <i>Sync abbreviations</i>.</li>
 </ol>
+<p><b>New artwork?</b> On Team mapping, select the team and click <i>Replace logo…</i> (or drag
+a PNG onto its row). The file name and team ID stay the same; the old image is kept in
+<i>Logo history</i> and can be restored.</p>
 <p>Next season: open LogoSync, let the feed arrive, check the preview, sync. That's it.</p>
 <p><b>Safety:</b> files are only renamed, never re-saved, and each one is checked with SHA-256
 afterwards. Nothing is ever overwritten. Every sync can be undone, and an interrupted sync is

@@ -6,7 +6,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from .models import Move, SyncInfo, Team
+from .models import LogoVersion, Move, SyncInfo, Team
 from .names import normalize_name
 
 SCHEMA = """
@@ -48,6 +48,18 @@ CREATE TABLE IF NOT EXISTS moves (
     size      INTEGER NOT NULL,
     state     TEXT NOT NULL,
     PRIMARY KEY (sync_id, seq)
+);
+CREATE TABLE IF NOT EXISTS logo_versions (
+    id          INTEGER PRIMARY KEY,
+    team_id     INTEGER NOT NULL,
+    backup_path TEXT NOT NULL,
+    filename    TEXT NOT NULL,
+    sha256      TEXT NOT NULL,
+    size        INTEGER NOT NULL,
+    width       INTEGER NOT NULL,
+    height      INTEGER NOT NULL,
+    replaced_at TEXT NOT NULL,
+    note        TEXT NOT NULL DEFAULT ''
 );
 """
 
@@ -120,6 +132,34 @@ class Store:
     def delete_team(self, team_id: int) -> None:
         with self.db:
             self.db.execute("DELETE FROM teams WHERE id = ?", (team_id,))
+
+    # Logo versions (backups made before a logo is replaced)
+
+    def add_logo_version(self, team_id: int, backup_path: str, filename: str, sha256: str,
+                         size: int, width: int, height: int, note: str) -> LogoVersion:
+        with self.db:
+            cur = self.db.execute(
+                "INSERT INTO logo_versions(team_id, backup_path, filename, sha256, size, width,"
+                " height, replaced_at, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (team_id, backup_path, filename, sha256, size, width, height, _now(), note))
+        row = self.db.execute("SELECT * FROM logo_versions WHERE id = ?", (cur.lastrowid,)).fetchone()
+        return LogoVersion(**dict(row))
+
+    def logo_versions(self, team_id: int) -> list[LogoVersion]:
+        """Newest first."""
+        rows = self.db.execute("SELECT * FROM logo_versions WHERE team_id = ? ORDER BY id DESC",
+                               (team_id,))
+        return [LogoVersion(**dict(r)) for r in rows]
+
+    def logo_version_counts(self, folder_id: int) -> dict[int, int]:
+        rows = self.db.execute(
+            "SELECT v.team_id, COUNT(*) FROM logo_versions v JOIN teams t ON t.id = v.team_id"
+            " WHERE t.folder_id = ? GROUP BY v.team_id", (folder_id,))
+        return {r[0]: r[1] for r in rows}
+
+    def delete_logo_version(self, version_id: int) -> None:
+        with self.db:
+            self.db.execute("DELETE FROM logo_versions WHERE id = ?", (version_id,))
 
     # Sync journal
 

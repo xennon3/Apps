@@ -39,3 +39,18 @@ class SyncInfo:
     message: str
     undone_by: int | None
     moves: int
+
+
+@dataclass
+class LogoVersion:
+    """An earlier logo image of a team, kept in the data folder."""
+    id: int
+    team_id: int
+    backup_path: str
+    filename: str       # the team's file name when this image was replaced
+    sha256: str
+    size: int
+    width: int
+    height: int
+    replaced_at: str
+    note: str
