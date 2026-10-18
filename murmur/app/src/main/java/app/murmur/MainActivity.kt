@@ -79,6 +79,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         refreshDefault()
         if (!canRead()) stack = listOf(Screen.Onboarding)
+        else if (isDefault && savedInstanceState == null) askForTheRest() // picks up permissions added in updates
         handle(intent)
         contentResolver.registerContentObserver(Uri.parse("content://mms-sms/"), true, observer)
         contentResolver.registerContentObserver(Telephony.Sms.CONTENT_URI, true, observer)
@@ -231,6 +232,8 @@ class MainActivity : ComponentActivity() {
     private fun askForTheRest() {
         val want = buildList {
             add(Manifest.permission.READ_CONTACTS)
+            add(Manifest.permission.READ_PHONE_STATE)
+            add(Manifest.permission.READ_PHONE_NUMBERS)
             if (!isDefault) { add(Manifest.permission.READ_SMS); add(Manifest.permission.SEND_SMS) }
             if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
         }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }

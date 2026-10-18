@@ -21,6 +21,16 @@ class Prefs(context: Context) {
         sp.edit().apply { if (text.isBlank()) remove("draft_$threadId") else putString("draft_$threadId", text) }.apply()
     }
 
+    /** The SIM chosen for a conversation on a dual-SIM phone, or null to follow the phone's default. */
+    fun sim(threadId: Long): Int? = sp.getInt("sim_$threadId", -1).takeIf { it >= 0 }
+
+    fun setSim(threadId: Long, subId: Int) = sp.edit().putInt("sim_$threadId", subId).apply()
+
+    /** Send texts to several people as one group chat (MMS) instead of separate texts. */
+    var groupMms: Boolean
+        get() = sp.getBoolean("group_mms", true)
+        set(v) = sp.edit().putBoolean("group_mms", v).apply()
+
     /** Seconds a sent message waits before it really leaves, so it can be pulled back. 0 = off. */
     var undoSeconds: Int
         get() = sp.getInt("undo_seconds", 5)

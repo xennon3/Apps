@@ -15,7 +15,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.os.Build
-import android.provider.Telephony
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -24,6 +23,9 @@ import androidx.core.app.RemoteInput
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.IconCompat
 import app.murmur.MainActivity
+import app.murmur.MurmurApp
+import app.murmur.mms.Mms
+import kotlinx.coroutines.launch
 import app.murmur.R
 import app.murmur.data.Phone
 import app.murmur.data.SmsRepository
@@ -102,13 +104,8 @@ object Notifier {
     fun incoming(context: Context, threadId: Long) {
         if (!canPost(context)) return
         val repo = SmsRepository(context)
-        val unread = ArrayList<Triple<String, String, Long>>()
-        context.contentResolver.query(
-            Telephony.Sms.CONTENT_URI, arrayOf("address", "body", "date"),
-            "thread_id = ? AND read = 0 AND type = 1", arrayOf(threadId.toString()), "date DESC LIMIT 8",
-        )?.use { c -> while (c.moveToNext()) unread += Triple(c.getString(0).orEmpty(), c.getString(1).orEmpty(), c.getLong(2)) }
+        val unread = repo.unreadIncoming(threadId)
         if (unread.isEmpty()) return
-        unread.reverse()
 
         val me = Person.Builder().setName("You").build()
         val style = NotificationCompat.MessagingStyle(me)
@@ -163,20 +160,28 @@ object Notifier {
         post(context, -threadId.toInt(), n)
     }
 
-    fun mmsArrived(context: Context) {
+    /** A picture message couldn't be fetched (no mobile data, carrier hiccup). Offer to try again. */
+    fun mmsFailed(context: Context, location: String, subId: Int, from: String?) {
         if (!canPost(context)) return
-        val n = NotificationCompat.Builder(context, MESSAGES)
+        val who = from?.let { SmsRepository(context).contact(it).name ?: Phone.pretty(it) } ?: "someone"
+        val retry = PendingIntent.getBroadcast(
+            context, location.hashCode(),
+            Intent(context, NotificationActionReceiver::class.java).setAction(NotificationActionReceiver.MMS_RETRY)
+                .putExtra("location", location).putExtra("sub", subId).putExtra("from", from),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val n = NotificationCompat.Builder(context, PROBLEMS)
             .setSmallIcon(R.drawable.ic_stat_murmur)
-            .setContentTitle("A picture or group message arrived")
-            .setContentText("Murmur can't download MMS yet. Open your phone's original Messages app to see it.")
-            .setStyle(NotificationCompat.BigTextStyle().bigText(
-                "Murmur can't download MMS yet. Open your phone's original Messages app to see it, " +
-                    "or switch the default back in Murmur's settings.",
-            ))
+            .setContentTitle("Couldn't download a picture message from $who")
+            .setContentText("Picture messages need mobile data, even on Wi-Fi.")
+            .addAction(0, "Try again", retry)
             .setAutoCancel(true)
             .build()
-        post(context, 7_000_001, n)
+        post(context, location.hashCode(), n)
     }
+
+    fun clearMmsFailure(context: Context, location: String) =
+        NotificationManagerCompat.from(context).cancel(location.hashCode())
 
     // ---------- "remind me to reply" ----------
 
@@ -228,6 +233,19 @@ object Notifier {
 
 class NotificationActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == MMS_RETRY) {
+            val location = intent.getStringExtra("location") ?: return
+            Notifier.clearMmsFailure(context, location)
+            val pending = goAsync()
+            MurmurApp.scope.launch {
+                try {
+                    Mms.download(context, location, intent.getIntExtra("sub", -1), intent.getStringExtra("from"))
+                } finally {
+                    pending.finish()
+                }
+            }
+            return
+        }
         val threadId = intent.getLongExtra("thread", -1)
         if (threadId < 0) return
         val repo = SmsRepository(context)
@@ -268,5 +286,6 @@ class NotificationActionReceiver : BroadcastReceiver() {
         const val COPY = "app.murmur.COPY"
         const val REMIND = "app.murmur.REMIND"
         const val REMIND_FIRE = "app.murmur.REMIND_FIRE"
+        const val MMS_RETRY = "app.murmur.MMS_RETRY"
     }
 }

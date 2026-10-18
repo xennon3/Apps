@@ -79,7 +79,7 @@ class SmsRepository(private val context: Context) {
             addresses = addresses,
             title = title,
             photo = if (addresses.size == 1) contacts[0].photo else null,
-            snippet = snippet,
+            snippet = snippet.ifBlank { "📷 Picture" },
             date = date,
             unread = unread,
             known = contacts.any { it.name != null },
@@ -126,7 +126,7 @@ class SmsRepository(private val context: Context) {
         val out = ArrayList<Message>()
         resolver.query(
             Telephony.Sms.CONTENT_URI,
-            arrayOf("_id", "address", "body", "date", "type", "status"),
+            arrayOf("_id", "address", "body", "date", "type", "status", "sub_id"),
             "thread_id = ?", arrayOf(threadId.toString()), "date DESC LIMIT $limit",
         )?.use { c ->
             while (c.moveToNext()) {
@@ -149,6 +149,7 @@ class SmsRepository(private val context: Context) {
                         status == Telephony.Sms.STATUS_FAILED -> Delivery.FAILED
                         else -> Delivery.SENT
                     },
+                    subId = c.getInt(6),
                 )
             }
         }
@@ -161,12 +162,13 @@ class SmsRepository(private val context: Context) {
         try {
             resolver.query(
                 Telephony.Mms.CONTENT_URI,
-                arrayOf("_id", "date", "msg_box"),
+                arrayOf("_id", "date", "msg_box", "sub_id"),
                 "thread_id = ?", arrayOf(threadId.toString()), "date DESC LIMIT $limit",
             )?.use { c ->
                 while (c.moveToNext()) {
                     val id = c.getLong(0)
-                    val inbound = c.getInt(2) == Telephony.Mms.MESSAGE_BOX_INBOX
+                    val box = c.getInt(2)
+                    val inbound = box == Telephony.Mms.MESSAGE_BOX_INBOX
                     val text = StringBuilder()
                     val images = ArrayList<Uri>()
                     resolver.query(
@@ -191,8 +193,14 @@ class SmsRepository(private val context: Context) {
                         address = if (inbound) mmsSender(id) else "",
                         body = text.toString(),
                         date = c.getLong(1) * 1000, // MMS dates are in seconds
-                        delivery = if (inbound) Delivery.NONE else Delivery.SENT,
+                        delivery = when {
+                            inbound -> Delivery.NONE
+                            box == Telephony.Mms.MESSAGE_BOX_FAILED -> Delivery.FAILED
+                            box == Telephony.Mms.MESSAGE_BOX_OUTBOX -> Delivery.SENDING
+                            else -> Delivery.SENT
+                        },
                         images = images,
+                        subId = c.getInt(3),
                     )
                 }
             }
@@ -207,6 +215,49 @@ class SmsRepository(private val context: Context) {
             "type = 137", null, null, // 137 = PduHeaders.FROM
         )?.use { c -> if (c.moveToFirst()) return c.getString(0).orEmpty() }
         return ""
+    }
+
+    /** Unread incoming texts and picture messages in a thread, oldest first, for the notification. */
+    fun unreadIncoming(threadId: Long, limit: Int = 8): List<Triple<String, String, Long>> {
+        val out = ArrayList<Triple<String, String, Long>>()
+        runCatching {
+            resolver.query(
+                Telephony.Sms.CONTENT_URI, arrayOf("address", "body", "date"),
+                "thread_id = ? AND read = 0 AND type = 1", arrayOf(threadId.toString()), "date DESC LIMIT $limit",
+            )?.use { c -> while (c.moveToNext()) out += Triple(c.getString(0).orEmpty(), c.getString(1).orEmpty(), c.getLong(2)) }
+        }
+        runCatching {
+            resolver.query(
+                Telephony.Mms.CONTENT_URI, arrayOf("_id", "date"),
+                "thread_id = ? AND read = 0 AND msg_box = 1", arrayOf(threadId.toString()), "date DESC LIMIT $limit",
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    val id = c.getLong(0)
+                    val (text, pictures) = mmsSummary(id)
+                    val body = listOfNotNull(
+                        if (pictures > 0) (if (pictures == 1) "📷 Photo" else "📷 $pictures photos") else null,
+                        text.ifBlank { null },
+                    ).joinToString("  ").ifBlank { "Picture message" }
+                    out += Triple(mmsSender(id), body, c.getLong(1) * 1000)
+                }
+            }
+        }
+        return out.sortedBy { it.third }.takeLast(limit)
+    }
+
+    private fun mmsSummary(id: Long): Pair<String, Int> {
+        val text = StringBuilder()
+        var pictures = 0
+        resolver.query(
+            Uri.parse("content://mms/part"), arrayOf("ct", "text"), "mid = ?", arrayOf(id.toString()), null,
+        )?.use { p ->
+            while (p.moveToNext()) {
+                val ct = p.getString(0).orEmpty()
+                if (ct == "text/plain") text.append(p.getString(1).orEmpty())
+                if (ct.startsWith("image/")) pictures++
+            }
+        }
+        return text.toString() to pictures
     }
 
     data class Hit(val id: Long, val threadId: Long, val address: String, val body: String, val date: Long)
@@ -261,8 +312,9 @@ class SmsRepository(private val context: Context) {
         return runCatching { resolver.insert(Telephony.Sms.Inbox.CONTENT_URI, values) }.getOrNull()
     }
 
-    fun insertOutbox(address: String, body: String, threadId: Long): Uri? {
+    fun insertOutbox(address: String, body: String, threadId: Long, subId: Int = -1): Uri? {
         val values = ContentValues().apply {
+            if (subId >= 0) put("sub_id", subId)
             put("address", address)
             put("body", body)
             put("date", System.currentTimeMillis())

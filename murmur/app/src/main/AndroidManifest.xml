@@ -9,6 +9,9 @@
     <uses-permission android:name="android.permission.RECEIVE_MMS" />
     <uses-permission android:name="android.permission.RECEIVE_WAP_PUSH" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Dual-SIM choice, and knowing your own number so group chats don't list you -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -60,9 +63,9 @@
             </intent-filter>
         </receiver>
 
-        <!-- Incoming MMS notifications (required for the default SMS app role) -->
+        <!-- Incoming MMS: the carrier's "a picture message is waiting" push -->
         <receiver
-            android:name=".sms.MmsReceiver"
+            android:name=".mms.MmsReceiver"
             android:exported="true"
             android:permission="android.permission.BROADCAST_WAP_PUSH">
             <intent-filter>
@@ -87,6 +90,18 @@
         </service>
 
         <receiver android:name=".sms.SendStatusReceiver" android:exported="false" />
+        <receiver android:name=".mms.MmsSentReceiver" android:exported="false" />
+        <receiver android:name=".mms.MmsDownloadedReceiver" android:exported="false" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="app.murmur.mms"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/mms_paths" />
+        </provider>
         <receiver android:name=".sms.ScheduledSendReceiver" android:exported="false" />
         <receiver android:name=".notify.NotificationActionReceiver" android:exported="false" />
         <receiver android:name=".sms.BootReceiver" android:exported="true">

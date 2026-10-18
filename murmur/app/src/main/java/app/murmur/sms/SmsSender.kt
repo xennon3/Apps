@@ -3,20 +3,19 @@ package app.murmur.sms
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.provider.Telephony
-import android.telephony.SmsManager
 import app.murmur.data.SmsRepository
+import app.murmur.mms.Mms
 
-/** Hands a message to the radio and records it in the shared SMS store. */
+/** Hands a text to the radio and records it in the shared SMS store. */
 object SmsSender {
 
-    fun send(context: Context, threadId: Long, address: String, body: String) {
+    fun send(context: Context, threadId: Long, address: String, body: String, subId: Int = -1) {
         val repo = SmsRepository(context)
-        // Group threads keep their recipients space-separated; text each one individually.
+        // Several recipients without group chat: text each one individually.
         for (to in address.split(' ', ';').filter { it.isNotBlank() }) {
-            val uri = repo.insertOutbox(to, body, threadId)
-            val sms = smsManager(context)
+            val uri = repo.insertOutbox(to, body, threadId, subId)
+            val sms = Mms.smsManager(context, subId)
             val parts = sms.divideMessage(body)
             fun intent(action: String, i: Int) = PendingIntent.getBroadcast(
                 context, (uri?.lastPathSegment?.toIntOrNull() ?: 0) * 64 + i + if (action == SendStatusReceiver.SENT) 0 else 32,
@@ -33,9 +32,4 @@ object SmsSender {
             }
         }
     }
-
-    @Suppress("DEPRECATION")
-    private fun smsManager(context: Context): SmsManager =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) context.getSystemService(SmsManager::class.java)
-        else SmsManager.getDefault()
 }

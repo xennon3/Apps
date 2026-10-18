@@ -9,6 +9,8 @@ import app.murmur.MurmurApp
 import app.murmur.data.Pending
 import app.murmur.data.PendingStore
 import app.murmur.data.Prefs
+import app.murmur.mms.Mms
+import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -19,22 +21,23 @@ import kotlinx.coroutines.launch
  */
 object Outbox {
 
-    fun send(context: Context, threadId: Long, address: String, body: String): Pending {
+    fun send(context: Context, threadId: Long, address: String, body: String, attachment: String? = null, subId: Int = -1): Pending {
         val wait = Prefs(context).undoSeconds * 1000L
-        return enqueue(context, threadId, address, body, System.currentTimeMillis() + wait, scheduled = false)
+        return enqueue(context, threadId, address, body, System.currentTimeMillis() + wait, false, attachment, subId)
     }
 
     /** For notification replies, where there's nowhere to show an undo button. */
-    fun sendImmediately(context: Context, threadId: Long, address: String, body: String): Pending =
-        enqueue(context, threadId, address, body, System.currentTimeMillis(), scheduled = false)
+    fun sendImmediately(context: Context, threadId: Long, address: String, body: String, attachment: String? = null, subId: Int = -1): Pending =
+        enqueue(context, threadId, address, body, System.currentTimeMillis(), false, attachment, subId)
 
-    fun schedule(context: Context, threadId: Long, address: String, body: String, at: Long): Pending =
-        enqueue(context, threadId, address, body, at, scheduled = true)
+    fun schedule(context: Context, threadId: Long, address: String, body: String, at: Long, attachment: String? = null, subId: Int = -1): Pending =
+        enqueue(context, threadId, address, body, at, true, attachment, subId)
 
     private fun enqueue(
         context: Context, threadId: Long, address: String, body: String, at: Long, scheduled: Boolean,
+        attachment: String?, subId: Int,
     ): Pending {
-        val p = PendingStore.get(context).add(threadId, address, body, at, scheduled)
+        val p = PendingStore.get(context).add(threadId, address, body, at, scheduled, attachment, subId)
         if (!scheduled && at - System.currentTimeMillis() <= 0) {
             fire(context, p.id)
         } else {
@@ -56,6 +59,13 @@ object Outbox {
         return p.body
     }
 
+    /** Like [undo], but also hands back the picture so the composer can show it again. */
+    fun undoWithAttachment(context: Context, id: Long): Pending? {
+        val p = PendingStore.get(context).take(id) ?: return null
+        disarm(context, id)
+        return p
+    }
+
     /** Skip the wait and send right now. */
     fun sendNow(context: Context, id: Long) {
         disarm(context, id)
@@ -68,11 +78,26 @@ object Outbox {
         store.all.value.firstOrNull { it.id == id }?.let { arm(context, it) }
     }
 
-    /** Called by the alarm, the coroutine or "send now". Whoever takes the row sends it. */
-    fun fire(context: Context, id: Long) {
-        val p = PendingStore.get(context).take(id) ?: return
-        disarm(context, id)
-        SmsSender.send(context, p.threadId, p.address, p.body)
+    /**
+     * Called by the alarm, the undo timer or "send now". Whoever takes the row sends it.
+     * Work happens off the main thread; [done] runs afterwards (a receiver's goAsync finish).
+     */
+    fun fire(context: Context, id: Long, done: (() -> Unit)? = null) {
+        MurmurApp.scope.launch {
+            try {
+                val p = PendingStore.get(context).take(id) ?: return@launch
+                disarm(context, id)
+                val recipients = p.address.split(' ', ';').filter { it.isNotBlank() }
+                val group = recipients.size > 1 && Prefs(context).groupMms
+                if (p.attachment != null || group) {
+                    Mms.send(context, p.threadId, recipients, p.body, p.attachment?.let(::File), p.subId)
+                } else {
+                    SmsSender.send(context, p.threadId, p.address, p.body, p.subId)
+                }
+            } finally {
+                done?.invoke()
+            }
+        }
     }
 
     /** Re-arm everything after a reboot, and send anything that came due while the phone was off. */

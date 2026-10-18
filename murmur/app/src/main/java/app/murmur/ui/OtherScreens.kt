@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Bedtime
 import androidx.compose.material.icons.outlined.Dialpad
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.LocalFireDepartment
 import androidx.compose.material.icons.outlined.NotificationsActive
@@ -180,6 +181,7 @@ fun OnboardingScreen(
             Feature(Icons.Outlined.LocalFireDepartment, "Heat meter", "The send button warms up as a message gets angrier, so you see it before they do.")
             Feature(Icons.Outlined.Key, "Codes, copied", "Login codes get a Copy button right in the notification.")
             Feature(Icons.Outlined.NotificationsActive, "Remind me to reply", "Snooze a conversation and Murmur nudges you later.")
+            Feature(Icons.Outlined.Image, "Pictures & group chats", "Send and receive photos and group messages. Dual-SIM phones pick the SIM per chat.")
             Spacer(Modifier.height(24.dp))
 
             if (isDefault) {
@@ -254,6 +256,7 @@ fun SettingsScreen(isDefault: Boolean, onMakeDefault: () -> Unit, onBack: () -> 
     var undo by remember { mutableIntStateOf(prefs.undoSeconds) }
     var sleep by remember { mutableStateOf(prefs.sleepOnIt) }
     var heat by remember { mutableStateOf(prefs.heatMeter) }
+    var groupMms by remember { mutableStateOf(prefs.groupMms) }
 
     Scaffold(
         topBar = {
@@ -299,6 +302,16 @@ fun SettingsScreen(isDefault: Boolean, onMakeDefault: () -> Unit, onBack: () -> 
                 supportingContent = { Text("Warm the send button when a message reads angry. Checked on the phone, never uploaded.") },
                 trailingContent = { Switch(heat, { heat = it; prefs.heatMeter = it }) },
             )
+            ListItem(
+                headlineContent = { Text("Group chats") },
+                supportingContent = {
+                    Text(
+                        if (groupMms) "Texts to several people go as one group conversation, so replies reach everyone"
+                        else "Texts to several people go to each person separately",
+                    )
+                },
+                trailingContent = { Switch(groupMms, { groupMms = it; prefs.groupMms = it }) },
+            )
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val exact = context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
                 ListItem(
@@ -329,7 +342,7 @@ fun SettingsScreen(isDefault: Boolean, onMakeDefault: () -> Unit, onBack: () -> 
                 },
             )
             Text(
-                "Murmur 1.0 · texts, codes and drafts never leave this phone.",
+                "Murmur 1.1 · texts, codes and drafts never leave this phone.",
                 Modifier.padding(16.dp).navigationBarsPadding(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -5,6 +5,24 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.material.icons.outlined.AddPhotoAlternate
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.SimCard
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import app.murmur.data.Sims
+import app.murmur.mms.Mms
+import java.io.File
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearEasing
@@ -14,7 +32,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -146,6 +163,22 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
     val allPending by PendingStore.get(context).all.collectAsState()
     val pending = allPending.filter { it.threadId == threadId }
     val listState = rememberLazyListState()
+    var attachment by remember { mutableStateOf<String?>(null) }
+    var preparing by remember { mutableStateOf(false) }
+    val sims = remember { Sims.active(context) }
+    var subId by remember { mutableIntStateOf(prefs.sim(threadId) ?: -1) }
+    var viewing by remember { mutableStateOf<Uri?>(null) }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        preparing = true
+        scope.launch {
+            val file = withContext(Dispatchers.IO) { Mms.preparePicture(context, uri, subId) }
+            preparing = false
+            if (file == null) Toast.makeText(context, "Couldn't open that picture", Toast.LENGTH_SHORT).show()
+            else attachment = file.path
+        }
+    }
 
     LaunchedEffect(threadId, version) {
         val (c, m) = withContext(Dispatchers.IO) {
@@ -154,6 +187,10 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
         }
         Notifier.cancel(context, threadId)
         convo = c; messages = m; loaded = true
+        // Dual SIM with no choice made yet: answer on the SIM they last wrote to.
+        if (sims.size > 1 && prefs.sim(threadId) == null) {
+            m.lastOrNull { it.box == MsgBox.IN && it.subId >= 0 }?.let { subId = it.subId }
+        }
     }
     LaunchedEffect(text) {
         delay(400)
@@ -163,16 +200,18 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
     val address = convo?.addresses?.joinToString(" ").orEmpty()
 
     fun doSend(body: String) {
-        if (body.isBlank() || address.isBlank()) return
-        Outbox.send(context, threadId, address, body.trim())
+        if ((body.isBlank() && attachment == null) || address.isBlank()) return
+        Outbox.send(context, threadId, address, body.trim(), attachment, subId)
+        attachment = null
         text = ""
         prefs.setDraft(threadId, "")
         scope.launch { listState.animateScrollToItem(0) }
     }
 
     fun doSchedule(at: Long) {
-        if (text.isBlank() || address.isBlank()) return
-        Outbox.schedule(context, threadId, address, text.trim(), at)
+        if ((text.isBlank() && attachment == null) || address.isBlank()) return
+        Outbox.schedule(context, threadId, address, text.trim(), at, attachment, subId)
+        attachment = null
         Toast.makeText(context, "Scheduled for ${When.future(context, at)}", Toast.LENGTH_SHORT).show()
         text = ""
         prefs.setDraft(threadId, "")
@@ -262,10 +301,14 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
                             row, convo,
                             seed = convo?.addresses?.firstOrNull().orEmpty(),
                             onLongPress = { actionsFor = row.m },
+                            onImage = { viewing = it },
+                            simLabel = if (sims.size > 1) sims.firstOrNull { it.subId == row.m.subId }?.label else null,
                         )
                         is Item.Wait -> WaitingBubble(
                             row.p,
-                            onUndo = { Outbox.undo(context, row.p.id)?.let { text = it } },
+                            onUndo = {
+                                Outbox.undoWithAttachment(context, row.p.id)?.let { text = it.body; attachment = it.attachment }
+                            },
                             onSendNow = { Outbox.sendNow(context, row.p.id) },
                         )
                     }
@@ -285,6 +328,14 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
                 enabled = isDefault,
                 onSend = ::trySend,
                 onSchedule = { scheduleSheet = true },
+                attachment = attachment,
+                preparing = preparing,
+                onAttach = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                onRemoveAttachment = { attachment?.let { File(it).delete() }; attachment = null },
+                sims = sims,
+                subId = subId,
+                onSim = { subId = it; prefs.setSim(threadId, it) },
+                group = (convo?.addresses?.size ?: 1) > 1,
             )
         }
     }
@@ -374,8 +425,11 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
                 leadingContent = { Icon(Icons.Outlined.Refresh, null) },
                 modifier = Modifier.clickable {
                     actionsFor = null
-                    scope.launch(Dispatchers.IO) { repo.deleteMessage(m) }
-                    Outbox.sendImmediately(context, threadId, address, m.body)
+                    scope.launch(Dispatchers.IO) {
+                        val picture = m.images.firstOrNull()?.let { Mms.copyToOutgoing(context, it) }
+                        repo.deleteMessage(m)
+                        Outbox.sendImmediately(context, threadId, address, m.body, picture?.path, subId)
+                    }
                 },
             )
             ListItem(
@@ -403,6 +457,37 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
         },
         dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep") } },
     )
+
+    viewing?.let { PictureViewer(it) { viewing = null } }
+}
+
+/** Full-screen picture: pinch to zoom, tap to close. */
+@Composable
+private fun PictureViewer(uri: Uri, onClose: () -> Unit) {
+    val img = rememberImage(uri, 2048)
+    var scale by remember { mutableStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(
+            Modifier.fillMaxSize().background(Color.Black)
+                .pointerInput(Unit) {
+                    detectTransformGestures { _, pan, zoom, _ ->
+                        scale = (scale * zoom).coerceIn(1f, 6f)
+                        offset = if (scale == 1f) Offset.Zero else offset + pan
+                    }
+                }
+                .pointerInput(Unit) { detectTapGestures(onTap = { onClose() }) },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (img != null) Image(
+                img, "Picture",
+                Modifier.fillMaxSize().graphicsLayer {
+                    scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y
+                },
+                contentScale = ContentScale.Fit,
+            ) else CircularProgressIndicator()
+        }
+    }
 }
 
 private fun fallbackConversation(repo: SmsRepository, threadId: Long): Conversation? {
@@ -443,7 +528,10 @@ private fun buildRows(messages: List<Message>, pending: List<Pending>): List<Ite
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun Bubble(row: Item.Msg, convo: Conversation?, seed: String, onLongPress: () -> Unit) {
+internal fun Bubble(
+    row: Item.Msg, convo: Conversation?, seed: String, onLongPress: () -> Unit,
+    onImage: (Uri) -> Unit = {}, simLabel: String? = null,
+) {
     val context = LocalContext.current
     val m = row.m
     val mine = m.box == MsgBox.OUT
@@ -480,8 +568,11 @@ internal fun Bubble(row: Item.Msg, convo: Conversation?, seed: String, onLongPre
                     val bmp = rememberImage(img, 900)
                     if (bmp != null) Image(
                         bmp, "Picture",
-                        Modifier.widthIn(max = 260.dp).heightIn(max = 320.dp).clip(RoundedCornerShape(14.dp)),
+                        Modifier.widthIn(max = 260.dp).heightIn(max = 320.dp).clip(RoundedCornerShape(14.dp))
+                            .combinedClickable(onClick = { onImage(img) }, onLongClick = onLongPress),
                         contentScale = ContentScale.Fit,
+                    ) else Box(
+                        Modifier.size(200.dp, 140.dp).clip(RoundedCornerShape(14.dp)).background(scheme.surfaceVariant),
                     )
                     Spacer(Modifier.height(4.dp))
                 }
@@ -509,6 +600,7 @@ internal fun Bubble(row: Item.Msg, convo: Conversation?, seed: String, onLongPre
                 Text(
                     buildString {
                         append(When.time(context, m.date))
+                        simLabel?.let { append(" · $it") }
                         when (m.delivery) {
                             Delivery.SENDING -> append(" · Sending…")
                             Delivery.DELIVERED -> append(" · Delivered")
@@ -544,7 +636,18 @@ internal fun WaitingBubble(p: Pending, onUndo: () -> Unit, onSendNow: () -> Unit
                 .background(scheme.surfaceContainer)
                 .padding(horizontal = 14.dp, vertical = 9.dp),
         ) {
-            Text(p.body, style = MaterialTheme.typography.bodyLarge, color = scheme.onSurface)
+            Column {
+                p.attachment?.let { path ->
+                    val bmp = rememberImage(Uri.fromFile(File(path)), 600)
+                    if (bmp != null) Image(
+                        bmp, "Picture",
+                        Modifier.widthIn(max = 220.dp).heightIn(max = 260.dp).clip(RoundedCornerShape(14.dp)),
+                        contentScale = ContentScale.Fit,
+                    )
+                    if (p.body.isNotBlank()) Spacer(Modifier.height(4.dp))
+                }
+                if (p.body.isNotBlank()) Text(p.body, style = MaterialTheme.typography.bodyLarge, color = scheme.onSurface)
+            }
         }
         Row(
             Modifier.padding(top = 4.dp).animateContentSize(),
@@ -576,7 +679,11 @@ internal fun WaitingBubble(p: Pending, onUndo: () -> Unit, onSendNow: () -> Unit
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun Composer(text: String, onText: (String) -> Unit, enabled: Boolean, onSend: () -> Unit, onSchedule: () -> Unit) {
+internal fun Composer(
+    text: String, onText: (String) -> Unit, enabled: Boolean, onSend: () -> Unit, onSchedule: () -> Unit,
+    attachment: String? = null, preparing: Boolean = false, onAttach: () -> Unit = {}, onRemoveAttachment: () -> Unit = {},
+    sims: List<Sims.Sim> = emptyList(), subId: Int = -1, onSim: (Int) -> Unit = {}, group: Boolean = false,
+) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
     val scheme = MaterialTheme.colorScheme
@@ -611,7 +718,36 @@ internal fun Composer(text: String, onText: (String) -> Unit, enabled: Boolean, 
                     color = Flame,
                 )
             }
+            if (attachment != null || preparing) {
+                Box(Modifier.padding(start = 52.dp, bottom = 6.dp)) {
+                    val bmp = attachment?.let { rememberImage(Uri.fromFile(File(it)), 400) }
+                    Box(
+                        Modifier.size(96.dp).clip(RoundedCornerShape(16.dp)).background(scheme.surfaceVariant),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (bmp != null) Image(bmp, "Picture to send", Modifier.size(96.dp), contentScale = ContentScale.Crop)
+                        else CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                    }
+                    if (attachment != null) Box(
+                        Modifier.align(Alignment.TopEnd).padding(4.dp).size(24.dp).clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.6f)).clickable(onClick = onRemoveAttachment),
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(Icons.Outlined.Close, "Remove picture", Modifier.size(16.dp), tint = Color.White) }
+                }
+            }
+            if (sims.size > 1) {
+                val current = sims.firstOrNull { it.subId == subId } ?: sims.firstOrNull { it.subId == Sims.defaultSms() } ?: sims[0]
+                AssistChip(
+                    onClick = { onSim(sims[(sims.indexOf(current) + 1) % sims.size].subId) },
+                    label = { Text(listOf(current.label, current.carrier).filter { it.isNotBlank() }.joinToString(" · ")) },
+                    leadingIcon = { Icon(Icons.Outlined.SimCard, null, Modifier.size(16.dp), tint = Color(current.color or 0xFF000000.toInt())) },
+                    modifier = Modifier.padding(start = 52.dp).height(30.dp),
+                )
+            }
             Row(verticalAlignment = Alignment.Bottom) {
+                IconButton(onClick = onAttach, modifier = Modifier.padding(bottom = 4.dp)) {
+                    Icon(Icons.Outlined.AddPhotoAlternate, "Add a picture", tint = scheme.primary)
+                }
                 TextField(
                     value = text,
                     onValueChange = onText,
@@ -624,12 +760,16 @@ internal fun Composer(text: String, onText: (String) -> Unit, enabled: Boolean, 
                         focusedContainerColor = scheme.surfaceContainerHighest,
                         unfocusedContainerColor = scheme.surfaceContainerHighest,
                     ),
-                    supportingText = if (text.isNotEmpty() && (segments > 1 || left < 20)) {
-                        { Text(if (segments > 1) "$left · $segments texts" else "$left left") }
-                    } else null,
+                    supportingText = when {
+                        attachment != null -> { { Text("Picture message") } }
+                        group -> { { Text("Group chat") } }
+                        text.isNotEmpty() && (segments > 1 || left < 20) ->
+                            { { Text(if (segments > 1) "$left · $segments texts" else "$left left") } }
+                        else -> null
+                    },
                 )
                 Spacer(Modifier.width(8.dp))
-                val active = text.isNotBlank()
+                val active = (text.isNotBlank() || attachment != null) && !preparing
                 Box(
                     Modifier.padding(bottom = 2.dp).size(50.dp).clip(CircleShape)
                         .background(if (active) ring else scheme.surfaceVariant)
@@ -648,7 +788,7 @@ internal fun Composer(text: String, onText: (String) -> Unit, enabled: Boolean, 
                     )
                 }
             }
-            if (text.isNotBlank()) Text(
+            if (text.isNotBlank() || attachment != null) Text(
                 "Hold send to schedule",
                 Modifier.align(Alignment.End).padding(end = 6.dp, top = 2.dp),
                 style = MaterialTheme.typography.labelSmall,

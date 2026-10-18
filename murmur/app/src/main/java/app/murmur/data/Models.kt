@@ -29,6 +29,7 @@ data class Message(
     val date: Long,
     val delivery: Delivery,
     val images: List<Uri> = emptyList(),
+    val subId: Int = -1,
 )
 
 /** A message that has been written but not handed to the radio yet. */
@@ -40,4 +41,7 @@ data class Pending(
     /** When it goes out: the end of the undo window, or a scheduled time. */
     val at: Long,
     val scheduled: Boolean,
+    /** A picture already shrunk to fit an MMS, kept in Murmur's own storage until it's sent. */
+    val attachment: String? = null,
+    val subId: Int = -1,
 )

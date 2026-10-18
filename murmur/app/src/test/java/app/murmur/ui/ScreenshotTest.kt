@@ -22,6 +22,7 @@ import app.murmur.data.Conversation
 import app.murmur.data.Delivery
 import app.murmur.data.Message
 import app.murmur.data.Pending
+import app.murmur.data.Sims
 import com.android.resources.NightMode
 import org.junit.Rule
 import org.junit.Test
@@ -39,12 +40,14 @@ class ScreenshotTest {
     @Test fun conversation() = paparazzi.snapshot { MurmurTheme { FakeThread("Can we talk about tonight?") } }
 
     @Test fun heated() = paparazzi.snapshot { MurmurTheme { FakeThread("ARE YOU KIDDING ME?? You ALWAYS do this") } }
+
+    @Test fun dualSimGroup() = paparazzi.snapshot { MurmurTheme { FakeThread("who's bringing chips?", dualSim = true) } }
 }
 
 private const val NOW = 1_760_800_000_000L
 
 @Composable
-private fun FakeThread(draft: String) {
+private fun FakeThread(draft: String, dualSim: Boolean = false) {
     val convo = Conversation(1, listOf("+15551234567"), "Maya Chen", null, "", NOW, false, true, false)
     fun msg(i: Int, box: Box, body: String, minsAgo: Int, d: Delivery = Delivery.NONE) =
         Message("s$i", i.toLong(), box, if (box == Box.IN) "+15551234567" else "", body, NOW - minsAgo * 60_000L, d)
@@ -75,6 +78,10 @@ private fun FakeThread(draft: String) {
             WaitingBubble(Pending(9, 1, "+15551234567", "see you there 🎉", NOW + 3_000, false), {}, {})
             WaitingBubble(Pending(10, 1, "+15551234567", "happy birthday!!! 🎂", NOW + 86_400_000, true), {}, {})
         }
-        Composer(text = draft, onText = {}, enabled = true, onSend = {}, onSchedule = {})
+        val sims = if (dualSim) listOf(
+            Sims.Sim(1, 0, "SIM 1", "Verizon", 0xFF7C4DFF.toInt()),
+            Sims.Sim(2, 1, "SIM 2", "Mint", 0xFF4DD0E1.toInt()),
+        ) else emptyList()
+        Composer(text = draft, onText = {}, enabled = true, onSend = {}, onSchedule = {}, sims = sims, subId = 2, group = dualSim)
     }
 }

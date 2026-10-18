@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.IBinder
 import android.provider.Telephony
 import android.telephony.SmsMessage
+import android.telephony.SubscriptionManager
 import app.murmur.MurmurApp
 import app.murmur.data.SmsRepository
 import app.murmur.notify.Notifier
@@ -21,7 +22,7 @@ class SmsReceiver : BroadcastReceiver() {
         if (parts.isEmpty()) return
         val address = parts[0].displayOriginatingAddress ?: parts[0].originatingAddress ?: return
         val body = parts.joinToString("") { it.displayMessageBody ?: it.messageBody ?: "" }
-        val subId = intent.getIntExtra("subscription", -1)
+        val subId = intent.getIntExtra(SubscriptionManager.EXTRA_SUBSCRIPTION_INDEX, intent.getIntExtra("subscription", -1))
         val pending = goAsync()
         MurmurApp.scope.launch {
             try {
@@ -33,18 +34,6 @@ class SmsReceiver : BroadcastReceiver() {
                 pending.finish()
             }
         }
-    }
-}
-
-/**
- * MMS download needs the carrier's MMSC settings and a PDU parser, which Murmur doesn't
- * ship yet. This receiver exists so Android will let Murmur hold the SMS role; it tells
- * the user a picture message arrived so it isn't silently lost.
- */
-class MmsReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Telephony.Sms.Intents.WAP_PUSH_DELIVER_ACTION) return
-        Notifier.mmsArrived(context)
     }
 }
 
@@ -90,7 +79,9 @@ class SendStatusReceiver : BroadcastReceiver() {
 class ScheduledSendReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getLongExtra("id", -1)
-        if (id >= 0) Outbox.fire(context, id)
+        if (id < 0) return
+        val pending = goAsync()
+        Outbox.fire(context, id) { pending.finish() }
     }
 }
 
