@@ -44,7 +44,7 @@ class ScreenshotTest {
     @Test fun voiceAndScam() = paparazzi.snapshot { MurmurTheme { VoiceAndScam() } }
 
     @Test fun brainTab() = paparazzi.snapshot {
-        MurmurTheme { RootTabs(tab = Tab.BRAIN, onTab = {}, messages = {}, brain = { BrainChatScreen(onOpenThread = {}, onSettings = {}) }) }
+        MurmurTheme { WithResultRegistry { RootTabs(tab = Tab.BRAIN, onTab = {}, messages = {}, brain = { BrainChatScreen(onOpenThread = {}, onSettings = {}) }) } }
     }
 
     @Test fun sendCard() = paparazzi.snapshot {
@@ -68,13 +68,7 @@ class ScreenshotTest {
     @Test fun brainSettings() = paparazzi.snapshot {
         MurmurTheme {
             androidx.compose.material3.Surface {
-                // Settings asks Android for permissions; a do-nothing registry stands in for the activity.
-                val owner = object : androidx.activity.result.ActivityResultRegistryOwner {
-                    override val activityResultRegistry = object : androidx.activity.result.ActivityResultRegistry() {
-                        override fun <I, O> onLaunch(requestCode: Int, contract: androidx.activity.result.contract.ActivityResultContract<I, O>, input: I, options: androidx.core.app.ActivityOptionsCompat?) {}
-                    }
-                }
-                androidx.compose.runtime.CompositionLocalProvider(androidx.activity.compose.LocalActivityResultRegistryOwner provides owner) {
+                WithResultRegistry {
                     Column(Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState())) { BrainExtras() }
                 }
             }
@@ -162,4 +156,15 @@ private fun PlanScene() {
         Spacer(Modifier.height(40.dp))
         Bubble(Item.Msg(m, true, true), convo, "+15551234567", onLongPress = {}, plan = plan to time)
     }
+}
+
+/** Screens that ask Android for permissions or pictures need an activity; a do-nothing registry stands in for it. */
+@Composable
+private fun WithResultRegistry(content: @Composable () -> Unit) {
+    val owner = object : androidx.activity.result.ActivityResultRegistryOwner {
+        override val activityResultRegistry = object : androidx.activity.result.ActivityResultRegistry() {
+            override fun <I, O> onLaunch(requestCode: Int, contract: androidx.activity.result.contract.ActivityResultContract<I, O>, input: I, options: androidx.core.app.ActivityOptionsCompat?) {}
+        }
+    }
+    androidx.compose.runtime.CompositionLocalProvider(androidx.activity.compose.LocalActivityResultRegistryOwner provides owner, content = content)
 }
