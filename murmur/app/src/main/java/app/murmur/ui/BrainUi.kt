@@ -143,6 +143,21 @@ fun BrainCard() {
                         }
                         Switch(fast, { fast = it; Brain.setFastWriting(context, it) })
                     }
+                    var think by remember { mutableStateOf(Brain.thinkMode(context)) }
+                    Text("Think harder", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(Brain.Think.AUTO to "Auto", Brain.Think.ALWAYS to "Always", Brain.Think.OFF to "Off").forEach { (t, label) ->
+                            FilterChip(think == t, { think = t; Brain.setThinkMode(context, t) }, label = { Text(label) })
+                        }
+                    }
+                    Text(
+                        when (think) {
+                            Brain.Think.AUTO -> "Works things out before answering questions that need it (plans, money, advice, \"should I\"). Those take 2-3x longer."
+                            Brain.Think.ALWAYS -> "Thinks before every answer in the Brain tab: smartest, slowest."
+                            Brain.Think.OFF -> "Answers straight away: fastest."
+                        },
+                        style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
+                    )
                     Spacer(Modifier.height(6.dp))
                     Spacer(Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {

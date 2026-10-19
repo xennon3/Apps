@@ -125,7 +125,7 @@ object BrainChat {
         val history = _turns.value.filter { !it.writing && it.send == null }.zipWithNext()
             .filter { (a, b) -> a.fromUser && !b.fromUser }
             .map { (a, b) -> a.text to b.text }
-            .takeLast(4)
+            .takeLast(6)
             .let { Lessons.relevant(c, q) + it } // what the user taught it about questions like this one
         _turns.value = _turns.value + Turn(true, q)
 
@@ -195,14 +195,18 @@ object BrainChat {
                 Source(h.threadId, (titles[h.threadId] ?: Phone.pretty(h.address)) + " · " + DateFormat.format("MMM d", h.date))
             }
         }
-        val base = if (useTexts || used.isNotEmpty()) BrainPrompts.CHAT_MESSAGES else BrainPrompts.CHAT_GENERAL
+        val think = Brain.shouldThink(c, q)
+        val base = if (useTexts || used.isNotEmpty()) BrainPrompts.CHAT_MESSAGES else if (think) BrainPrompts.CHAT_DEEP else BrainPrompts.CHAT_GENERAL
         val system = BrainPrompts.system(base, BrainMemory.persona(c), blocks)
         if (facts.isNotEmpty()) used += "Memory"
 
         _step.value = Step.WRITING
+        if (think) { used += "Thought it through"; _activity.value = "Thinking it through…" }
         val start = Turn(false, "", searched, sources, writing = true, used = used)
         _turns.value = _turns.value + start
-        val text = Brain.chat(c, history, prompt, system) { partial -> replaceLast(start.copy(text = partial)) }
+        val text = try {
+            Brain.chat(c, history, prompt, system, think = think) { partial -> if (partial.isNotEmpty()) _activity.value = null; replaceLast(start.copy(text = partial)) }
+        } finally { _activity.value = null }
         replaceLast(
             if (text.isNullOrBlank()) start.copy(text = "Sorry, I couldn't think of an answer. Murmur Brain may still be loading. Try again in a moment.", sources = emptyList(), writing = false)
             else start.copy(text = text, writing = false),
@@ -219,12 +223,17 @@ object BrainChat {
         val tools = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { BrainTools.forQuestion(c) }
         val box = app.murmur.brain.tools.Toolbox(tools) { label -> _activity.value = "$label…" }
         val canLookUp = tools.any { it.name == "web_search" || it.name == "wikipedia" }
-        val system = BrainPrompts.system(BrainPrompts.toolsSystem(canLookUp), BrainMemory.persona(c), blocks)
+        val think = Brain.shouldThink(c, q)
+        val system = BrainPrompts.system(BrainPrompts.toolsSystem(canLookUp), BrainMemory.persona(c), if (think) blocks + BrainPrompts.CHAT_DEEP else blocks)
         if (hasMemory) used += "Memory"
+        if (think) { used += "Thought it through"; _activity.value = "Thinking it through…" }
         val start = Turn(false, "", writing = true, used = used.toList())
         _turns.value = _turns.value + start
         try {
-            val text = Brain.chatWithTools(c, history, q, system, box) { partial -> replaceLast(start.copy(text = partial, used = (used + box.labels).distinct())) }
+            val text = Brain.chatWithTools(c, history, q, system, box, think = think) { partial ->
+                if (partial.isNotEmpty() && _activity.value == "Thinking it through…") _activity.value = null
+                replaceLast(start.copy(text = partial, used = (used + box.labels).distinct()))
+            }
             replaceLast(
                 start.copy(
                     text = text?.takeIf { it.isNotBlank() } ?: "Sorry, I couldn't think of an answer. Murmur Brain may still be loading. Try again in a moment.",

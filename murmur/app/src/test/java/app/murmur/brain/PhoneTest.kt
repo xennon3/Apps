@@ -111,4 +111,13 @@ class PhoneTest {
         assertEquals("Phishing", BrainPrompts.parseScamAnswer("**SCAM: reason**  **Reason:** phishing")!!.reason)
         assertEquals("It reads like a scam", BrainPrompts.parseScamAnswer("SCAM: reason")!!.reason)
     }
+
+    @Test fun hardQuestionsGetThinkingTime() {
+        assertTrue(BrainPrompts.isHard("Should I buy a used car or lease a new one?"))
+        assertTrue(BrainPrompts.isHard("help me plan a weekend in Chicago on a budget"))
+        assertTrue(BrainPrompts.isHard("A shirt costs \$40 after a 20% discount. What was the original price?"))
+        assertTrue(!BrainPrompts.isHard("hi"))
+        assertTrue(!BrainPrompts.isHard("write a haiku about rain"))
+        assertTrue(!BrainPrompts.isHard("what's the capital of France"))
+    }
 }

@@ -14,7 +14,25 @@ object BrainPrompts {
 
     const val CHAT_GENERAL =
         "You are Murmur, a friendly assistant inside a texting app, running privately on the user's phone. " +
-            "Keep answers short and plain, a few sentences at most."
+            "Answer plainly. Simple questions get a short answer; when a question needs more, give a complete, well-organized one."
+
+    private val hardWords = Regex(
+        "(?i)\\b(why|should i|should we|which is better|better option|pros and cons|compare|versus|vs\\.?|recommend|advice|" +
+            "plan|schedule|budget|afford|worth it|how (do|can|should) i|help me (decide|figure|plan|write)|explain|what if|" +
+            "strategy|step by step|figure out|calculate|how many|how much|when should|riddle|puzzle|percent|discount|interest)\\b",
+    )
+
+    /** Worth thinking about first: a question with reasoning words, or a long one with numbers in it. Plain code decides. */
+    fun isHard(q: String): Boolean {
+        val digits = Regex("\\d").findAll(q).count()
+        return hardWords.containsMatchIn(q) && q.length > 25 || (q.length > 140 && digits >= 2) || q.length > 260
+    }
+
+    /** For questions that need working out: think first, then answer clearly. */
+    const val CHAT_DEEP =
+        "You are Murmur, a thoughtful assistant running privately on the user's phone. Work the problem out carefully " +
+            "before answering: check the numbers, consider the options, and the person's situation. Then give a clear answer " +
+            "with the reasoning that matters, without padding."
 
     const val CHAT_MESSAGES =
         "You are Murmur, a friendly assistant inside a texting app, running privately on the user's phone. " +

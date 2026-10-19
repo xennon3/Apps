@@ -13,6 +13,7 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.ThinkingConfig
 import com.google.ai.edge.litertlm.ToolProvider
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.ExperimentalFlags
@@ -106,6 +107,15 @@ object Brain {
     fun setFastWriting(context: Context, v: Boolean) { prefs(context).edit().putBoolean("mtp", v).apply(); MurmurApp.scope.launch { unload() } }
 
     fun enabled(context: Context) = prefs(context).getBoolean("on", false)
+
+    /** Think harder: AUTO thinks on questions that need working out, ALWAYS on everything in the Brain tab, OFF never. */
+    enum class Think { AUTO, ALWAYS, OFF }
+    const val THINK_BUDGET = 600
+    fun thinkMode(context: Context) = runCatching { Think.valueOf(prefs(context).getString("think", "AUTO")!!) }.getOrDefault(Think.AUTO)
+    fun setThinkMode(context: Context, t: Think) = prefs(context).edit().putString("think", t.name).apply()
+    fun shouldThink(context: Context, question: String) = when (thinkMode(context)) {
+        Think.ALWAYS -> true; Think.OFF -> false; Think.AUTO -> BrainPrompts.isHard(question)
+    }
 
     /** Reply chips in chats (on by default once the Brain is on). */
     fun suggestOn(context: Context) = prefs(context).getBoolean("suggest", true)
@@ -350,6 +360,8 @@ object Brain {
         tools: List<ToolProvider> = emptyList(),
         /** Pictures or a voice note that go with the prompt ([Content.ImageBytes], [Content.AudioBytes]). */
         media: List<Content> = emptyList(),
+        /** Let the model reason privately before answering (Gemma 4's thinking mode); slower, better on hard questions. */
+        think: Boolean = false,
     ): String? {
         val c = context.applicationContext
         if (!ready(c)) return null
@@ -368,7 +380,8 @@ object Brain {
                                 listOf(Message.user(BrainPrompts.engineSafe(q)), Message.model(BrainPrompts.engineSafe(a)))
                             },
                             samplerConfig = SamplerConfig(topK = 40, topP = 0.9, temperature = temperature, seed = 7),
-                            maxOutputToken = maxTokens,
+                            maxOutputToken = maxTokens + if (think) THINK_BUDGET else 0,
+                            thinkingConfig = if (think) ThinkingConfig(true, THINK_BUDGET) else null,
                             tools = tools,
                             automaticToolCalling = tools.isNotEmpty(),
                         ),
@@ -490,14 +503,15 @@ object Brain {
      */
     suspend fun chat(
         context: Context, history: List<Pair<String, String>>, prompt: String, system: String,
+        think: Boolean = false,
         onPartial: (String) -> Unit,
-    ): String? = ask(context, system, prompt, maxTokens = 320, temperature = 0.6, examples = history, onPartial = onPartial)
+    ): String? = ask(context, system, prompt, maxTokens = 700, temperature = 0.6, examples = history, onPartial = onPartial, think = think)
 
     /** A general question with tools available: the model decides which (if any) to call. */
     suspend fun chatWithTools(
         context: Context, history: List<Pair<String, String>>, prompt: String, system: String,
-        box: app.murmur.brain.tools.Toolbox, onPartial: (String) -> Unit,
-    ): String? = ask(context, system, prompt, maxTokens = 400, temperature = 0.3, examples = history, onPartial = onPartial, tools = box.providers())
+        box: app.murmur.brain.tools.Toolbox, think: Boolean = false, onPartial: (String) -> Unit,
+    ): String? = ask(context, system, prompt, maxTokens = 700, temperature = 0.3, examples = history, onPartial = onPartial, tools = box.providers(), think = think)
 
     /** Who and what for "text mom I'm running late": the model words it, plain code is the fallback. */
     suspend fun draftSend(context: Context, request: String): BrainPrompts.SendDraft? =
