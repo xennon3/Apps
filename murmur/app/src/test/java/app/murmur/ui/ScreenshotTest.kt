@@ -1,5 +1,6 @@
 package app.murmur.ui
 
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -64,6 +65,22 @@ class ScreenshotTest {
         MurmurTheme { FakeThread("", replies = listOf("yes, still on!", "can't tonight, sorry", "what time again?")) }
     }
 
+    @Test fun brainSettings() = paparazzi.snapshot {
+        MurmurTheme {
+            androidx.compose.material3.Surface {
+                // Settings asks Android for permissions; a do-nothing registry stands in for the activity.
+                val owner = object : androidx.activity.result.ActivityResultRegistryOwner {
+                    override val activityResultRegistry = object : androidx.activity.result.ActivityResultRegistry() {
+                        override fun <I, O> onLaunch(requestCode: Int, contract: androidx.activity.result.contract.ActivityResultContract<I, O>, input: I, options: androidx.core.app.ActivityOptionsCompat?) {}
+                    }
+                }
+                androidx.compose.runtime.CompositionLocalProvider(androidx.activity.compose.LocalActivityResultRegistryOwner provides owner) {
+                    Column(Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState())) { BrainExtras() }
+                }
+            }
+        }
+    }
+
     @Test fun dualSimGroup() = paparazzi.snapshot { MurmurTheme { FakeThread("who's bringing chips?", dualSim = true) } }
 }
 
@@ -105,6 +122,7 @@ private fun FakeThread(draft: String, dualSim: Boolean = false, replies: List<St
             Sims.Sim(1, 0, "SIM 1", "Verizon", 0xFF7C4DFF.toInt()),
             Sims.Sim(2, 1, "SIM 2", "Mint", 0xFF4DD0E1.toInt()),
         ) else emptyList()
+        if (replies.isNotEmpty()) FactChip("Maya is vegan", {}, {})
         if (replies.isNotEmpty()) ReplyChips(replies) {}
         Composer(text = draft, onText = {}, enabled = true, onSend = {}, onSchedule = {}, sims = sims, subId = 2, group = dualSim)
     }

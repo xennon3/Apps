@@ -23,6 +23,8 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.core.content.ContextCompat
 import app.murmur.brain.Brain
+import app.murmur.brain.Eyes
+import app.murmur.brain.ReplyStyle
 import androidx.compose.material.icons.outlined.AutoAwesome
 import app.murmur.data.Repeat
 import app.murmur.brain.BrainPrompts
@@ -216,6 +218,11 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
     var brainSheet by remember { mutableStateOf(false) }
     var brainStatus by remember { mutableStateOf<String?>(null) }
     var replies by remember { mutableStateOf<List<String>>(emptyList()) }
+    var replyTranscript by remember { mutableStateOf("") }
+    var pickedReply by remember { mutableStateOf<String?>(null) }
+    var factOffer by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var lookingAt by remember { mutableStateOf<Message?>(null) }
+    var lookAnswer by remember { mutableStateOf("") }
     var planChecked by remember { mutableIntStateOf(0) }
     var askText by remember { mutableStateOf("") }
     var askAnswer by remember { mutableStateOf<String?>(null) }
@@ -316,6 +323,9 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
             return
         }
         if (body.isBlank() && attachment == null) return
+        // Sending a suggested reply (as is or edited) teaches the next suggestions how the user really writes.
+        pickedReply?.let { p -> if (body.isNotBlank() && replyTranscript.isNotEmpty()) ReplyStyle.learn(context, replyTranscript, body, replies - p) }
+        pickedReply = null
         Outbox.send(context, threadId, address, body.trim(), attachment, subId)
         attachment = null
         text = ""
@@ -366,9 +376,16 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
             .filter { ScamShield.links(it.body).isNotEmpty() || Regex("(?i)\\$|pay|account|code|verify|refund|prize|won|gift|invest|crypto|job").containsMatchIn(it.body) }
             .filter { !ScamShield.analyze(it.body, it.address, false).flagged }
             .take(5).toList()
-        for (m in candidates) try {
+        // Pictures from strangers too: a screenshot of a "USPS fee" text is the same scam.
+        val pictures = messages.asReversed().asSequence()
+            .filter { it.box == MsgBox.IN && it.images.isNotEmpty() && !prefs.scamDismissed(it.key) && System.currentTimeMillis() - it.date < 7 * 86_400_000L }
+            .take(2).toList()
+        for (m in candidates + pictures.filter { it !in candidates }) try {
             val cached = prefs.brainScam(m.key) ?: run {
-                val opinion = Brain.scamCheck(context, m.body) ?: return@LaunchedEffect
+                val opinion = if (m.images.isNotEmpty() && m.body.length <= 20) {
+                    val jpg = withContext(Dispatchers.IO) { Eyes.jpeg(context, m.images.first()) } ?: continue
+                    Brain.look(context, jpg, BrainPrompts.PIC_SCAM, maxTokens = 40)?.let(BrainPrompts::parseScamAnswer) ?: return@LaunchedEffect
+                } else Brain.scamCheck(context, m.body) ?: return@LaunchedEffect
                 (if (opinion.scam) "1|${opinion.reason}" else "0").also { prefs.setBrainScam(m.key, it) }
             }
             if (cached.startsWith("1|")) {
@@ -393,6 +410,7 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
         delay(800)
         try {
             val lines = messages.takeLast(8).filter { it.body.isNotBlank() }.map { (it.box != MsgBox.IN) to it.body.removePrefix("🎙 ") }
+            replyTranscript = BrainPrompts.replyTranscript(lines)
             val mine = messages.takeLast(40).filter { it.box != MsgBox.IN && it.body.isNotBlank() }.map { it.body }
             val got = Brain.suggestReplies(context, lines, mine) ?: return@LaunchedEffect
             Brain.replyCache[last.key] = got
@@ -404,18 +422,45 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
         }
     }
 
+    // Murmur Brain: when someone shares something lasting about themselves ("I'm vegan now"), offer to remember it.
+    LaunchedEffect(messages.lastOrNull()?.key, brainReady) {
+        factOffer = null
+        if (!brainReady) return@LaunchedEffect
+        delay(2_500)
+        val facts = context.getSharedPreferences("brain_facts", 0)
+        val known = BrainMemory.facts(context).map { it.lowercase() }
+        val now = System.currentTimeMillis()
+        for (m in messages.takeLast(15).asReversed().filter { it.box == MsgBox.IN && now - it.date < 7 * 86_400_000L && BrainPrompts.mightHaveFact(it.body) }) try {
+            if (facts.getBoolean("no_" + m.key, false)) continue
+            val sender = (if ((convo?.addresses?.size ?: 1) > 1) withContext(Dispatchers.IO) { repo.contact(m.address).name } else convo?.title?.takeIf { convo?.known == true }) ?: continue
+            val fact = facts.getString(m.key, null) ?: Brain.factCheck(context, sender.substringBefore(' '), m.body)?.also { facts.edit().putString(m.key, it).apply() } ?: return@LaunchedEffect
+            if (fact != "-" && known.none { it == fact.lowercase() }) { factOffer = m.key to fact; return@LaunchedEffect }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("Murmur", "fact check failed", e)
+        }
+    }
+
     // Murmur Brain: plans in recent texts ("dinner friday at 7") become an Add to calendar chip.
     LaunchedEffect(messages.lastOrNull()?.key, brainReady) {
         if (!brainReady) return@LaunchedEffect
         delay(1_500) // let the chat settle (it reloads once as it's marked read) before waking the model
         val now = System.currentTimeMillis()
         val candidates = messages.takeLast(20).asReversed()
-            .filter { it.body.isNotBlank() && now - it.date < 14 * 86_400_000L && PlanTime.mightHavePlan(it.body) }
+            .filter { now - it.date < 14 * 86_400_000L }
+            .filter { (it.body.isNotBlank() && PlanTime.mightHavePlan(it.body)) || (it.box == MsgBox.IN && it.images.isNotEmpty()) }
         planChecked = 0
         for ((n, m) in candidates.withIndex()) try {
             brainStatus = "Reading recent texts for plans… ${n + 1} of ${candidates.size}"
-            val stored = prefs.plan(m.key)
-                ?: Brain.planCheck(context, m.body.removePrefix("🎙 "))?.also { prefs.setPlan(m.key, it) }
+            val fromText = m.body.isNotBlank() && PlanTime.mightHavePlan(m.body)
+            // A flyer or a screenshot of plans: the Brain reads the picture itself.
+            val key = if (fromText) m.key else "img_" + m.key
+            val stored = prefs.plan(key)
+                ?: (if (fromText) Brain.planCheck(context, m.body.removePrefix("🎙 "))
+                else withContext(Dispatchers.IO) { Eyes.jpeg(context, m.images.first()) }?.let { jpg ->
+                    Brain.look(context, jpg, BrainPrompts.PIC_EVENT, maxTokens = 60)?.let { BrainPrompts.encodePlan(BrainPrompts.parseEvent(it)) }
+                })?.also { prefs.setPlan(key, it) }
                 ?: continue // the model couldn't answer this time; try again next visit
             planChecked++
             val plan = BrainPrompts.decodePlan(stored) ?: continue
@@ -655,7 +700,11 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
                     )
                 }
             }
-            if (replies.isNotEmpty() && text.isBlank() && attachment == null && voiceFile == null && isDefault) ReplyChips(replies) { text = it }
+            factOffer?.let { (key, fact) ->
+                FactChip(fact, onRemember = { BrainMemory.add(context, fact); factOffer = null; Toast.makeText(context, "Murmur Brain will remember that", Toast.LENGTH_SHORT).show() },
+                    onDismiss = { context.getSharedPreferences("brain_facts", 0).edit().putBoolean("no_$key", true).apply(); factOffer = null })
+            }
+            if (replies.isNotEmpty() && text.isBlank() && attachment == null && voiceFile == null && isDefault) ReplyChips(replies) { text = it; pickedReply = it }
             Composer(
                 text = text,
                 onText = { text = it },
@@ -780,6 +829,19 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
                 m.body.ifBlank { "Picture message" }, Modifier.padding(24.dp, 0.dp, 24.dp, 8.dp),
                 maxLines = 3, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (m.images.isNotEmpty() && brainReady) ListItem(
+                headlineContent = { Text("What's in this picture?") },
+                supportingContent = { Text("Murmur Brain looks at it on this phone") },
+                leadingContent = { Icon(Icons.Outlined.AutoAwesome, null) },
+                modifier = Modifier.clickable {
+                    actionsFor = null; lookingAt = m; lookAnswer = ""
+                    scope.launch {
+                        val jpg = withContext(Dispatchers.IO) { Eyes.jpeg(context, m.images.first()) }
+                        lookAnswer = jpg?.let { Brain.look(context, it, BrainPrompts.PIC_DESCRIBE, maxTokens = 200) { p -> lookAnswer = p } }
+                            ?: "Murmur Brain couldn't look at this picture. Try again in a moment."
+                    }
+                },
+            )
             if (m.body.isNotBlank()) ListItem(
                 headlineContent = { Text("Copy text") },
                 leadingContent = { Icon(Icons.Outlined.ContentCopy, null) },
@@ -824,6 +886,20 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
     )
 
     viewing?.let { PictureViewer(it) { viewing = null } }
+
+    lookingAt?.let { m ->
+        ModalBottomSheet(onDismissRequest = { lookingAt = null }) {
+            Column(Modifier.padding(24.dp, 0.dp, 24.dp, 32.dp)) {
+                Text("What's in this picture", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    lookAnswer.ifEmpty { "Looking…" }, Modifier.padding(top = 8.dp),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontStyle = if (lookAnswer.isEmpty()) FontStyle.Italic else FontStyle.Normal,
+                )
+                if (lookAnswer.length > 20) TextButton(onClick = { copy(context, lookAnswer) }) { Text("Copy") }
+            }
+        }
+    }
 
     if (brainSheet) ModalBottomSheet(onDismissRequest = { brainSheet = false }) {
         Column(Modifier.padding(24.dp, 0.dp, 24.dp, 24.dp).imePadding()) {
@@ -1409,5 +1485,19 @@ internal fun ReplyChips(replies: List<String>, onPick: (String) -> Unit) {
         items(replies) { r ->
             SuggestionChip(onClick = { onPick(r) }, label = { Text(r, maxLines = 2) })
         }
+    }
+}
+
+/** "Remember: Priya is vegan?" One tap saves it to Murmur Brain's memory. */
+@Composable
+internal fun FactChip(fact: String, onRemember: () -> Unit, onDismiss: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        AssistChip(
+            onClick = onRemember,
+            label = { Text("Remember: $fact", maxLines = 2) },
+            leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp)) },
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, "Not now", Modifier.size(18.dp)) }
     }
 }

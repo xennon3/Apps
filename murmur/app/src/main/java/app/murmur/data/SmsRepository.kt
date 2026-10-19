@@ -288,6 +288,28 @@ class SmsRepository(private val context: Context) {
         return out
     }
 
+    /** Texts by their ids (for meaning search, which stores only ids and vectors). */
+    fun smsByIds(ids: List<Long>): List<Hit> {
+        if (ids.isEmpty()) return emptyList()
+        val out = HashMap<Long, Hit>()
+        runCatching {
+            resolver.query(
+                Telephony.Sms.CONTENT_URI, arrayOf("_id", "thread_id", "address", "body", "date"),
+                "_id IN (" + ids.joinToString(",") + ")", null, null,
+            )?.use { c -> while (c.moveToNext()) out[c.getLong(0)] = Hit(c.getLong(0), c.getLong(1), c.getString(2).orEmpty(), c.getString(3).orEmpty(), c.getLong(4)) }
+        }
+        return ids.mapNotNull { out[it] }
+    }
+
+    /** Every text, newest first, for building the meaning-search index; [each] returns false to stop. */
+    fun eachSms(each: (Hit) -> Boolean) {
+        runCatching {
+            resolver.query(Telephony.Sms.CONTENT_URI, arrayOf("_id", "thread_id", "address", "body", "date"), null, null, "_id DESC")?.use { c ->
+                while (c.moveToNext()) if (!each(Hit(c.getLong(0), c.getLong(1), c.getString(2).orEmpty(), c.getString(3).orEmpty(), c.getLong(4)))) break
+            }
+        }
+    }
+
     /**
      * Texts that best match a set of search words: each word found in a message scores a
      * point, and a word that names the conversation ("jen", "mom") scores two.

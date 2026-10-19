@@ -222,9 +222,9 @@ object Voice {
 
     // =========================================================== transcription
 
-    /** Android 13+ can transcribe an audio file on the phone. */
+    /** Murmur Brain can listen to voice notes itself; otherwise Android 13+ can transcribe on the phone. */
     fun canTranscribe(context: Context): Boolean =
-        Build.VERSION.SDK_INT >= 33 && SpeechRecognizer.isRecognitionAvailable(context)
+        app.murmur.brain.Brain.ready(context) || (Build.VERSION.SDK_INT >= 33 && SpeechRecognizer.isRecognitionAvailable(context))
 
     /**
      * Turns a voice note into text with Android's own speech recognizer, preferring the
@@ -234,10 +234,37 @@ object Voice {
         if (!canTranscribe(context)) return null
         val pcm = withContext(Dispatchers.IO) { decodeToPcm(context, source) } ?: return null
         if (pcm.data.isEmpty()) return null
+        if (app.murmur.brain.Brain.ready(context)) {
+            app.murmur.brain.Brain.listen(context, wav16k(pcm))?.let { return it }
+        }
+        if (Build.VERSION.SDK_INT < 33 || !SpeechRecognizer.isRecognitionAvailable(context)) return null
         return withTimeoutOrNull(60_000) { withContext(Dispatchers.Main) { recognize(context, pcm) } }
     }
 
     private class Pcm(val data: ByteArray, val rate: Int, val channels: Int)
+
+    /** Decoded audio as a 16 kHz mono 16-bit WAV file, the shape Murmur Brain's ears were tested with. */
+    fun wavFor(context: Context, source: Uri): ByteArray? = decodeToPcm(context, source)?.takeIf { it.data.isNotEmpty() }?.let(::wav16k)
+
+    private fun wav16k(pcm: Pcm): ByteArray {
+        val inSamples = pcm.data.size / 2 / pcm.channels
+        val src = java.nio.ByteBuffer.wrap(pcm.data).order(java.nio.ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+        fun mono(i: Int): Float { var sum = 0f; for (ch in 0 until pcm.channels) sum += src.get(i * pcm.channels + ch); return sum / pcm.channels }
+        val outSamples = (inSamples.toLong() * 16_000 / pcm.rate).toInt().coerceAtMost(16_000 * 120) // two minutes is plenty
+        val body = java.nio.ByteBuffer.allocate(outSamples * 2).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        for (j in 0 until outSamples) {
+            val x = j.toDouble() * pcm.rate / 16_000
+            val i = x.toInt().coerceAtMost(inSamples - 1)
+            val f = (x - i).toFloat()
+            val v = mono(i) * (1 - f) + mono((i + 1).coerceAtMost(inSamples - 1)) * f
+            body.putShort(v.toInt().coerceIn(-32768, 32767).toShort())
+        }
+        val h = java.nio.ByteBuffer.allocate(44).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        h.put("RIFF".toByteArray()).putInt(36 + outSamples * 2).put("WAVE".toByteArray())
+        h.put("fmt ".toByteArray()).putInt(16).putShort(1).putShort(1).putInt(16_000).putInt(32_000).putShort(2).putShort(16)
+        h.put("data".toByteArray()).putInt(outSamples * 2)
+        return h.array() + body.array()
+    }
 
     private fun decodeToPcm(context: Context, source: Uri): Pcm? = runCatching {
         val ex = MediaExtractor()

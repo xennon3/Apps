@@ -16,6 +16,8 @@ class MurmurApp : Application() {
         CrashReport.collect(this) // before Brain.refresh resets its record of the last session
         Notifier.createChannels(this)
         Brain.refresh(this)
+        app.murmur.brain.BatteryLog.schedule(this)
+        app.murmur.brain.Meaning.refresh(this)
     }
 
     companion object {

@@ -92,6 +92,7 @@ class BootReceiver : BroadcastReceiver() {
         ) return
         Outbox.rearmAll(context)
         Notifier.rearmReminders(context)
+        app.murmur.brain.BatteryLog.schedule(context)
     }
 }
 

@@ -46,6 +46,8 @@ object BrainChat {
         val send: SendCard? = null,
         /** Web pages an answer came from. */
         val web: List<app.murmur.brain.tools.WebSource> = emptyList(),
+        /** 1 for a thumbs up, -1 for a thumbs down. */
+        val rating: Int = 0,
     )
 
     enum class Step { IDLE, DECIDING, SEARCHING, WRITING }
@@ -80,6 +82,7 @@ object BrainChat {
                     o.optJSONArray("q")?.let { q -> List(q.length()) { q.getString(it) } }.orEmpty(),
                     o.optJSONArray("s")?.let { s -> List(s.length()) { s.getJSONObject(it).let { x -> Source(x.getLong("id"), x.getString("l")) } } }.orEmpty(),
                     used = o.optJSONArray("w")?.let { w -> List(w.length()) { w.getString(it) } }.orEmpty(),
+                    rating = o.optInt("r"),
                     web = o.optJSONArray("web")?.let { w -> List(w.length()) { w.getJSONObject(it).let { x -> app.murmur.brain.tools.WebSource(x.getString("t"), x.getString("u")) } } }.orEmpty(),
                     send = o.optJSONObject("send")?.let { x ->
                         SendCard(x.getString("n"), x.getString("p"), x.getString("m"), SendState.valueOf(x.getString("st")), x.optLong("at"))
@@ -98,6 +101,7 @@ object BrainChat {
                 if (t.searched.isNotEmpty()) put("q", JSONArray(t.searched))
                 if (t.sources.isNotEmpty()) put("s", JSONArray(t.sources.map { JSONObject().put("id", it.threadId).put("l", it.label) }))
                 if (t.used.isNotEmpty()) put("w", JSONArray(t.used))
+                if (t.rating != 0) put("r", t.rating)
                 if (t.web.isNotEmpty()) put("web", JSONArray(t.web.map { JSONObject().put("t", it.title).put("u", it.url) }))
                 t.send?.let { put("send", JSONObject().put("n", it.name).put("p", it.number).put("m", it.message).put("st", it.state.name).put("at", it.at)) }
             })
@@ -122,6 +126,7 @@ object BrainChat {
             .filter { (a, b) -> a.fromUser && !b.fromUser }
             .map { (a, b) -> a.text to b.text }
             .takeLast(4)
+            .let { Lessons.relevant(c, q) + it } // what the user taught it about questions like this one
         _turns.value = _turns.value + Turn(true, q)
 
         // Memory commands are handled by plain code: no model, no guessing.
@@ -161,7 +166,10 @@ object BrainChat {
         val skills = Skills.match(q, SkillStore.active(c))
         if (skills.isNotEmpty()) { blocks += Skills.block(skills); used += skills.map { it.name + " skill" } }
 
-        val useTexts = used.none { it in setOf("Calendar", "Call history", "Contacts") } &&
+        // "How fast am I moving?" is about the phone, not the texts: skip the search and go to the phone tools.
+        val aboutPhone = BrainPrompts.asksPhone(q)
+        if (aboutPhone && BrainTools.forQuestion(c).none { it.name.startsWith("phone_") }) blocks += BrainPrompts.PHONE_OFF
+        val useTexts = !aboutPhone && used.none { it in setOf("Calendar", "Call history", "Contacts") } &&
             (BrainPrompts.mentionsTexts(q, titles.values) || Brain.needsMessages(c, q))
         if (!useTexts && used.none { it in setOf("Calendar", "Call history", "Contacts") }) {
             answerWithTools(c, q, history, blocks, used, facts.isNotEmpty())
@@ -173,7 +181,11 @@ object BrainChat {
         if (useTexts) {
             _step.value = Step.SEARCHING
             searched = Brain.searchTerms(c, q)
-            val hits = repo.searchByWords(searched, titles, limit = 10)
+            val byWords = repo.searchByWords(searched, titles, limit = 10)
+            // Meaning search finds texts that say it differently ("yacht" for "boat"); keyword hits fill in after.
+            val byMeaning = if (Meaning.ready(c)) repo.smsByIds(Meaning.search(c, q, 6).map { it.id }) else emptyList()
+            if (byMeaning.isNotEmpty()) used += "Meaning search"
+            val hits = (byMeaning + byWords).distinctBy { it.id }.take(10)
             val lines = hits.map { h ->
                 val who = titles[h.threadId]?.takeIf { !it.contains(',') } ?: repo.contact(h.address).name ?: Phone.pretty(h.address)
                 "[" + DateFormat.format("EEE MMM d", h.date) + ", " + who + "] " + h.body.replace('\n', ' ').take(300)
@@ -270,6 +282,26 @@ object BrainChat {
         val list = _turns.value
         if (list.isEmpty() || list.last().fromUser) return
         _turns.value = list.dropLast(1) + turn
+    }
+
+    // ================================================================ teaching
+
+    /**
+     * A thumbs up keeps the answer as an example for similar questions; a thumbs down with a
+     * better answer keeps that instead.
+     */
+    fun rate(c: Context, index: Int, good: Boolean, better: String? = null) {
+        val list = _turns.value.toMutableList()
+        val t = list.getOrNull(index)?.takeIf { !it.fromUser } ?: return
+        val question = list.take(index).lastOrNull { it.fromUser }?.text ?: return
+        list[index] = t.copy(rating = if (good) 1 else -1)
+        _turns.value = list
+        when {
+            good -> Lessons.add(c, question, t.text)
+            !better.isNullOrBlank() -> Lessons.add(c, question, better)
+            else -> Lessons.all(c).filter { it.question.equals(question, true) }.forEach { Lessons.remove(c, it) }
+        }
+        save(c)
     }
 
     // ================================================================ the send card

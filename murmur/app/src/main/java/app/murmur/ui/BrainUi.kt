@@ -1,5 +1,9 @@
 package app.murmur.ui
 
+import app.murmur.brain.Meaning
+import app.murmur.brain.BatteryLog
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material3.FilterChip
 import app.murmur.brain.tools.SearchEngine
 import app.murmur.brain.tools.WebSearchTool
 import androidx.compose.material3.RadioButton
@@ -71,7 +75,10 @@ fun BrainCard() {
     var mobileData by remember { mutableStateOf(false) }
     var testing by remember { mutableStateOf(false) }
     var testFailed by remember { mutableStateOf(false) }
+    var confirmBig by remember { mutableStateOf<Brain.ModelSpec?>(null) }
     val scheme = MaterialTheme.colorScheme
+    val model = remember(state) { Brain.model(context) }
+    val incoming = remember(state) { Brain.downloading(context) }
 
     Surface(
         color = scheme.primaryContainer.copy(alpha = 0.45f),
@@ -104,8 +111,9 @@ fun BrainCard() {
                 )
                 is Brain.State.Downloading -> {
                     Text(
-                        if (s.waitingForWifi) "Waiting for Wi-Fi to download ${Brain.MODEL.name}…"
-                        else "Downloading ${Brain.MODEL.name}… ${(s.fraction * 100).toInt()}% of ${Brain.MODEL.sizeLabel}",
+                        (if (s.waitingForWifi) "Waiting for Wi-Fi to download ${(incoming ?: model).name}…"
+                        else "Downloading ${(incoming ?: model).name}… ${(s.fraction * 100).toInt()}% of ${(incoming ?: model).sizeLabel}") +
+                            (if (incoming != null && incoming != model && Brain.ready(context)) "\n${model.name} keeps answering in the Brain tab until it's done." else ""),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Spacer(Modifier.height(6.dp))
@@ -113,9 +121,29 @@ fun BrainCard() {
                 }
                 Brain.State.Ready -> {
                     Text(
-                        "Ready. ${Brain.MODEL.name} lives on this phone (${Brain.MODEL.sizeLabel}) and loads only while it's working.",
+                        "Ready. ${model.name} lives on this phone (${model.sizeLabel}) and loads only while it's working.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                    Spacer(Modifier.height(8.dp))
+                    Text("Model", style = MaterialTheme.typography.labelLarge)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(model == Brain.GEMMA4_E2B, { if (model != Brain.GEMMA4_E2B) confirmBig = Brain.GEMMA4_E2B }, label = { Text("Standard") })
+                        FilterChip(model == Brain.GEMMA4_E4B, { if (model != Brain.GEMMA4_E4B) confirmBig = Brain.GEMMA4_E4B }, label = { Text("Big Brain") })
+                    }
+                    Text(
+                        if (model == Brain.GEMMA4_E4B) "Big Brain: better at tone, translation and tricky questions; about 1.5x slower."
+                        else "Standard: quick. Big Brain is smarter with nuance and translation, about 1.5x slower, and needs ${Brain.GEMMA4_E4B.sizeLabel}.",
+                        style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
+                    )
+                    var fast by remember { mutableStateOf(Brain.fastWriting(context)) }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Fast writing", style = MaterialTheme.typography.bodyMedium)
+                            Text("Drafts several words at once and checks them: about 1.7x faster, same answers.", style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+                        }
+                        Switch(fast, { fast = it; Brain.setFastWriting(context, it) })
+                    }
+                    Spacer(Modifier.height(6.dp))
                     Spacer(Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         OutlinedButton(
@@ -156,7 +184,7 @@ fun BrainCard() {
         text = {
             Column {
                 Text(
-                    "Murmur will download ${Brain.MODEL.name}, Google's open AI model, once (${Brain.MODEL.sizeLabel}, so Wi-Fi is best). After that it works with " +
+                    "Murmur will download ${model.name}, Google's open AI model, once (${model.sizeLabel}, so Wi-Fi is best). After that it works with " +
                         "no connection, and your messages never leave the phone. This download is the only thing " +
                         "Murmur ever uses the internet for.",
                 )
@@ -173,10 +201,32 @@ fun BrainCard() {
     if (confirmOff) AlertDialog(
         onDismissRequest = { confirmOff = false },
         title = { Text("Turn off Murmur Brain?") },
-        text = { Text("This deletes the model and frees ${Brain.MODEL.sizeLabel}. You can download it again any time.") },
+        text = { Text("This deletes the model and frees ${model.sizeLabel}. You can download it again any time.") },
         confirmButton = { TextButton(onClick = { confirmOff = false; Brain.turnOff(context) }) { Text("Turn off", color = scheme.error) } },
         dismissButton = { TextButton(onClick = { confirmOff = false }) { Text("Keep it") } },
     )
+
+    confirmBig?.let { spec ->
+        AlertDialog(
+            onDismissRequest = { confirmBig = null },
+            title = { Text(if (spec == Brain.GEMMA4_E4B) "Switch to Big Brain?" else "Switch to Standard?") },
+            text = {
+                Column {
+                    Text(
+                        "Murmur will download ${spec.name} (${spec.sizeLabel}). ${model.name} keeps answering until it's in, then it's deleted to free " +
+                            "${model.sizeLabel}. You can switch back any time." +
+                            if (spec == Brain.GEMMA4_E4B) " Big Brain uses more memory while it works; it suits phones with 8 GB or more." else "",
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(mobileData, { mobileData = it })
+                        Text("Allow mobile data (otherwise waits for Wi-Fi)", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { confirmBig = null; Brain.switchModel(context, spec, mobileData); Brain.refresh(context) }) { Text("Download") } },
+            dismissButton = { TextButton(onClick = { confirmBig = null }) { Text("Not now") } },
+        )
+    }
 }
 
 /** Writing speed is what you feel; two sentences are about 40 tokens. */
@@ -220,12 +270,45 @@ fun BrainExtras() {
                     Switch(on, { want ->
                         if (!want) { BrainAccess.set(context, s, false); tick++ }
                         else if (BrainAccess.granted(context, s)) { BrainAccess.set(context, s, true); tick++ }
+                        else if (s == BrainAccess.Source.SCREEN_TIME) {
+                            // Usage access is a special setting Android only lets the user flip; it's checked again on return.
+                            BrainAccess.set(context, s, true)
+                            runCatching { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
+                            Toast.makeText(context, "Find Murmur and allow usage access", Toast.LENGTH_LONG).show()
+                        }
                         else { asking = s; launcher.launch(s.permissions.toTypedArray()) }
+                        BatteryLog.schedule(context)
                     })
                 },
             )
         }
     }
+
+    // Come back from Android's settings (usage access) to fresh switches.
+    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(owner) {
+        val o = androidx.lifecycle.LifecycleEventObserver { _, e -> if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) tick++ }
+        owner.lifecycle.addObserver(o)
+        onDispose { owner.lifecycle.removeObserver(o) }
+    }
+
+    var coach by remember { mutableStateOf(BatteryLog.coachOn(context)) }
+    var eighty by remember { mutableStateOf(BatteryLog.healthReminder(context)) }
+    ListItem(
+        headlineContent = { Text("Battery coach") },
+        supportingContent = {
+            Text("Checks the battery every half hour and learns your normal drain and charging times. Speaks up when it drains unusually fast, " +
+                "gets hot, or won't last until you usually charge.")
+        },
+        trailingContent = { Switch(coach, { coach = it; BatteryLog.setCoach(context, it) }) },
+    )
+    if (coach) ListItem(
+        headlineContent = { Text("Remind me to unplug at 80%") },
+        supportingContent = { Text("Gentler on the battery over the years") },
+        trailingContent = { Switch(eighty, { eighty = it; BatteryLog.setHealthReminder(context, it) }) },
+    )
+
+    MeaningSearchItem()
 
     var suggest by remember { mutableStateOf(Brain.suggestOn(context)) }
     ListItem(
@@ -460,4 +543,27 @@ fun BrainToolsSettings() {
             dismissButton = { TextButton(onClick = { adding = false }) { Text("Cancel") } },
         )
     }
+}
+
+/** Search by meaning: download the small embedding model and index texts on the phone. */
+@Composable
+private fun MeaningSearchItem() {
+    val context = LocalContext.current
+    LaunchedEffect(Unit) { Meaning.refresh(context) }
+    val st by Meaning.state.collectAsState()
+    ListItem(
+        headlineContent = { Text("Search texts by meaning") },
+        supportingContent = {
+            Text(
+                when (val m = st) {
+                    Meaning.State.Off -> "Lets the Brain find \"when did Jake mention the boat?\" even if he wrote \"yacht\". Downloads a ${Meaning.MODEL.sizeLabel} model and indexes your texts on the phone."
+                    is Meaning.State.Downloading -> "Downloading… ${(m.fraction * 100).toInt()}%"
+                    is Meaning.State.Indexing -> "Reading your texts… ${m.done} of ${m.total}"
+                    is Meaning.State.Ready -> "On. ${m.count} texts indexed, on this phone only."
+                    is Meaning.State.Failed -> m.why
+                },
+            )
+        },
+        trailingContent = { Switch(st != Meaning.State.Off, { if (it) Meaning.turnOn(context) else Meaning.turnOff(context) }) },
+    )
 }

@@ -48,7 +48,7 @@ fun schema(vararg params: Pair<String, String>): JsonObject = JsonObject().apply
 fun JsonObject.str(k: String): String = get(k)?.let { if (it.isJsonPrimitive) it.asString else it.toString() }.orEmpty()
 
 object Http {
-    const val AGENT = "Murmur/1.7 (Android texting app; on-device assistant)"
+    const val AGENT = "Murmur/1.8 (Android texting app; on-device assistant)"
 
     fun get(url: String, headers: Map<String, String> = emptyMap(), maxBytes: Int = 1_000_000): String {
         val c = URI(url).toURL().openConnection() as HttpURLConnection

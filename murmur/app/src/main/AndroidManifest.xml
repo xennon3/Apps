@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
@@ -29,12 +30,22 @@
 
     <!-- Voice notes -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Murmur Brain's phone tools; each is off until switched on in Settings. -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <!-- Lets Murmur see the phone's speech recognizer, for voice note transcripts -->
     <queries>
         <intent>
             <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <!-- "Open Spotify": the Brain looks up launchable apps by name. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
         </intent>
     </queries>
 
@@ -129,6 +140,7 @@
         </provider>
         <receiver android:name=".sms.ScheduledSendReceiver" android:exported="false" />
         <receiver android:name=".notify.NotificationActionReceiver" android:exported="false" />
+        <receiver android:name=".brain.BatteryLogReceiver" android:exported="false" />
         <receiver android:name=".sms.BootReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

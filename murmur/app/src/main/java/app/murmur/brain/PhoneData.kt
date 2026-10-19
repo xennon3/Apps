@@ -30,7 +30,11 @@ object BrainAccess {
         CALENDAR("Calendar", "Answer \"am I free Friday night?\" from your calendar", listOf(Manifest.permission.READ_CALENDAR)),
         CONTACTS("Contact details", "Phone numbers, emails and birthdays of the people you ask about", listOf(Manifest.permission.READ_CONTACTS)),
         CALLS("Call history", "Answer \"did Mom call today?\" from your recent calls", listOf(Manifest.permission.READ_CALL_LOG)),
-        LOCATION("Location", "Send your location when you say \"text Jake where I am\"", listOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)),
+        LOCATION("Location", "Your location and speed (GPS), and sending where you are when you say \"text Jake where I am\"", listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)),
+        PHONE("Phone status", "Battery, storage, network, sensors and device info, for \"how's my battery?\" or \"am I on Wi-Fi?\"", emptyList()),
+        MOTION("Steps", "Today's steps from the phone's step counter", if (Build.VERSION.SDK_INT >= 29) listOf(Manifest.permission.ACTIVITY_RECOGNITION) else emptyList()),
+        SCREEN_TIME("Screen time", "Which apps you used today and for how long. Android asks you to allow Usage access for Murmur", emptyList()),
+        CONTROLS("Phone controls", "Flashlight, timers, alarms, ringer, volume, and opening apps or settings when you ask", emptyList()),
     }
 
     private fun prefs(c: Context) = c.getSharedPreferences("brain_access", Context.MODE_PRIVATE)
@@ -40,7 +44,8 @@ object BrainAccess {
     fun set(c: Context, s: Source, on: Boolean) = prefs(c).edit().putBoolean(s.name, on).apply()
 
     fun granted(c: Context, s: Source) =
-        s.permissions.take(1).all { ContextCompat.checkSelfPermission(c, it) == PackageManager.PERMISSION_GRANTED }
+        if (s == Source.SCREEN_TIME) PhoneSensors.usageAccess(c)
+        else s.permissions.take(1).all { ContextCompat.checkSelfPermission(c, it) == PackageManager.PERMISSION_GRANTED }
 
     /** On in Settings and allowed by Android. */
     fun on(c: Context, s: Source) = wanted(c, s) && granted(c, s)

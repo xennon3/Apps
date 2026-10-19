@@ -6,6 +6,8 @@ import app.murmur.brain.tools.CalculateTool
 import app.murmur.brain.tools.CurrencyTool
 import app.murmur.brain.tools.McpServer
 import app.murmur.brain.tools.McpTool
+import app.murmur.brain.tools.PhoneActionTool
+import app.murmur.brain.tools.PhoneStatusTool
 import app.murmur.brain.tools.ReadPageTool
 import app.murmur.brain.tools.SearchEngine
 import app.murmur.brain.tools.TimeTool
@@ -123,6 +125,10 @@ object BrainTools {
             list += WeatherTool(fahrenheit = Locale.getDefault().country in setOf("US", "LR", "MM", "BS", "BZ", "KY", "PW"))
             list += CurrencyTool()
         }
+        // The phone's own sensors and controls; each reading still checks its own switch.
+        val phoneReads = listOf(BrainAccess.Source.PHONE, BrainAccess.Source.LOCATION, BrainAccess.Source.MOTION, BrainAccess.Source.SCREEN_TIME)
+        if (phoneReads.any { BrainAccess.on(c, it) }) list += PhoneStatusTool(PhoneSensors(c))
+        if (BrainAccess.on(c, BrainAccess.Source.CONTROLS)) list += PhoneActionTool(PhoneControls(c))
         list += McpRegistry.toolsFor(c)
         return list
     }

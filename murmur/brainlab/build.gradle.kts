@@ -13,6 +13,6 @@ sourceSets.main {
 }
 dependencies { implementation("com.google.ai.edge.litertlm:litertlm-jvm:0.18.0") }
 application {
-    mainClass.set("PromptLabKt")
+    mainClass.set(providers.gradleProperty("mainClass").orElse("PromptLabKt"))
     applicationDefaultJvmArgs = listOf("-Dstdout.encoding=UTF-8")
 }

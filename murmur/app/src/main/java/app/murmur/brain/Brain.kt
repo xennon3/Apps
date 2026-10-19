@@ -15,6 +15,7 @@ import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.ToolProvider
 import com.google.ai.edge.litertlm.ExperimentalApi
+import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.benchmark
 import app.murmur.MurmurApp
@@ -57,8 +58,24 @@ object Brain {
         2_588_147_712L,
     )
 
-    /** The model Murmur downloads. */
-    val MODEL = GEMMA4_E2B
+    /**
+     * Gemma 4 E4B, "Big Brain": noticeably better at tone, translation and tricky questions in
+     * Murmur's lab, about 1.5x slower. Optional, for phones with 8 GB of memory or more.
+     */
+    val GEMMA4_E4B = ModelSpec(
+        "Gemma 4 E4B", "gemma-4-E4B-it.litertlm",
+        "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm",
+        3_659_530_240L,
+    )
+
+    val MODELS = listOf(GEMMA4_E2B, GEMMA4_E4B)
+
+    /** The model the Brain runs: Standard (E2B) unless the user picked Big Brain and it finished downloading. */
+    fun model(context: Context): ModelSpec = MODELS.firstOrNull { it.file == prefs(context.applicationContext).getString("model", null) } ?: GEMMA4_E2B
+
+    /** The model being downloaded, if any (a switch keeps the old one working until the new one is ready). */
+    fun downloading(context: Context): ModelSpec? =
+        MODELS.firstOrNull { it.file == prefs(context.applicationContext).getString("download_model", null) }
 
     sealed interface State {
         data object Off : State
@@ -78,7 +95,11 @@ object Brain {
 
     private fun prefs(context: Context) = context.getSharedPreferences("brain", Context.MODE_PRIVATE)
 
-    fun modelFile(context: Context) = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), MODEL.file)
+    fun modelFile(context: Context, spec: ModelSpec = model(context)) = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), spec.file)
+
+    /** Multi-token prediction: the model drafts several words at once and checks them. 1.7x faster writing in Murmur's lab, same words. */
+    fun fastWriting(context: Context) = prefs(context).getBoolean("mtp", true)
+    fun setFastWriting(context: Context, v: Boolean) { prefs(context).edit().putBoolean("mtp", v).apply(); MurmurApp.scope.launch { unload() } }
 
     fun enabled(context: Context) = prefs(context).getBoolean("on", false)
 
@@ -89,7 +110,7 @@ object Brain {
     /** Suggestions already made, by message key, so reopening a chat doesn't wake the model again. */
     val replyCache = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
 
-    fun ready(context: Context) = enabled(context) && modelFile(context).let { it.exists() && it.length() == MODEL.bytes }
+    fun ready(context: Context) = enabled(context) && model(context).let { m -> modelFile(context, m).let { it.exists() && it.length() == m.bytes } }
 
     /** Call when the app starts or Settings opens: works out where things stand. */
     /** Called by the crash reporter: the app died last time while the graphics chip was running the model. */
@@ -111,8 +132,9 @@ object Brain {
         }
         _state.value = when {
             !enabled(c) -> State.Off
+            // A download in progress first: switching models keeps the old one ready meanwhile.
+            prefs(c).getLong("download", -1) >= 0 -> { watch(c); _state.value as? State.Downloading ?: State.Downloading(0f, false) }
             ready(c) -> State.Ready
-            prefs(c).getLong("download", -1) >= 0 -> { watch(c); _state.value }
             else -> State.Failed("The download didn't finish")
         }
     }
@@ -123,14 +145,41 @@ object Brain {
         val c = context.applicationContext
         prefs(c).edit().putBoolean("on", true).apply()
         if (ready(c)) { _state.value = State.Ready; return }
-        modelFile(c).delete()
+        download(c, model(c), allowMobileData)
+    }
+
+    /**
+     * Switches between Standard and Big Brain. The current model keeps answering while the
+     * other downloads; when it's in, the old file is deleted to give the space back.
+     */
+    fun switchModel(context: Context, spec: ModelSpec, allowMobileData: Boolean) {
+        val c = context.applicationContext
+        if (spec == model(c) && ready(c)) return
+        if (modelFile(c, spec).let { it.exists() && it.length() == spec.bytes }) { activate(c, spec); return }
+        download(c, spec, allowMobileData)
+    }
+
+    private fun activate(c: Context, spec: ModelSpec) {
+        val old = model(c)
+        prefs(c).edit().putString("model", spec.file).remove("download_model").remove("speed2").apply()
+        _speed.value = null
+        MurmurApp.scope.launch {
+            unload()
+            if (old != spec) modelFile(c, old).delete()
+        }
+        _state.value = if (ready(c)) State.Ready else State.Failed("The model file is missing. Try again")
+    }
+
+    private fun download(c: Context, spec: ModelSpec, allowMobileData: Boolean) {
+        prefs(c).getLong("download", -1).takeIf { it >= 0 }?.let { id -> runCatching { c.getSystemService(DownloadManager::class.java).remove(id) } }
+        modelFile(c, spec).delete()
         val dm = c.getSystemService(DownloadManager::class.java)
         val id = try {
             dm.enqueue(
-                DownloadManager.Request(Uri.parse(MODEL.url))
+                DownloadManager.Request(Uri.parse(spec.url))
                     .setTitle("Murmur Brain")
-                    .setDescription("${MODEL.name} language model, ${MODEL.sizeLabel}")
-                    .setDestinationInExternalFilesDir(c, Environment.DIRECTORY_DOWNLOADS, MODEL.file)
+                    .setDescription("${spec.name} language model, ${spec.sizeLabel}")
+                    .setDestinationInExternalFilesDir(c, Environment.DIRECTORY_DOWNLOADS, spec.file)
                     .setAllowedOverMetered(allowMobileData)
                     .setAllowedOverRoaming(false)
                     .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE),
@@ -141,7 +190,7 @@ object Brain {
             _state.value = State.Failed("Android wouldn't start the download (${e.javaClass.simpleName}). Try again")
             return
         }
-        prefs(c).edit().putLong("download", id).apply()
+        prefs(c).edit().putLong("download", id).putString("download_model", spec.file).apply()
         _state.value = State.Downloading(0f, false)
         watch(c)
     }
@@ -153,7 +202,7 @@ object Brain {
         }
         prefs(c).edit().clear().apply()
         MurmurApp.scope.launch { unload() }
-        modelFile(c).delete()
+        MODELS.forEach { modelFile(c, it).delete() }
         _speed.value = null
         _state.value = State.Off
     }
@@ -175,21 +224,24 @@ object Brain {
                         cur.getInt(cur.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON)),
                     )
                 }
-                if (row == null) { _state.value = State.Failed("The download was cancelled"); prefs(c).edit().remove("download").apply(); return@launch }
+                val spec = downloading(c) ?: model(c)
+                if (row == null) { _state.value = State.Failed("The download was cancelled"); prefs(c).edit().remove("download").remove("download_model").apply(); return@launch }
                 val (status, done, reason) = row
                 when (status) {
                     DownloadManager.STATUS_SUCCESSFUL -> {
                         prefs(c).edit().remove("download").apply()
-                        _state.value = if (ready(c)) State.Ready else State.Failed("The download came out the wrong size. Try again")
+                        val ok = modelFile(c, spec).let { it.exists() && it.length() == spec.bytes }
+                        if (ok) activate(c, spec)
+                        else { prefs(c).edit().remove("download_model").apply(); _state.value = State.Failed("The download came out the wrong size. Try again") }
                         return@launch
                     }
                     DownloadManager.STATUS_FAILED -> {
-                        prefs(c).edit().remove("download").apply()
+                        prefs(c).edit().remove("download").remove("download_model").apply()
                         _state.value = State.Failed("The download failed (code $reason). Check your connection and try again")
                         return@launch
                     }
                     else -> _state.value = State.Downloading(
-                        (done.toFloat() / MODEL.bytes).coerceIn(0f, 1f),
+                        (done.toFloat() / spec.bytes).coerceIn(0f, 1f),
                         waitingForWifi = status == DownloadManager.STATUS_PAUSED && reason == DownloadManager.PAUSED_QUEUED_FOR_WIFI,
                     )
                 }
@@ -223,16 +275,23 @@ object Brain {
         engine?.let { return it }
         if (!ready(context)) return null
         return withContext(Dispatchers.IO) {
-            fun load(gpu: Boolean) = guardGpu(context, gpu) {
+            fun load(gpu: Boolean, fast: Boolean) = guardGpu(context, gpu) {
+                @OptIn(ExperimentalApi::class)
+                ExperimentalFlags.enableSpeculativeDecoding = fast
                 Engine(
                     EngineConfig(
                         modelPath = modelFile(context).path,
                         backend = if (gpu) Backend.GPU() else Backend.CPU(),
+                        // Pictures and voice notes; LiteRT-LM loads these encoders only when one is used.
+                        visionBackend = Backend.CPU(),
+                        audioBackend = Backend.CPU(),
                         maxNumTokens = 4096, // room for chat history, found texts, tool descriptions and web results
                         cacheDir = context.cacheDir.path,
                     ),
                 ).also { it.initialize() }
             }
+            // Fast writing is new in LiteRT-LM; if a phone can't load the model with it, load without.
+            fun load(gpu: Boolean) = if (fastWriting(context)) runCatching { load(gpu, true) }.getOrElse { load(gpu, false) } else load(gpu, false)
             val gpu = useGpu(context)
             appContext = context.applicationContext
             runCatching { load(gpu) }.onSuccess {
@@ -282,6 +341,8 @@ object Brain {
         onPartial: ((String) -> Unit)? = null,
         /** Tools the model may call on its own (web search, calculator, MCP…); results feed back in. */
         tools: List<ToolProvider> = emptyList(),
+        /** Pictures or a voice note that go with the prompt ([Content.ImageBytes], [Content.AudioBytes]). */
+        media: List<Content> = emptyList(),
     ): String? {
         val c = context.applicationContext
         if (!ready(c)) return null
@@ -309,14 +370,16 @@ object Brain {
                         suspendCoroutine { cont ->
                             val text = StringBuilder()
                             val done = AtomicBoolean(false)
-                            conv.sendMessageAsync(BrainPrompts.engineSafe(prompt), object : MessageCallback {
+                            val callback = object : MessageCallback {
                                 override fun onMessage(message: Message) {
                                     message.contents.contents.filterIsInstance<Content.Text>().forEach { text.append(it.text) }
                                     onPartial?.invoke(BrainPrompts.clean(text.toString()))
                                 }
                                 override fun onDone() { if (done.compareAndSet(false, true)) cont.resume(BrainPrompts.clean(text.toString())) }
                                 override fun onError(throwable: Throwable) { if (done.compareAndSet(false, true)) cont.resume(null) }
-                            })
+                            }
+                            if (media.isEmpty()) conv.sendMessageAsync(BrainPrompts.engineSafe(prompt), callback)
+                            else conv.sendMessageAsync(Contents.of(media + Content.Text(BrainPrompts.engineSafe(prompt))), callback)
                         }
                     } finally {
                         conv.close()
@@ -338,6 +401,7 @@ object Brain {
             runCatching { engine?.close() }; engine = null // the benchmark loads its own copy
             withContext(Dispatchers.IO) {
                 val path = modelFile(c).path
+                ExperimentalFlags.enableSpeculativeDecoding = fastWriting(c)
                 fun run(gpu: Boolean) = runCatching {
                     guardGpu(c, gpu) { benchmark(path, if (gpu) Backend.GPU() else Backend.CPU(), 256, 32, c.cacheDir.path) }
                 }.getOrNull()
@@ -411,11 +475,26 @@ object Brain {
         ask(context, BrainPrompts.TRIAGE, text.replace('\n', ' '), maxTokens = 4, temperature = 0.0, examples = BrainPrompts.TRIAGE_EXAMPLES)
             ?.let(BrainPrompts::parseTriage)
 
+    /** A lasting fact the sender shared about themselves ("Priya is vegan"), "-" for none, or null if the model failed. */
+    suspend fun factCheck(context: Context, sender: String, text: String): String? =
+        ask(context, BrainPrompts.FACT, BrainPrompts.factQuestion(sender, text), maxTokens = 30, temperature = 0.0, examples = BrainPrompts.FACT_EXAMPLES)
+            ?.let { BrainPrompts.parseFact(it) ?: "-" }
+
+    /** Writes down what's said in a voice note (a 16 kHz WAV). */
+    suspend fun listen(context: Context, wav: ByteArray): String? =
+        ask(context, BrainPrompts.LISTEN, "Write down exactly what is said in this voice message.", maxTokens = 300, temperature = 0.0,
+            media = listOf(Content.AudioBytes(wav)))?.let(BrainPrompts::cleanTranscript)
+
+    /** Looks at a picture someone texted. [question] is one of the BrainPrompts picture questions. */
+    suspend fun look(context: Context, jpeg: ByteArray, question: String, maxTokens: Int = 120, onPartial: ((String) -> Unit)? = null): String? =
+        ask(context, BrainPrompts.LOOK, question, maxTokens = maxTokens, temperature = 0.1, media = listOf(Content.ImageBytes(jpeg)), onPartial = onPartial)
+
     /** Up to three replies the user could send next, worded like their own texts. */
     suspend fun suggestReplies(context: Context, lines: List<Pair<Boolean, String>>, mySent: List<String>): List<String>? {
         val answer = ask(
             context, BrainPrompts.REPLIES, BrainPrompts.replyTranscript(lines), maxTokens = 60, temperature = 0.4,
-            examples = BrainPrompts.REPLIES_EXAMPLES,
+            // The user's own past picks go last, closest to the question, so they weigh most.
+            examples = BrainPrompts.REPLIES_EXAMPLES.drop(ReplyStyle.examples(context).size.coerceAtMost(2)) + ReplyStyle.examples(context),
         ) ?: return null
         return BrainPrompts.parseReplies(answer, mySent).takeIf { it.isNotEmpty() }
     }

@@ -1,5 +1,11 @@
 package app.murmur.ui
 
+import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.filled.ThumbDown
+import androidx.compose.material.icons.outlined.ThumbUp
+import androidx.compose.material.icons.outlined.ThumbDown
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
@@ -92,6 +98,7 @@ fun BrainChatScreen(onOpenThread: (Long) -> Unit, onSettings: () -> Unit) {
     val step by BrainChat.step.collectAsState()
     val activity by BrainChat.activity.collectAsState()
     var input by rememberSaveable { mutableStateOf("") }
+    var correcting by remember { mutableStateOf<Int?>(null) }
     val list = rememberLazyListState()
     val scheme = MaterialTheme.colorScheme
 
@@ -208,13 +215,28 @@ fun BrainChatScreen(onOpenThread: (Long) -> Unit, onSettings: () -> Unit) {
                                         )
                                     }
                                 }
-                                if (!t.writing && t.send == null && t.text.length > 40) Text(
-                                    "Copy",
-                                    Modifier.padding(top = 2.dp).clip(RoundedCornerShape(8.dp)).clickable {
-                                        context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Murmur Brain", t.text))
-                                    }.padding(6.dp),
-                                    style = MaterialTheme.typography.labelSmall, color = scheme.primary,
-                                )
+                                if (!t.writing && t.send == null && t.text.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (t.text.length > 40) Text(
+                                        "Copy",
+                                        Modifier.padding(top = 2.dp).clip(RoundedCornerShape(8.dp)).clickable {
+                                            context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Murmur Brain", t.text))
+                                        }.padding(6.dp),
+                                        style = MaterialTheme.typography.labelSmall, color = scheme.primary,
+                                    )
+                                    if (i > 0) {
+                                        // Teaching: a good answer becomes an example; a bad one can be corrected.
+                                        Icon(
+                                            if (t.rating == 1) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp, "Good answer",
+                                            Modifier.clip(CircleShape).clickable { BrainChat.rate(context, i, good = true) }.padding(6.dp).size(16.dp),
+                                            tint = if (t.rating == 1) scheme.primary else scheme.onSurfaceVariant,
+                                        )
+                                        Icon(
+                                            if (t.rating == -1) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown, "Bad answer",
+                                            Modifier.clip(CircleShape).clickable { correcting = i }.padding(6.dp).size(16.dp),
+                                            tint = if (t.rating == -1) scheme.error else scheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
                                 if (t.sources.isNotEmpty() && !t.writing) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
                                     t.sources.forEach { s -> AssistChip(onClick = { onOpenThread(s.threadId) }, label = { Text(s.label) }) }
                                 }
@@ -257,6 +279,25 @@ fun BrainChatScreen(onOpenThread: (Long) -> Unit, onSettings: () -> Unit) {
                 }
             }
         }
+    }
+
+    correcting?.let { index ->
+        var better by remember(index) { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { correcting = null },
+            title = { Text("Teach Murmur Brain") },
+            text = {
+                Column {
+                    Text(
+                        "What should it have said? Next time someone asks something like this, it sees your answer as an example. Leave it empty to just mark this answer as bad.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    OutlinedTextField(better, { better = it }, Modifier.fillMaxWidth().padding(top = 12.dp), label = { Text("A better answer (optional)") }, minLines = 3)
+                }
+            },
+            confirmButton = { TextButton(onClick = { BrainChat.rate(context, index, good = false, better = better); correcting = null }) { Text("Save") } },
+            dismissButton = { TextButton(onClick = { correcting = null }) { Text("Cancel") } },
+        )
     }
 }
 

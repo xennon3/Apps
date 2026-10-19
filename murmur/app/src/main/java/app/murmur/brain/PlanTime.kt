@@ -29,19 +29,7 @@ object PlanTime {
             Regex(" (today|tonight|tonite|this (morning|afternoon|evening)) ").containsMatchIn(p) -> dayFound = true
         }
         if (!dayFound) {
-            val weekday = days.indexOfFirst { p.contains(" $it ") || p.contains(" ${it}s ") }.takeIf { it >= 0 }
-                ?: dayShort.entries.firstOrNull { p.contains(" ${it.key} ") }?.value
-            if (weekday != null) {
-                val today = c.get(Calendar.DAY_OF_WEEK) - 1
-                // The coming one; "next friday" said on a Friday means a week out.
-                var ahead = (weekday - today + 7) % 7
-                if (ahead == 0 && p.contains(" next ")) ahead = 7
-                c.add(Calendar.DAY_OF_YEAR, ahead)
-                dayFound = true
-            }
-        }
-        if (!dayFound) {
-            // "oct 24", "october 24th", "24 oct"
+            // "oct 24", "october 24th", "24 oct" (before weekdays: "Saturday, November 8" means that date)
             val m = Regex(" (${months.joinToString("|")})[a-z]* (\\d{1,2})(st|nd|rd|th)? ").find(p)
                 ?: Regex(" (\\d{1,2})(st|nd|rd|th)? (${months.joinToString("|")})[a-z]* ").find(p)?.let { r ->
                     Regex(" (${r.groupValues[3]}) (${r.groupValues[1]}) ").find(" ${r.groupValues[3]} ${r.groupValues[1]} ")
@@ -59,11 +47,23 @@ object PlanTime {
                 dayFound = true
             }
         }
+        if (!dayFound) {
+            val weekday = days.indexOfFirst { p.contains(" $it ") || p.contains(" ${it}s ") }.takeIf { it >= 0 }
+                ?: dayShort.entries.firstOrNull { p.contains(" ${it.key} ") }?.value
+            if (weekday != null) {
+                val today = c.get(Calendar.DAY_OF_WEEK) - 1
+                // The coming one; "next friday" said on a Friday means a week out.
+                var ahead = (weekday - today + 7) % 7
+                if (ahead == 0 && p.contains(" next ")) ahead = 7
+                c.add(Calendar.DAY_OF_YEAR, ahead)
+                dayFound = true
+            }
+        }
 
         // ---- the time
         var hour = -1
         var minute = 0
-        val clock = Regex(" (?:at |@ ?)?(\\d{1,2})(?::(\\d{2}))? ?(am|pm|a m|p m|a|p)? ").findAll(p)
+        val clock = Regex("(?<= )(?:at |@ ?)?(\\d{1,2})(?::(\\d{2}))? ?(am|pm|a m|p m|a|p)?(?= )").findAll(p)
             .firstOrNull { r ->
                 val h = r.groupValues[1].toInt()
                 val hasMarker = r.groupValues[3].isNotEmpty() || r.groupValues[2].isNotEmpty() || r.value.contains("at ") || r.value.contains("@")

@@ -7,7 +7,7 @@ Murmur is a native Android SMS/MMS app (Kotlin, Jetpack Compose, minSdk 26, targ
 - They install APKs by sideloading. Android 13+ needs "Allow restricted settings" before the SMS role can be granted, and that's already done on their phone.
 - Their preferences: creative ideas, direct answers, and quick research before deciding.
 - Each release: bump `versionCode`/`versionName` in `app/build.gradle.kts` and the "Murmur x.y" line in `ui/OtherScreens.kt`. Build the release APK and send it to them. Commit and push to the session branch.
-- Current version: **1.7** (versionCode 11).
+- Current version: **1.8** (versionCode 12).
 
 ## Build and check (all must pass before shipping)
 ```sh
@@ -32,7 +32,8 @@ export ANDROID_HOME=/opt/android-sdk   # install cmdline-tools + platforms;andro
   - `BrainPrompts` (every prompt and parser; plain Kotlin)
   - `PlanTime`, `Calc`, `Skills`, `Extensions` (web/skills/MCP settings and the tool list)
   - `PhoneData` (calendar/calls/contacts/location, `BrainAccess`, `BrainMemory`)
-  - `tools/` (tools, MCP client and LiteRT bridge; plain Kotlin)
+  - `tools/` (tools, MCP client and LiteRT bridge; plain Kotlin). `tools/Phone.kt` holds the phone tools' definitions and `PhoneMath` (battery, speed, timers); tested in the lab with fake readings.
+  - `PhoneSensors` (Android readings + `PhoneControls`), `BatteryLog` (half-hourly readings, steps baseline, battery coach), `Meaning` (EmbeddingGemma index in `meaning.db`), `Lessons` + `ReplyStyle` (what the user taught it), `Eyes` (shrinks pictures to 768 px JPEG)
 - `CrashReport`: records Kotlin crashes, plus `ApplicationExitInfo` for native crashes and memory kills. Shown with **Copy details**; ask the user for these.
 
 ## Hard-won rules (each one came from a real bug)
@@ -46,9 +47,12 @@ export ANDROID_HOME=/opt/android-sdk   # install cmdline-tools + platforms;andro
 - **Kotlin 2.3.21 is required** because the LiteRT-LM 0.18 jar has Kotlin 2.4 metadata. Native libraries are arm64 only.
 - **Murmur has the INTERNET permission** only because DownloadManager requires it for the model. Messages never go online. Web lookups (off by default) send only the model's search words.
 - **Brave Search dropped its free tier** (2026). Default search is FREE (DuckDuckGo's HTML page, parsed in `WebSearchTool.duckResults`); Tavily is the steady free-key option.
+- **LiteRT-LM 0.18 already has** speculative decoding (`ExperimentalFlags.enableSpeculativeDecoding`, 1.74x in the lab), image/audio input (`visionBackend`/`audioBackend` + `Content.ImageBytes`/`AudioBytes`), and `EmbeddingEngine`. Audio is fed as 16 kHz mono WAV (`Voice.wav16k`).
+- **Phone tools: one tool per kind, the model picks a topic.** Two tools (`phone_status`, `phone_action`) scored 17/17; many small tools would crowd the model.
 - **Qwen models were rejected.** Qwen3 0.6B and Qwen2.5 1.5B were too weak, and Qwen's bundled chat template breaks in LiteRT-LM. Gemma 4 E2B scored 8/8 on scam checks and 13/13 on tool choice.
 
 ## Untested on a real phone (ask the user)
+- **1.8 features:** everything (fast writing on the phone, Big Brain download/switch, pictures, Brain voice transcription, phone tools on a real phone, battery coach over days, meaning-search indexing time, reply learning, fact chips).
 - **1.7 features:** reply chips (speed and quality), free DuckDuckGo search (can't be tested from the cloud: DuckDuckGo blocks data-centre IPs), Tavily.
 - **1.6 features:** web lookups, skills, MCP via DeepWiki, the status line, speed of tool answers.
 - **Earlier features:** picture/group MMS with their carrier, voice-note transcription, graphics-chip (GPU) Brain backend.

@@ -264,6 +264,69 @@ object BrainPrompts {
         return r
     }
 
+    // ================================================================ eyes and ears
+
+    const val LISTEN = "You write down voice messages word for word. Reply with only the words that are spoken, nothing else."
+
+    fun cleanTranscript(answer: String): String? = clean(answer)
+        .removePrefix("Transcript:").trim().trim('"', '\u201C', '\u201D').trim()
+        .takeIf { it.isNotBlank() && !it.startsWith("I can't", true) && !it.startsWith("I cannot", true) }
+
+    const val LOOK = "You look at pictures people texted the user and answer briefly and plainly."
+
+    const val PIC_EVENT = "If this picture shows an upcoming plan, event or appointment with a day or time, answer on one line: " +
+        "EVENT: <short title> | <when, as written> | <place, or nothing>. Otherwise answer NONE."
+
+    const val PIC_DESCRIBE = "What is in this picture? Answer in one or two short sentences. If it shows writing, include the important details."
+
+    const val PIC_SCAM = "Is the message or offer shown in this picture a scam? Answer on one line in exactly this form: " +
+        "SCAM: <short reason> or SAFE: <short reason>."
+
+    // ================================================================ the phone itself
+
+    private val phoneWords = Regex(
+        "(?i)\\b(battery|charg(e|ing|ed)|flash ?light|torch|timer|alarm|vibrate|silent mode|ringer|volume|storage|wi-?fi|signal|" +
+            "steps|screen ?time|how fast|my speed|altitude|elevation|compass|which way|where am i|my location|airplane mode|" +
+            "(turn|switch) (on|off) the|open (the )?\\w+( app)?\\b|phone('s)? (temp|status|memory))",
+    )
+
+    fun asksPhone(q: String) = phoneWords.containsMatchIn(q)
+
+    const val PHONE_OFF = "Murmur Brain can't read or control this phone yet. If the user asks about the battery, speed, location, " +
+        "storage, network, steps, screen time, or asks to use the flashlight, timers, alarms or apps, tell them to turn on the matching switch " +
+        "in Settings, under What Murmur Brain can use. Don't guess the answer."
+
+    // ================================================================ things worth remembering
+
+    const val FACT =
+        "Read a text someone sent the user. If the sender shares a lasting fact about themselves (diet, allergy, birthday, " +
+            "job, where they live, family, pets, likes and dislikes), reply FACT: <the fact, written with their name>. " +
+            "Otherwise reply NONE. Plans, moods and one-off news are NONE."
+
+    val FACT_EXAMPLES = listOf(
+        "Sender: Priya\nText: I'm vegetarian btw, so no meat for me" to "FACT: Priya is vegetarian",
+        "Sender: Jake\nText: running late, there in 10" to "NONE",
+        "Sender: Mom\nText: remember I'm allergic to shellfish when you order" to "FACT: Mom is allergic to shellfish",
+        "Sender: Sam\nText: I'm so tired today" to "NONE",
+        "Sender: Leo\nText: we just moved to Denver! new address soon" to "FACT: Leo lives in Denver",
+    )
+
+    private val firstPerson = Regex("(?i)\\b(i|i'?m|im|i'?ve|i'?ll|my|me)\\b")
+    private val factWords = Regex(
+        "(?i)\\b(vegetarian|vegan|allergic|allergy|gluten|lactose|kosher|halal|sober|don'?t drink|pregnant|birthday|born|work(?:ing)? (?:at|for|as|in|on)|job|" +
+            "moved|live in|living in|new address|married|engaged|divorced|husband|wife|boyfriend|girlfriend|partner|kids?|son|daughter|" +
+            "dog|cat|pet|favou?rite|hate|can'?t stand|love|nickname|call me|new number|retired|graduat\\w*)\\b",
+    )
+
+    /** Cheap check before waking the model: does the text sound like the sender is telling something about themselves? */
+    fun mightHaveFact(text: String) = text.length in 12..400 && firstPerson.containsMatchIn(text) && factWords.containsMatchIn(text)
+
+    fun factQuestion(sender: String, text: String) = "Sender: $sender\nText: " + text.replace('\n', ' ').trim()
+
+    fun parseFact(answer: String): String? = clean(answer).lineSequence().map { it.trim().replace("*", "") }
+        .firstOrNull { it.startsWith("FACT", true) }?.substringAfter(':')?.trim()?.trimEnd('.')
+        ?.takeIf { it.length in 4..120 }
+
     // ================================================================ catch me up
 
     const val SUMMARY =
@@ -324,6 +387,8 @@ object BrainPrompts {
             .firstOrNull { it.startsWith("SCAM", true) || it.startsWith("SAFE", true) } ?: return null
         val scam = line.startsWith("SCAM", true)
         val reason = line.removePrefix("Label:").trim().drop(4).trimStart(':', ' ', '-', '—', '(').trim().trimEnd('.', ')')
+            .replace(Regex("(?i)^reason\\b\\s*(reason:)?\\s*"), "") // "SCAM: reason **Reason:** phishing"
+            .takeUnless { it.contains("short reason", true) }.orEmpty()
             .ifBlank { if (scam) "It reads like a scam" else "" }
         return ScamOpinion(scam, reason.replaceFirstChar { it.uppercase() })
     }
