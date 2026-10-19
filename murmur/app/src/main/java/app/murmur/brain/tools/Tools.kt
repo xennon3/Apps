@@ -206,7 +206,7 @@ class WebSearchTool(private val engine: SearchEngine, private val key: String = 
     }
 }
 
-class ReadPageTool : BrainTool {
+class ReadPageTool(private val maxChars: Int = 3000) : BrainTool {
     override val name = "read_page"
     override val label = "Read a web page"
     override val description = "Read the text of a web page from its link, to summarize it or answer questions about it."
@@ -216,7 +216,7 @@ class ReadPageTool : BrainTool {
         require(url.startsWith("http://") || url.startsWith("https://")) { "only web links" }
         val html = Http.get(url, maxBytes = 1_500_000)
         val title = Regex("(?is)<title[^>]*>(.*?)</title>").find(html)?.groupValues?.get(1)?.let(::stripTags)?.trim().orEmpty()
-        val text = readableText(html).take(3000)
+        val text = readableText(html).take(maxChars)
         return ToolResult("Page \"$title\" ($url):\n$text", listOf(WebSource(title.ifBlank { url }, url)))
     }
 }

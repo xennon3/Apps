@@ -482,7 +482,7 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
         scope.launch {
             val group = (convo?.addresses?.size ?: 1) > 1
             val names = HashMap<String, String>()
-            val lines = messages.takeLast(maxOf(40, unreadAtOpen + 10)).map { m ->
+            val lines = messages.takeLast(maxOf(if (Brain.workspace() >= 8192) 100 else 40, unreadAtOpen + 10)).map { m ->
                 val who = when {
                     m.box == MsgBox.OUT -> "You"
                     group -> names.getOrPut(m.address) { withContext(Dispatchers.IO) { repo.contact(m.address).name ?: Phone.pretty(m.address) } }
@@ -496,7 +496,7 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
                 "$who: $what"
             }
             // Keep the newest part of the chat that fits comfortably in the model's memory.
-            val transcript = lines.asReversed().fold(StringBuilder()) { acc, l -> if (acc.length + l.length > 5000) acc else acc.insert(0, l + "\n") }.toString()
+            val transcript = lines.asReversed().fold(StringBuilder()) { acc, l -> if (acc.length + l.length > Brain.workspace() * 5 / 4) acc else acc.insert(0, l + "\n") }.toString()
             catchUp = Brain.summarize(context, transcript) { partial -> catchUp = partial } ?: "Murmur Brain couldn't summarize this chat. Try again in a moment."
             catchingUp = false
         }
@@ -517,7 +517,7 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
             ).joinToString(" ")
             "[" + android.text.format.DateFormat.format("EEE MMM d", m.date) + "] $who: $what"
         }
-        return lines.asReversed().fold(StringBuilder()) { acc, l -> if (acc.length + l.length > 5000) acc else acc.insert(0, l + "\n") }.toString()
+        return lines.asReversed().fold(StringBuilder()) { acc, l -> if (acc.length + l.length > Brain.workspace() * 5 / 4) acc else acc.insert(0, l + "\n") }.toString()
     }
 
     fun askAboutChat() {
@@ -526,7 +526,7 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
         asking = true
         askAnswer = ""
         scope.launch {
-            val text = withContext(Dispatchers.IO) { transcript(80) }
+            val text = withContext(Dispatchers.IO) { transcript(if (Brain.workspace() >= 8192) 200 else 80) }
             val system = BrainPrompts.system(
                 BrainPrompts.CHAT_MESSAGES, BrainMemory.persona(context),
                 listOf(BrainPrompts.memoryBlock(BrainMemory.facts(context))),

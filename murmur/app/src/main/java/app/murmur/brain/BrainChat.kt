@@ -48,6 +48,10 @@ object BrainChat {
         val web: List<app.murmur.brain.tools.WebSource> = emptyList(),
         /** 1 for a thumbs up, -1 for a thumbs down. */
         val rating: Int = 0,
+        /** A picture the user attached (a shrunk copy in Murmur's own storage). */
+        val image: String? = null,
+        /** The question was spoken, not typed. */
+        val spoken: Boolean = false,
     )
 
     enum class Step { IDLE, DECIDING, SEARCHING, WRITING }
@@ -83,6 +87,8 @@ object BrainChat {
                     o.optJSONArray("s")?.let { s -> List(s.length()) { s.getJSONObject(it).let { x -> Source(x.getLong("id"), x.getString("l")) } } }.orEmpty(),
                     used = o.optJSONArray("w")?.let { w -> List(w.length()) { w.getString(it) } }.orEmpty(),
                     rating = o.optInt("r"),
+                    image = o.optString("img").takeIf { it.isNotEmpty() && java.io.File(it).exists() },
+                    spoken = o.optBoolean("sp"),
                     web = o.optJSONArray("web")?.let { w -> List(w.length()) { w.getJSONObject(it).let { x -> app.murmur.brain.tools.WebSource(x.getString("t"), x.getString("u")) } } }.orEmpty(),
                     send = o.optJSONObject("send")?.let { x ->
                         SendCard(x.getString("n"), x.getString("p"), x.getString("m"), SendState.valueOf(x.getString("st")), x.optLong("at"))
@@ -102,6 +108,8 @@ object BrainChat {
                 if (t.sources.isNotEmpty()) put("s", JSONArray(t.sources.map { JSONObject().put("id", it.threadId).put("l", it.label) }))
                 if (t.used.isNotEmpty()) put("w", JSONArray(t.used))
                 if (t.rating != 0) put("r", t.rating)
+                t.image?.let { put("img", it) }
+                if (t.spoken) put("sp", true)
                 if (t.web.isNotEmpty()) put("web", JSONArray(t.web.map { JSONObject().put("t", it.title).put("u", it.url) }))
                 t.send?.let { put("send", JSONObject().put("n", it.name).put("p", it.number).put("m", it.message).put("st", it.state.name).put("at", it.at)) }
             })
@@ -114,20 +122,91 @@ object BrainChat {
         _turns.value = emptyList()
         _step.value = Step.IDLE
         prefs(context).edit().remove("turns").apply()
+        pictureDir(context).listFiles()?.forEach { it.delete() }
     }
 
     // ================================================================ asking
 
-    fun send(context: Context, question: String) {
+    /** Folder for pictures attached in the Brain tab; cleared with the chat. */
+    fun pictureDir(c: Context) = java.io.File(c.filesDir, "brain_pictures").also { it.mkdirs() }
+
+    /** A question about a picture: the model looks at it directly. */
+    fun sendPicture(context: Context, question: String, picture: java.io.File) {
+        val c = context.applicationContext
+        if (_step.value != Step.IDLE) return
+        val q = question.trim()
+        val history = pastTurns()
+        _turns.value = _turns.value + Turn(true, q, image = picture.path)
+        job = MurmurApp.scope.launch {
+            try {
+                answerPicture(c, q, picture, history)
+            } finally {
+                _step.value = Step.IDLE
+                _activity.value = null
+                if (_turns.value.lastOrNull()?.writing == true) replaceLast(_turns.value.last().copy(writing = false))
+            }
+        }
+    }
+
+    /** A spoken question: the Brain writes down what it heard, then answers it like a typed one. */
+    fun sendVoice(context: Context, recording: java.io.File) {
+        val c = context.applicationContext
+        if (_step.value != Step.IDLE) return
+        _step.value = Step.DECIDING
+        _activity.value = "Listening…"
+        MurmurApp.scope.launch {
+            val heard = try {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { app.murmur.voice.Voice.wavFor(c, android.net.Uri.fromFile(recording)) }
+                    ?.let { Brain.listen(c, it) }
+            } finally {
+                recording.delete()
+                _activity.value = null
+                _step.value = Step.IDLE
+            }
+            if (heard.isNullOrBlank()) {
+                _turns.value = _turns.value + Turn(false, "I couldn't make out any words. Try again a little closer to the phone.")
+                return@launch
+            }
+            send(c, heard, spoken = true)
+        }
+    }
+
+    private fun pastTurns() = _turns.value.filter { !it.writing && it.send == null }.zipWithNext()
+        .filter { (a, b) -> a.fromUser && !b.fromUser && a.image == null }
+        .map { (a, b) -> a.text to b.text }
+        .takeLast(HISTORY)
+
+    /** Exchanges remembered in a chat; more fit now that the workspace is bigger. */
+    private val HISTORY get() = if (Brain.workspace() >= 8192) 10 else 6
+
+    private suspend fun answerPicture(c: Context, q: String, picture: java.io.File, history: List<Pair<String, String>>) {
+        _step.value = Step.WRITING
+        val ask = q.ifBlank { "What's in this picture? Tell me anything useful about it." }
+        val think = q.isNotBlank() && Brain.shouldThink(c, q)
+        val facts = BrainMemory.facts(c)
+        val used = ArrayList<String>()
+        used += "Looked at the picture"
+        if (facts.isNotEmpty()) used += "Memory"
+        if (think) { used += "Thought it through"; _activity.value = "Thinking it through…" }
+        val system = BrainPrompts.system(BrainPrompts.CHAT_PICTURE, BrainMemory.persona(c), if (facts.isNotEmpty()) listOf(BrainPrompts.memoryBlock(facts)) else emptyList())
+        val start = Turn(false, "", writing = true, used = used)
+        _turns.value = _turns.value + start
+        val jpeg = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { picture.readBytes() }
+        val text = Brain.ask(
+            c, system, ask, maxTokens = 700, temperature = 0.4, examples = BrainPrompts.OPINION_EXAMPLES + history,
+            onPartial = { p -> if (p.isNotEmpty()) _activity.value = null; replaceLast(start.copy(text = p)) },
+            media = listOf(com.google.ai.edge.litertlm.Content.ImageBytes(jpeg)), think = think,
+        )
+        replaceLast(start.copy(text = text?.takeIf { it.isNotBlank() } ?: "Sorry, I couldn't look at that picture. Try again in a moment.", writing = false))
+        save(c)
+    }
+
+    fun send(context: Context, question: String, spoken: Boolean = false) {
         val c = context.applicationContext
         val q = question.trim()
         if (q.isEmpty() || _step.value != Step.IDLE) return
-        val history = _turns.value.filter { !it.writing && it.send == null }.zipWithNext()
-            .filter { (a, b) -> a.fromUser && !b.fromUser }
-            .map { (a, b) -> a.text to b.text }
-            .takeLast(6)
-            .let { Lessons.relevant(c, q) + it } // what the user taught it about questions like this one
-        _turns.value = _turns.value + Turn(true, q)
+        val history = Lessons.relevant(c, q) + pastTurns() // what the user taught it about questions like this one
+        _turns.value = _turns.value + Turn(true, q, spoken = spoken)
 
         // Memory commands are handled by plain code: no model, no guessing.
         BrainPrompts.rememberCommand(q)?.let { fact ->

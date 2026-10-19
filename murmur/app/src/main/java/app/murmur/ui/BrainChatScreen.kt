@@ -1,5 +1,18 @@
 package app.murmur.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.material.icons.outlined.AddPhotoAlternate
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import androidx.core.content.ContextCompat
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.outlined.ThumbUp
@@ -99,6 +112,25 @@ fun BrainChatScreen(onOpenThread: (Long) -> Unit, onSettings: () -> Unit) {
     val activity by BrainChat.activity.collectAsState()
     var input by rememberSaveable { mutableStateOf("") }
     var correcting by remember { mutableStateOf<Int?>(null) }
+    val scope = rememberCoroutineScope()
+    // A picture to ask about: shrunk to 768 px right away and kept in Murmur's own storage.
+    var picture by remember { mutableStateOf<java.io.File?>(null) }
+    val pickPicture = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) scope.launch {
+            picture = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                app.murmur.brain.Eyes.jpeg(context, uri)?.let { bytes ->
+                    java.io.File(BrainChat.pictureDir(context), "p${System.currentTimeMillis()}.jpg").also { it.writeBytes(bytes) }
+                }
+            }
+        }
+    }
+    // Asking out loud: tap the mic, speak, tap again.
+    val recorder = remember { app.murmur.voice.Voice.Recorder(context) }
+    var listening by remember { mutableStateOf(false) }
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) listening = recorder.start()
+    }
+    DisposableEffect(Unit) { onDispose { if (listening) recorder.cancel() } }
     val list = rememberLazyListState()
     val scheme = MaterialTheme.colorScheme
 
@@ -169,9 +201,15 @@ fun BrainChatScreen(onOpenThread: (Long) -> Unit, onSettings: () -> Unit) {
                 }
                 itemsIndexed(turns) { i, t ->
                     if (t.fromUser) {
-                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                        t.image?.let { path ->
+                            Box(Modifier.fillMaxWidth().padding(bottom = 4.dp), contentAlignment = Alignment.CenterEnd) {
+                                val img = rememberImage(android.net.Uri.fromFile(java.io.File(path)), 480)
+                                if (img != null) androidx.compose.foundation.Image(img, "Your picture", Modifier.widthIn(max = 220.dp).clip(RoundedCornerShape(16.dp)))
+                            }
+                        }
+                        if (t.text.isNotEmpty()) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
                             Text(
-                                t.text,
+                                (if (t.spoken) "🎙 " else "") + t.text,
                                 Modifier.widthIn(max = 300.dp).clip(RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp))
                                     .background(scheme.primary).padding(horizontal = 14.dp, vertical = 9.dp),
                                 color = scheme.onPrimary, style = MaterialTheme.typography.bodyLarge,
@@ -254,7 +292,26 @@ fun BrainChatScreen(onOpenThread: (Long) -> Unit, onSettings: () -> Unit) {
             }
 
             Surface(color = scheme.surfaceContainer) {
+              Column {
+                picture?.let { f ->
+                    Row(Modifier.padding(start = 12.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        val img = rememberImage(android.net.Uri.fromFile(f), 160)
+                        if (img != null) androidx.compose.foundation.Image(img, null, Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                        Text("Ask anything about this picture, or just send it", Modifier.weight(1f).padding(horizontal = 10.dp), style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+                        IconButton(onClick = { f.delete(); picture = null }) { Icon(Icons.Outlined.Close, "Remove picture") }
+                    }
+                }
+                if (listening) Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Mic, null, tint = scheme.error)
+                    Text("Listening… tap the button when you're done", Modifier.weight(1f).padding(horizontal = 10.dp), style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = { recorder.cancel(); listening = false }) { Text("Cancel") }
+                }
                 Row(Modifier.padding(8.dp), verticalAlignment = Alignment.Bottom) {
+                    IconButton(
+                        onClick = { pickPicture.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                        enabled = step == BrainChat.Step.IDLE && !listening,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    ) { Icon(Icons.Outlined.AddPhotoAlternate, "Ask about a picture", tint = scheme.primary) }
                     TextField(
                         value = input,
                         onValueChange = { input = it },
@@ -267,16 +324,32 @@ fun BrainChatScreen(onOpenThread: (Long) -> Unit, onSettings: () -> Unit) {
                         ),
                     )
                     Spacer(Modifier.width(8.dp))
-                    val canSend = input.isNotBlank() && step == BrainChat.Step.IDLE
+                    val idle = step == BrainChat.Step.IDLE
+                    // Nothing typed and no picture: the button is a microphone.
+                    val mic = input.isBlank() && picture == null
+                    val canSend = idle && (listening || mic || input.isNotBlank() || picture != null)
                     IconButton(
-                        onClick = { BrainChat.send(context, input); input = "" },
+                        onClick = {
+                            when {
+                                listening -> { listening = false; recorder.stop()?.let { BrainChat.sendVoice(context, it) } }
+                                picture != null -> { BrainChat.sendPicture(context, input, picture!!); picture = null; input = "" }
+                                mic -> if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) listening = recorder.start()
+                                    else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                                else -> { BrainChat.send(context, input); input = "" }
+                            }
+                        },
                         enabled = canSend,
                         modifier = Modifier.padding(bottom = 2.dp).size(50.dp).clip(CircleShape)
-                            .background(if (canSend) scheme.primary else scheme.surfaceVariant),
+                            .background(if (listening) scheme.error else if (canSend) scheme.primary else scheme.surfaceVariant),
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, "Ask", tint = if (canSend) scheme.onPrimary else scheme.onSurfaceVariant)
+                        Icon(
+                            when { listening -> Icons.Filled.Stop; mic -> Icons.Outlined.Mic; else -> Icons.AutoMirrored.Filled.Send },
+                            when { listening -> "Done"; mic -> "Ask out loud"; else -> "Ask" },
+                            tint = if (canSend) scheme.onPrimary else scheme.onSurfaceVariant,
+                        )
                     }
                 }
+              }
             }
         }
     }

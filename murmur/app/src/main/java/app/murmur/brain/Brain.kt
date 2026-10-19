@@ -117,6 +117,23 @@ object Brain {
         Think.ALWAYS -> true; Think.OFF -> false; Think.AUTO -> BrainPrompts.isHard(question)
     }
 
+    /**
+     * How many tokens the model can hold at once (question, history, found texts, pictures, web pages).
+     * Bigger costs memory; phones with 8 GB or more get 8,192, others the original 4,096.
+     */
+    fun workspace(): Int = workspaceSize
+
+    @Volatile private var workspaceSize = 4096
+
+    fun sizeWorkspace(context: Context) {
+        val am = context.getSystemService(android.app.ActivityManager::class.java)
+        val total = android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }.totalMem
+        // Measured in the lab: 8,192 instead of 4,096 costs about 530 MB more with the Standard model.
+        // Big Brain is already near the limit on 8 GB, so it only gets the bigger workspace with 11 GB or more.
+        val need = if (model(context) == GEMMA4_E4B) 11_000_000_000L else 7_000_000_000L
+        workspaceSize = if (total >= need) 8192 else 4096
+    }
+
     /** Reply chips in chats (on by default once the Brain is on). */
     fun suggestOn(context: Context) = prefs(context).getBoolean("suggest", true)
     fun setSuggestOn(context: Context, v: Boolean) = prefs(context).edit().putBoolean("suggest", v).apply()
@@ -136,6 +153,7 @@ object Brain {
 
     fun refresh(context: Context) {
         val c = context.applicationContext
+        sizeWorkspace(c)
         // If the app died while trying the graphics chip, that chip can't run the model: stay on the CPU.
         if (prefs(c).getBoolean("gpu_trying", false)) {
             prefs(c).edit().putBoolean("gpu_trying", false).putBoolean("gpu_bad", true).putBoolean("gpu", false).apply()
@@ -176,6 +194,7 @@ object Brain {
     private fun activate(c: Context, spec: ModelSpec) {
         val old = model(c)
         prefs(c).edit().putString("model", spec.file).remove("download_model").remove("speed3").apply()
+        sizeWorkspace(c)
         _speed.value = null
         MurmurApp.scope.launch {
             unload()
@@ -302,7 +321,7 @@ object Brain {
                         // Pictures and voice notes; LiteRT-LM loads these encoders only when one is used.
                         visionBackend = Backend.CPU(),
                         audioBackend = Backend.CPU(),
-                        maxNumTokens = 4096, // room for chat history, found texts, tool descriptions and web results
+                        maxNumTokens = workspace(), // room for chat history, found texts, pictures, tool descriptions and web results
                         cacheDir = context.cacheDir.path,
                     ),
                 ).also { it.initialize() }

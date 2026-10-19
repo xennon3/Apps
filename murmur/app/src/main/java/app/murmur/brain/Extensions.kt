@@ -121,7 +121,7 @@ object BrainTools {
         if (BrainWeb.on(c)) {
             BrainWeb.searchTool(c)?.let { list += it }
             list += WikipediaTool()
-            list += ReadPageTool()
+            list += ReadPageTool(if (Brain.workspace() >= 8192) 7000 else 3000)
             list += WeatherTool(fahrenheit = Locale.getDefault().country in setOf("US", "LR", "MM", "BS", "BZ", "KY", "PW"))
             list += CurrencyTool()
         }
