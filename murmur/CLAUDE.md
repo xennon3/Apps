@@ -7,7 +7,7 @@ Murmur is a native Android SMS/MMS app (Kotlin, Jetpack Compose, minSdk 26, targ
 - They install APKs by sideloading. Android 13+ needs "Allow restricted settings" before the SMS role can be granted, and that's already done on their phone.
 - Their preferences: creative ideas, direct answers, and quick research before deciding.
 - Each release: bump `versionCode`/`versionName` in `app/build.gradle.kts` and the "Murmur x.y" line in `ui/OtherScreens.kt`. Build the release APK and send it to them. Commit and push to the session branch.
-- Current version: **1.9** (versionCode 14).
+- Current version: **1.9.1** (versionCode 15).
 
 ## Build and check (all must pass before shipping)
 ```sh
@@ -50,6 +50,7 @@ export ANDROID_HOME=/opt/android-sdk   # install cmdline-tools + platforms;andro
 - **LiteRT-LM 0.18 already has** speculative decoding (`ExperimentalFlags.enableSpeculativeDecoding`, 1.74x in the lab), image/audio input (`visionBackend`/`audioBackend` + `Content.ImageBytes`/`AudioBytes`), and `EmbeddingEngine`. Audio is fed as 16 kHz mono WAV (`Voice.wav16k`).
 - **Phone tools: one tool per kind, the model picks a topic.** Two tools (`phone_status`, `phone_action`) scored 17/17; many small tools would crowd the model.
 - **Thinking mode** (`ConversationConfig.thinkingConfig`): thoughts arrive in `Message.channels["thought"]`, not in the text. It fixed 3 of 3 reasoning mistakes in the lab but makes easy questions ~40x slower, so `BrainPrompts.isHard` gates it. Memory boost (storage as RAM) doesn't help the model; E4B on 8 GB is slow partly from paging.
+- **Gemma hedges unless told not to.** The user wants a frank helper on every subject, no topic limits from Murmur. `BrainPrompts.OPINIONS` + `OPINION_EXAMPLES` + the `isRefusal` retry took dodges from 7/7 ("it depends") to 0/12. Don't reintroduce "keep it short"-style limits in chat prompts.
 - **Qwen models were rejected.** Qwen3 0.6B and Qwen2.5 1.5B were too weak, and Qwen's bundled chat template breaks in LiteRT-LM. Gemma 4 E2B scored 8/8 on scam checks and 13/13 on tool choice.
 
 ## Untested on a real phone (ask the user)

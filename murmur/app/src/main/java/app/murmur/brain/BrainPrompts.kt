@@ -46,13 +46,14 @@ object BrainPrompts {
 
     private val generalRefusal = Regex("(?i)^(i'?m sorry,? (but )?)?i (can'?t|cannot|won'?t|am not able to|'m not able to) (help|assist|provide|answer|discuss|talk about)")
     private val fence = Regex("(?i)^(that |it |this )?(really |all |truly )?(depends|varies)|^(both|there'?s no (single|one|right))|^(it'?s a |that'?s a )(popular |classic |great )?(debate|personal choice|matter of)")
+    private val picked = Regex("(?i)\\b(i'?d (pick|go with|choose|get|lean|recommend|say)|my (pick|vote|choice) (is|would be)|if i had to (pick|choose))")
     private val askingOpinion = Regex("(?i)\\b(best|better|would you|should i|your (opinion|pick|take|view)|what do you think|favou?rite|which (one|is)|is .{1,40} (good|worth|overrated))\\b")
 
     /** A dodge, caught by plain code so the app can ask again: "As an AI…", "I can't help with that", or fence-sitting when asked to choose. */
     fun isRefusal(answer: String, question: String = ""): Boolean {
         val a = answer.trim().take(300)
         return refusal.containsMatchIn(a) || generalRefusal.containsMatchIn(a) ||
-            (askingOpinion.containsMatchIn(question) && fence.containsMatchIn(a))
+            (askingOpinion.containsMatchIn(question) && fence.containsMatchIn(a) && !picked.containsMatchIn(answer))
     }
 
     /** Added to the question when the first answer dodged. */

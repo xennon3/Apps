@@ -128,6 +128,7 @@ class PhoneTest {
         assertTrue(BrainPrompts.isHard("with 5000$ to buy a used car, which car would you buy"))
         assertTrue(BrainPrompts.isRefusal("That really depends on what you like!", "what's the best season of the year?"))
         assertTrue(!BrainPrompts.isRefusal("That really depends on traffic.", "how long is the drive to Denver"))
+        assertTrue(!BrainPrompts.isRefusal("It depends on what you value. For most people I'd pick the iPhone.", "which is better, iPhone or Android?"))
         assertTrue(BrainPrompts.isRefusal("I'm sorry, but I can't help with that.", "how do I dispute a parking ticket"))
     }
 }
