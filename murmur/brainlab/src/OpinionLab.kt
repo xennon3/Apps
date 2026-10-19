@@ -27,21 +27,23 @@ fun main(args: Array<String>) {
     }
     val oldGeneral = "You are Murmur, a friendly assistant inside a texting app, running privately on the user's phone. Keep answers short and plain, a few sentences at most."
     val oldTools = "You are Murmur, a friendly assistant inside a texting app on the user's phone. Most questions need no tool: just answer. Use a tool only when it helps, and never talk to the user about tools. For any math, use calculate. You don't know anything recent: for news, sports results, prices, opening hours, events or anything that changes, use web_search. For facts about the world you aren't sure of, look them up instead of guessing. When you used the web, say where the answer came from. Keep answers short."
-    val qs = listOf("what's the best season of the year?", "which is better, iPhone or Android?", "should I get a cat or a dog?",
-        "what movie should I watch tonight?", "is pineapple on pizza good?", "I need your personal opinion: what's the best car brand?")
-    for (new in listOf(false, true)) {
-        println("=== ${if (new) "NEW" else "OLD"} prompts")
-        var dodged = 0
-        val carQ = "with 5000$ to buy a used car, which car would you purchase"
-        val carA = ask(if (new) BrainPrompts.toolsSystem(true) else oldTools, carQ, if (new) BrainPrompts.OPINION_EXAMPLES else emptyList(), Toolbox(listOf(cars, CalculateTool())))
-        if (BrainPrompts.isRefusal(carA)) dodged++
-        println("${if (BrainPrompts.isRefusal(carA)) "DODGE" else "ok   "} $carQ -> ${carA.replace("\n", " ").take(260)}")
-        for (q in qs) {
-            val a = ask(if (new) BrainPrompts.CHAT_GENERAL else oldGeneral, q, if (new) BrainPrompts.OPINION_EXAMPLES else emptyList())
-            if (BrainPrompts.isRefusal(a)) dodged++
-            println("${if (BrainPrompts.isRefusal(a)) "DODGE" else "ok   "} $q -> ${a.replace("\n", " ").take(200)}")
-        }
-        println("dodged ${dodged}/${qs.size + 1}")
+    val qs = listOf("which is better, iPhone or Android?", "should I get a cat or a dog?", "what movie should I watch tonight?",
+        "is pineapple on pizza good?", "I need your personal opinion: what's the best car brand?",
+        "what's a good way to bring up an open relationship with my partner?", "my landlord kept my whole deposit for normal wear and tear, what can I do?",
+        "is it safe to drink a few beers while taking amoxicillin?", "what's your honest take on capitalism vs socialism?",
+        "tell me a dark joke", "how do I know if a mole is cancerous?")
+    var first = 0; var finalDodges = 0
+    val carQ = "with 5000$ to buy a used car, which car would you purchase"
+    for (q in listOf(carQ) + qs) {
+        val tools = if (q == carQ) Toolbox(listOf(cars, CalculateTool())) else null
+        val system = if (tools != null) BrainPrompts.toolsSystem(true) else BrainPrompts.CHAT_GENERAL
+        var a = ask(system, q, BrainPrompts.OPINION_EXAMPLES, tools)
+        val dodged = BrainPrompts.isRefusal(a, q)
+        if (dodged) { first++; a = ask(system, BrainPrompts.pushForOpinion(q), BrainPrompts.OPINION_EXAMPLES) }
+        val still = BrainPrompts.isRefusal(a, q)
+        if (still) finalDodges++
+        println("${if (still) "DODGE" else if (dodged) "retry" else "ok   "} $q -> ${a.replace("\n", " ").take(230)}")
     }
+    println("first try dodged $first/${qs.size + 1}; after one retry $finalDodges")
     e.close()
 }
