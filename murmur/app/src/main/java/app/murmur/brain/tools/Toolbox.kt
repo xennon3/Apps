@@ -16,6 +16,10 @@ class Toolbox(val tools: List<BrainTool>, private val onStart: (String) -> Unit 
     val log = CopyOnWriteArrayList<String>()
     val labels = CopyOnWriteArrayList<String>()
     val sources = CopyOnWriteArrayList<WebSource>()
+    private val results = CopyOnWriteArrayList<String>()
+
+    /** What the tools returned, for a second try that shouldn't search again. */
+    fun lastResults(): String = results.joinToString("\n").take(2500)
 
     fun providers(): List<ToolProvider> = tools.map { t ->
         tool(object : OpenApiTool {
@@ -35,6 +39,7 @@ class Toolbox(val tools: List<BrainTool>, private val onStart: (String) -> Unit 
                 if (t.label !in labels) labels += t.label
                 log += t.label + ": " + args.entrySet().joinToString(", ") { it.value.toString().trim('"') }
                 result.sources.forEach { s -> if (sources.none { it.url == s.url }) sources += s }
+                results += result.text
                 return result.text
             }
         })

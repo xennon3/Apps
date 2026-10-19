@@ -12,14 +12,44 @@ object BrainPrompts {
 
     // ================================================================ chat
 
+    /**
+     * Gemma is trained to dodge opinions ("As an AI, I don't…"), and a small model falls back on that
+     * reflex unless told otherwise. Users ask Murmur what it would pick; it should pick.
+     */
+    const val OPINIONS =
+        "Talk like a knowledgeable friend who has opinions. When asked what you'd pick, which is best, or what you think, " +
+            "choose something specific and say why, then mention one alternative if useful. Never say you're an AI, that you " +
+            "don't have opinions, or that you can't recommend something: just answer."
+
     const val CHAT_GENERAL =
         "You are Murmur, a friendly assistant inside a texting app, running privately on the user's phone. " +
-            "Answer plainly. Simple questions get a short answer; when a question needs more, give a complete, well-organized one."
+            "Answer plainly. Simple questions get a short answer; when a question needs more, give a complete, well-organized one. " + OPINIONS
+
+    /** Worked examples of decisive answers; small models copy examples more reliably than they follow rules. */
+    val OPINION_EXAMPLES = listOf(
+        "what's the best pizza topping?" to
+            "Pepperoni. It crisps at the edges, goes with almost everything, and it's hard to get wrong. If you want something less obvious, sausage and mushroom together is excellent.",
+        "should I learn guitar or piano first? which would you pick" to
+            "Piano. The notes are laid out in a straight line, so music theory clicks faster, and it doesn't hurt your fingers at the start. Guitar is the better pick only if you mostly want to strum songs with friends.",
+    )
+
+    private val refusal = Regex(
+        "(?i)(as an ai|as a language model|i('m| am) (just )?an ai|i don'?t have (personal )?(opinions|preferences|feelings)|" +
+            "i (can'?t|cannot|am not able to|'m not able to) (recommend|give (you )?(a )?(specific|personal)|choose|pick|have opinions)|" +
+            "i'?m not able to (recommend|choose|pick))",
+    )
+
+    /** The opinion dodge, caught by plain code so the app can ask again. */
+    fun isRefusal(answer: String) = refusal.containsMatchIn(answer.take(300))
+
+    /** Added to the question when the first answer dodged. */
+    fun pushForOpinion(q: String) = "$q\n\n(Answer with your own pick: choose something specific and explain why in a few sentences.)"
 
     private val hardWords = Regex(
         "(?i)\\b(why|should i|should we|which is better|better option|pros and cons|compare|versus|vs\\.?|recommend|advice|" +
             "plan|schedule|budget|afford|worth it|how (do|can|should) i|help me (decide|figure|plan|write)|explain|what if|" +
-            "strategy|step by step|figure out|calculate|how many|how much|when should|riddle|puzzle|percent|discount|interest)\\b",
+            "strategy|step by step|figure out|calculate|how many|how much|when should|riddle|puzzle|percent|discount|interest|" +
+            "would you (buy|purchase|pick|choose|get|do|go with|take|recommend)|your (opinion|pick|take|choice)|what do you think|which one)\\b",
     )
 
     /** Worth thinking about first: a question with reasoning words, or a long one with numbers in it. Plain code decides. */
@@ -32,7 +62,7 @@ object BrainPrompts {
     const val CHAT_DEEP =
         "You are Murmur, a thoughtful assistant running privately on the user's phone. Work the problem out carefully " +
             "before answering: check the numbers, consider the options, and the person's situation. Then give a clear answer " +
-            "with the reasoning that matters, without padding. Write maths in plain text (40 / 0.8 = 50), never LaTeX."
+            "with the reasoning that matters, without padding. Write maths in plain text (40 / 0.8 = 50), never LaTeX. " + OPINIONS
 
     const val CHAT_MESSAGES =
         "You are Murmur, a friendly assistant inside a texting app, running privately on the user's phone. " +
@@ -106,9 +136,9 @@ object BrainPrompts {
             "just answer. Use a tool only when it helps, and never talk to the user about tools. For any math, use calculate. " +
             (if (canLookUp) "You don't know anything recent: for news, sports results, prices, opening hours, events or " +
                 "anything that changes, use web_search. For facts about the world you aren't sure of, look them up " +
-                "instead of guessing. When you used the web, say where the answer came from. "
+                "instead of guessing. When you used the web, use the specifics it found (names, models, years, prices) and say where they came from. "
             else "You can't browse the web; if asked for recent news, prices or opening hours, say web lookups are off in Settings. ") +
-            "Keep answers short."
+            "Simple questions get a short answer; bigger ones a complete one. " + OPINIONS
 
     // ================================================================ sending texts from the chat
 

@@ -120,4 +120,11 @@ class PhoneTest {
         assertTrue(!BrainPrompts.isHard("write a haiku about rain"))
         assertTrue(!BrainPrompts.isHard("what's the capital of France"))
     }
+
+    @Test fun opinionDodgesAreCaught() {
+        assertTrue(BrainPrompts.isRefusal("As an AI, I don't have personal opinions or the ability to buy cars."))
+        assertTrue(BrainPrompts.isRefusal("I can't recommend a specific car, but for under \$5000, look for a reliable sedan."))
+        assertTrue(!BrainPrompts.isRefusal("I'd get a 2010 Toyota Corolla. It's the most reliable car in that range."))
+        assertTrue(BrainPrompts.isHard("with 5000$ to buy a used car, which car would you buy"))
+    }
 }
