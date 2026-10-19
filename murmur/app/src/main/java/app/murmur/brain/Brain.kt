@@ -88,7 +88,11 @@ object Brain {
     val state: StateFlow<State> = _state
 
     /** What the speed test measured on this phone. */
-    data class Speed(val loadSeconds: Float, val firstWordSeconds: Float, val readPerSecond: Float, val writePerSecond: Float, val gpu: Boolean)
+    data class Speed(
+        val loadSeconds: Float, val firstWordSeconds: Float, val readPerSecond: Float, val writePerSecond: Float, val gpu: Boolean,
+        /** Writing speed on a real answer with fast writing off and on (null if the model can't do it). */
+        val normalWrite: Float = writePerSecond, val fastWrite: Float? = null,
+    )
 
     private val _speed = MutableStateFlow<Speed?>(null)
     val speed: StateFlow<Speed?> = _speed
@@ -127,8 +131,8 @@ object Brain {
             prefs(c).edit().putBoolean("gpu_trying", false).putBoolean("gpu_bad", true).putBoolean("gpu", false).apply()
         }
         prefs(c).edit().putBoolean("gpu_session", false).apply()
-        _speed.value = prefs(c).getString("speed2", null)?.split(',')?.takeIf { it.size == 5 }?.let {
-            Speed(it[0].toFloat(), it[1].toFloat(), it[2].toFloat(), it[3].toFloat(), it[4] == "1")
+        _speed.value = prefs(c).getString("speed3", null)?.split(',')?.takeIf { it.size == 7 }?.let {
+            Speed(it[0].toFloat(), it[1].toFloat(), it[2].toFloat(), it[3].toFloat(), it[4] == "1", it[5].toFloat(), it[6].toFloatOrNull())
         }
         _state.value = when {
             !enabled(c) -> State.Off
@@ -161,7 +165,7 @@ object Brain {
 
     private fun activate(c: Context, spec: ModelSpec) {
         val old = model(c)
-        prefs(c).edit().putString("model", spec.file).remove("download_model").remove("speed2").apply()
+        prefs(c).edit().putString("model", spec.file).remove("download_model").remove("speed3").apply()
         _speed.value = null
         MurmurApp.scope.launch {
             unload()
@@ -258,6 +262,9 @@ object Brain {
 
     private fun useGpu(c: Context) = prefs(c).getBoolean("gpu", false) && !prefs(c).getBoolean("gpu_bad", false)
 
+    /** The processor setup the speed test found fastest: all cores (default) or just the 4 fast ones. */
+    private fun cpu(c: Context) = prefs(c).getInt("threads", 0).takeIf { it > 0 }?.let { Backend.CPU(threadCount = it) } ?: Backend.CPU()
+
     /**
      * Runs [block] while a "trying the GPU" flag is saved. A graphics driver can kill the whole
      * app in native code, which no try/catch sees; the flag left behind tells the next launch.
@@ -281,7 +288,7 @@ object Brain {
                 Engine(
                     EngineConfig(
                         modelPath = modelFile(context).path,
-                        backend = if (gpu) Backend.GPU() else Backend.CPU(),
+                        backend = if (gpu) Backend.GPU() else cpu(context),
                         // Pictures and voice notes; LiteRT-LM loads these encoders only when one is used.
                         visionBackend = Backend.CPU(),
                         audioBackend = Backend.CPU(),
@@ -401,28 +408,68 @@ object Brain {
             runCatching { engine?.close() }; engine = null // the benchmark loads its own copy
             withContext(Dispatchers.IO) {
                 val path = modelFile(c).path
-                ExperimentalFlags.enableSpeculativeDecoding = fastWriting(c)
+                // The benchmark feeds made-up text, where drafting ahead can't guess right, so it runs
+                // with fast writing off and only decides processor vs graphics chip.
+                ExperimentalFlags.enableSpeculativeDecoding = false
                 fun run(gpu: Boolean) = runCatching {
                     guardGpu(c, gpu) { benchmark(path, if (gpu) Backend.GPU() else Backend.CPU(), 256, 32, c.cacheDir.path) }
                 }.getOrNull()
-                val cpu = run(false) ?: return@withContext null
+                val cpuAll = run(false) ?: return@withContext null
+                // Phones pair fast and slow cores; the slow ones can hold the fast ones back. Try just the fast four.
+                val cpu4 = runCatching { benchmark(path, Backend.CPU(threadCount = 4), 256, 32, c.cacheDir.path) }.getOrNull()
+                val four = cpu4 != null && cpu4.lastDecodeTokensPerSecond > cpuAll.lastDecodeTokensPerSecond * 1.05
+                prefs(c).edit().putInt("threads", if (four) 4 else 0).apply()
+                val cpu = if (four) cpu4!! else cpuAll
                 val gpu = if (prefs(c).getBoolean("gpu_bad", false)) null else run(true).also {
                     if (it == null) prefs(c).edit().putBoolean("gpu_bad", true).apply()
                 }
                 val useGpu = gpu != null && gpu.lastDecodeTokensPerSecond > cpu.lastDecodeTokensPerSecond * 1.15
                 val best = if (useGpu) gpu else cpu
+                // Then a real answer, timed with fast writing off and on; keep whichever is faster on this phone.
+                val normal = realWrite(c, useGpu, fast = false) ?: best.lastDecodeTokensPerSecond.toFloat()
+                val canFast = runCatching { (com.google.ai.edge.litertlm.ModelInfo.from(path) as? com.google.ai.edge.litertlm.ModelInfo.Llm)?.hasSpeculativeDecodingSupport() }.getOrNull() == true
+                val fast = if (canFast) realWrite(c, useGpu, fast = true) else null
+                val useFast = fast != null && fast > normal * 1.05f
+                prefs(c).edit().putBoolean("mtp", useFast).apply()
                 Speed(
                     best.initTimeInSecond.toFloat(), best.timeToFirstTokenInSecond.toFloat(),
-                    best.lastPrefillTokensPerSecond.toFloat(), best.lastDecodeTokensPerSecond.toFloat(), useGpu,
+                    best.lastPrefillTokensPerSecond.toFloat(), if (useFast) fast!! else normal, useGpu, normal, fast,
                 ).also { sp ->
                     prefs(c).edit().putBoolean("gpu", useGpu)
-                        .putString("speed2", listOf(sp.loadSeconds, sp.firstWordSeconds, sp.readPerSecond, sp.writePerSecond, if (useGpu) 1 else 0).joinToString(","))
+                        .putString("speed3", listOf(sp.loadSeconds, sp.firstWordSeconds, sp.readPerSecond, sp.writePerSecond, if (useGpu) 1 else 0, sp.normalWrite, sp.fastWrite ?: "").joinToString(","))
                         .apply()
                     _speed.value = sp
                 }
             }
         }
     }
+
+    /** Tokens per second while writing a real answer (about 4 characters a token), from the first word to the last. */
+    @OptIn(ExperimentalApi::class)
+    private fun realWrite(c: Context, gpu: Boolean, fast: Boolean): Float? = runCatching {
+        ExperimentalFlags.enableSpeculativeDecoding = fast
+        guardGpu(c, gpu) {
+            Engine(EngineConfig(modelPath = modelFile(c).path, backend = if (gpu) Backend.GPU() else cpu(c), maxNumTokens = 1024, cacheDir = c.cacheDir.path))
+                .also { it.initialize() }
+        }.use { e ->
+            e.createConversation(ConversationConfig(samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0, seed = 7), maxOutputToken = 120)).use { conv ->
+                var first = 0L
+                var text = ""
+                val done = java.util.concurrent.CountDownLatch(1)
+                conv.sendMessageAsync("Write a friendly 80-word note inviting a neighbor to a weekend barbecue.", object : MessageCallback {
+                    override fun onMessage(message: Message) {
+                        if (first == 0L) first = System.nanoTime()
+                        message.contents.contents.filterIsInstance<Content.Text>().forEach { text += it.text }
+                    }
+                    override fun onDone() = done.countDown()
+                    override fun onError(throwable: Throwable) = done.countDown()
+                })
+                done.await(180, java.util.concurrent.TimeUnit.SECONDS)
+                val secs = (System.nanoTime() - first) / 1e9f
+                if (first == 0L || secs <= 0.5f || text.length < 40) null else (text.length / 4f) / secs
+            }
+        }
+    }.getOrNull()
 
     // ================================================================ what Murmur uses it for
 

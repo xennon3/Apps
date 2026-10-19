@@ -135,7 +135,7 @@ fun BrainCard() {
                         else "Standard: quick. Big Brain is smarter with nuance and translation, about 1.5x slower, and needs ${Brain.GEMMA4_E4B.sizeLabel}.",
                         style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
                     )
-                    var fast by remember { mutableStateOf(Brain.fastWriting(context)) }
+                    var fast by remember(speed) { mutableStateOf(Brain.fastWriting(context)) } // the speed test may flip it
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
                         Column(Modifier.weight(1f)) {
                             Text("Fast writing", style = MaterialTheme.typography.bodyMedium)
@@ -159,7 +159,7 @@ fun BrainCard() {
                         Spacer(Modifier.width(12.dp))
                         Text(
                             when {
-                                testing -> "Testing the processor and the graphics chip… about a minute"
+                                testing -> "Testing the processor, the graphics chip and fast writing… about two minutes"
                                 testFailed -> "The model couldn't run on this phone"
                                 speed != null -> speedLabel(speed!!)
                                 else -> "See how fast it is on your phone"
@@ -232,7 +232,10 @@ fun BrainCard() {
 /** Writing speed is what you feel; two sentences are about 40 tokens. */
 private fun speedLabel(s: Brain.Speed): String {
     val reply = s.firstWordSeconds + 40 / s.writePerSecond.coerceAtLeast(0.1f)
-    return "Writes %.1f tokens/s · reads %.0f tokens/s · loads in %.0fs on the %s.\nA two-sentence answer takes about %.0f seconds once loaded."
+    val fast = s.fastWrite?.let { f ->
+        "\nFast writing: %.1f vs %.1f tokens/s without, so it's %s.".format(f, s.normalWrite, if (s.writePerSecond == f && f != s.normalWrite) "on" else "off")
+    } ?: ""
+    return ("Writes %.1f tokens/s on real answers · reads %.0f tokens/s · loads in %.0fs on the %s.\nA two-sentence answer takes about %.0f seconds once loaded." + fast)
         .format(s.writePerSecond, s.readPerSecond, s.loadSeconds, if (s.gpu) "graphics chip" else "processor", reply)
 }
 
