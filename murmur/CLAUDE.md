@@ -7,7 +7,7 @@ Murmur is a native Android SMS/MMS app (Kotlin, Jetpack Compose, minSdk 26, targ
 - They install APKs by sideloading. Android 13+ needs "Allow restricted settings" before the SMS role can be granted, and that's already done on their phone.
 - Their preferences: creative ideas, direct answers, and quick research before deciding.
 - Each release: bump `versionCode`/`versionName` in `app/build.gradle.kts` and the "Murmur x.y" line in `ui/OtherScreens.kt`. Build the release APK and send it to them. Commit and push to the session branch.
-- Current version: **1.6** (versionCode 10).
+- Current version: **1.7** (versionCode 11).
 
 ## Build and check (all must pass before shipping)
 ```sh
@@ -45,15 +45,16 @@ export ANDROID_HOME=/opt/android-sdk   # install cmdline-tools + platforms;andro
 - **Don't store a model "no" when the model simply failed** (`Brain.planCheck` returns null to mean "retry later").
 - **Kotlin 2.3.21 is required** because the LiteRT-LM 0.18 jar has Kotlin 2.4 metadata. Native libraries are arm64 only.
 - **Murmur has the INTERNET permission** only because DownloadManager requires it for the model. Messages never go online. Web lookups (off by default) send only the model's search words.
+- **Brave Search dropped its free tier** (2026). Default search is FREE (DuckDuckGo's HTML page, parsed in `WebSearchTool.duckResults`); Tavily is the steady free-key option.
 - **Qwen models were rejected.** Qwen3 0.6B and Qwen2.5 1.5B were too weak, and Qwen's bundled chat template breaks in LiteRT-LM. Gemma 4 E2B scored 8/8 on scam checks and 13/13 on tool choice.
 
 ## Untested on a real phone (ask the user)
-- **1.6 features:** web lookups with their Brave key, skills, MCP via DeepWiki, the status line, speed of tool answers.
+- **1.7 features:** reply chips (speed and quality), free DuckDuckGo search (can't be tested from the cloud: DuckDuckGo blocks data-centre IPs), Tavily.
+- **1.6 features:** web lookups, skills, MCP via DeepWiki, the status line, speed of tool answers.
 - **Earlier features:** picture/group MMS with their carrier, voice-note transcription, graphics-chip (GPU) Brain backend.
 
 ## Ideas not built yet
 - A "Needs reply" home-screen widget.
-- Reply suggestions in the user's style.
 - Polls in group chats.
 - "One year ago today".
 - Arrival texts (geofence).

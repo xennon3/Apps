@@ -216,6 +216,54 @@ object BrainPrompts {
         return Triage.entries.firstOrNull { a.startsWith(it.name) } ?: Triage.entries.firstOrNull { a.contains(it.name) }
     }
 
+    // ================================================================ reply suggestions
+
+    const val REPLIES =
+        "Suggest 3 short replies 'You' could send next in this text conversation. Each answers the last message " +
+            "in a different way: one yes or agree, one no or not now, one asking something back. Sound like 'You': " +
+            "same tone, same length, casual. One reply per line. No numbers, quotes or names. Nothing else."
+
+    val REPLIES_EXAMPLES = listOf(
+        "Them: are you free saturday?\nYou: maybe, why\nThem: want to help me move? I'll buy pizza" to
+            "sure, what time?\ncan't this saturday, sorry\nhow much stuff do you have?",
+        "You: Hi Dr. Patel, could I move my appointment?\nThem: Of course. Would Thursday at 2pm work?" to
+            "Thursday at 2pm works, thank you.\nThursday doesn't work for me. Is Friday possible?\nIs there anything earlier in the week?",
+        "Them: running late, there in 15" to
+            "no worries\nok, I'll grab a table\nwant me to order for you?",
+    )
+
+    /** "Them:/You:" transcript of the last few messages, newest last. */
+    fun replyTranscript(lines: List<Pair<Boolean, String>>): String =
+        lines.takeLast(8).joinToString("\n") { (mine, t) -> (if (mine) "You: " else "Them: ") + t.replace('\n', ' ').trim().take(300) }
+
+    /** The model's lines → up to 3 clean, distinct replies, shaped like the user's own texts. */
+    fun parseReplies(answer: String, mySent: List<String>): List<String> {
+        val replies = clean(answer).lines()
+            .map { it.trim().removePrefix("-").removePrefix("•").trim().replace(Regex("^\\d+[.)]\\s*"), "").removePrefix("You:").trim().trim('"', '\u201C', '\u201D') }
+            .filter { it.length in 1..120 && !it.startsWith("Them:") }
+            .distinctBy { it.lowercase().trimEnd('.', '!', '?') }
+            .take(3)
+        return replies.map { styleLike(it, mySent) }
+    }
+
+    /** Plain code matches the user's habits: all-lowercase writers get lowercase, no-full-stop writers lose the full stop. */
+    fun styleLike(reply: String, mySent: List<String>): String {
+        val sample = mySent.map { it.trim() }.filter { it.any(Char::isLetter) }.takeLast(15)
+        if (sample.size < 3) return reply
+        var r = reply
+        val lowerWriter = sample.count { s -> s.first { it.isLetter() }.isLowerCase() } * 3 >= sample.size * 2
+        val first = r.split(' ').first()
+        val pronounI = first.trimEnd(',', '!', '.') == "I" || first.startsWith("I'") || first.startsWith("I\u2019")
+        if (lowerWriter && !pronounI && r.firstOrNull()?.isUpperCase() == true && first.drop(1).all { it.isLowerCase() || !it.isLetter() }) {
+            r = r.replaceFirstChar { it.lowercase() }
+        }
+        val capsWriter = sample.count { s -> s.first { it.isLetter() }.isUpperCase() } * 4 >= sample.size * 3
+        if (capsWriter && r.firstOrNull()?.isLowerCase() == true) r = r.replaceFirstChar { it.uppercase() }
+        val noFullStop = sample.count { !it.endsWith('.') } * 4 >= sample.size * 3
+        if (noFullStop && r.endsWith('.') && !r.endsWith("..")) r = r.dropLast(1)
+        return r
+    }
+
     // ================================================================ catch me up
 
     const val SUMMARY =

@@ -60,13 +60,17 @@ class ScreenshotTest {
 
     @Test fun planChip() = paparazzi.snapshot { MurmurTheme { PlanScene() } }
 
+    @Test fun replySuggestions() = paparazzi.snapshot {
+        MurmurTheme { FakeThread("", replies = listOf("yes, still on!", "can't tonight, sorry", "what time again?")) }
+    }
+
     @Test fun dualSimGroup() = paparazzi.snapshot { MurmurTheme { FakeThread("who's bringing chips?", dualSim = true) } }
 }
 
 private const val NOW = 1_760_800_000_000L
 
 @Composable
-private fun FakeThread(draft: String, dualSim: Boolean = false) {
+private fun FakeThread(draft: String, dualSim: Boolean = false, replies: List<String> = emptyList()) {
     val convo = Conversation(1, listOf("+15551234567"), "Maya Chen", null, "", NOW, false, true, false)
     fun msg(i: Int, box: Box, body: String, minsAgo: Int, d: Delivery = Delivery.NONE) =
         Message("s$i", i.toLong(), box, if (box == Box.IN) "+15551234567" else "", body, NOW - minsAgo * 60_000L, d)
@@ -101,6 +105,7 @@ private fun FakeThread(draft: String, dualSim: Boolean = false) {
             Sims.Sim(1, 0, "SIM 1", "Verizon", 0xFF7C4DFF.toInt()),
             Sims.Sim(2, 1, "SIM 2", "Mint", 0xFF4DD0E1.toInt()),
         ) else emptyList()
+        if (replies.isNotEmpty()) ReplyChips(replies) {}
         Composer(text = draft, onText = {}, enabled = true, onSend = {}, onSchedule = {}, sims = sims, subId = 2, group = dualSim)
     }
 }

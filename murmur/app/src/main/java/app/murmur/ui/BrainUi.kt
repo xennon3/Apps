@@ -1,5 +1,9 @@
 package app.murmur.ui
 
+import app.murmur.brain.tools.SearchEngine
+import app.murmur.brain.tools.WebSearchTool
+import androidx.compose.material3.RadioButton
+import androidx.compose.foundation.clickable
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -223,6 +227,13 @@ fun BrainExtras() {
         }
     }
 
+    var suggest by remember { mutableStateOf(Brain.suggestOn(context)) }
+    ListItem(
+        headlineContent = { Text("Suggest replies") },
+        supportingContent = { Text("When someone texts you, offer three replies worded like you. Tap one to edit it before sending.") },
+        trailingContent = { Switch(suggest, { suggest = it; Brain.setSuggestOn(context, it) }) },
+    )
+
     Text(
         "Memory", Modifier.padding(16.dp, 16.dp, 16.dp, 4.dp),
         style = MaterialTheme.typography.titleSmall, color = scheme.primary,
@@ -270,7 +281,7 @@ fun BrainExtras() {
     )
 }
 
-/** Web lookups (Brave key), skills, and MCP servers. */
+/** Web lookups (search engine and key), skills, and MCP servers. */
 @Composable
 fun BrainToolsSettings() {
     val context = LocalContext.current
@@ -280,8 +291,9 @@ fun BrainToolsSettings() {
     // ---------- web
     Text("Web lookups", Modifier.padding(16.dp, 20.dp, 16.dp, 4.dp), style = MaterialTheme.typography.titleSmall, color = scheme.primary)
     var webOn by remember { mutableStateOf(BrainWeb.on(context)) }
-    var key by remember { mutableStateOf(BrainWeb.braveKey(context)) }
-    var keyStatus by remember { mutableStateOf<String?>(null) }
+    var engine by remember { mutableStateOf(BrainWeb.engine(context)) }
+    var key by remember(engine) { mutableStateOf(BrainWeb.key(context, engine)) }
+    var keyStatus by remember(engine) { mutableStateOf<String?>(null) }
     ListItem(
         headlineContent = { Text("Let Murmur Brain look things up") },
         supportingContent = {
@@ -295,32 +307,48 @@ fun BrainToolsSettings() {
     )
     if (webOn) {
         Column(Modifier.padding(16.dp, 0.dp)) {
+            Text("Search with", style = MaterialTheme.typography.labelLarge)
+            SearchEngine.entries.forEach { e ->
+                Row(
+                    Modifier.fillMaxWidth().clickable { engine = e; BrainWeb.setEngine(context, e) }.padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(engine == e, { engine = e; BrainWeb.setEngine(context, e) })
+                    Text(e.label, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
             Text(
-                "General web search uses Brave Search with your own free key. Without one, the Brain can still use Wikipedia, " +
-                    "weather, exchange rates and links.",
+                when (engine) {
+                    SearchEngine.FREE -> "No sign-up. It reads DuckDuckGo's plain results page, so it can be slower and now and then asks to wait a minute. " +
+                        "If you search a lot, Tavily is steadier."
+                    SearchEngine.TAVILY -> "Sign up free with an email (no card) and paste the key that starts with tvly-. It also gives the Brain a short ready-made answer."
+                    SearchEngine.BRAVE -> "Brave now charges per search after a small monthly credit and asks for a card."
+                },
                 style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
             )
-            OutlinedTextField(
-                value = key, onValueChange = { key = it; BrainWeb.setBraveKey(context, it); keyStatus = null },
-                label = { Text("Brave Search API key") }, singleLine = true,
+            if (engine != SearchEngine.FREE) OutlinedTextField(
+                value = key, onValueChange = { key = it; BrainWeb.setKey(context, engine, it); keyStatus = null },
+                label = { Text(if (engine == SearchEngine.TAVILY) "Tavily API key" else "Brave Search API key") }, singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = {
-                    runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(BrainWeb.BRAVE_SIGNUP))) }
-                }) { Text("Get a free key") }
-                TextButton(enabled = key.isNotBlank(), onClick = {
+                engine.signup?.let { url ->
+                    TextButton(onClick = {
+                        runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
+                    }) { Text("Get a key") }
+                }
+                TextButton(enabled = engine == SearchEngine.FREE || key.isNotBlank(), onClick = {
                     keyStatus = "Testing…"
                     scope.launch {
                         keyStatus = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                             runCatching {
-                                val r = app.murmur.brain.tools.WebSearchTool(key).run(com.google.gson.JsonObject().apply { addProperty("query", "weather") })
+                                val r = WebSearchTool(engine, key).run(com.google.gson.JsonObject().apply { addProperty("query", "weather") })
                                 if (r.sources.isNotEmpty()) "✓ Works" else "Connected, but no results came back"
-                            }.getOrElse { "Didn't work: ${it.message}. Check the key." }
+                            }.getOrElse { "Didn't work: ${it.message}" + if (engine == SearchEngine.FREE) "" else ". Check the key." }
                         }
                     }
-                }) { Text("Test key") }
+                }) { Text("Test search") }
                 keyStatus?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = if (it.startsWith("✓")) scheme.primary else scheme.error) }
             }
         }

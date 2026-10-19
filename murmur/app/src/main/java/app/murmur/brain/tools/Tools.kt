@@ -48,7 +48,7 @@ fun schema(vararg params: Pair<String, String>): JsonObject = JsonObject().apply
 fun JsonObject.str(k: String): String = get(k)?.let { if (it.isJsonPrimitive) it.asString else it.toString() }.orEmpty()
 
 object Http {
-    const val AGENT = "Murmur/1.6 (Android texting app; on-device assistant)"
+    const val AGENT = "Murmur/1.7 (Android texting app; on-device assistant)"
 
     fun get(url: String, headers: Map<String, String> = emptyMap(), maxBytes: Int = 1_000_000): String {
         val c = URI(url).toURL().openConnection() as HttpURLConnection
@@ -56,6 +56,22 @@ object Http {
         c.setRequestProperty("User-Agent", AGENT)
         headers.forEach { (k, v) -> c.setRequestProperty(k, v) }
         val code = c.responseCode
+        if (code !in 200..299) throw IllegalStateException("HTTP $code")
+        return c.inputStream.use { s -> String(readUpTo(s, maxBytes), Charsets.UTF_8) }
+    }
+
+    /** DuckDuckGo's plain page turns away unknown apps, so it gets an ordinary phone browser's name. */
+    const val BROWSER = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
+
+    fun post(url: String, body: String, headers: Map<String, String> = emptyMap(), maxBytes: Int = 1_000_000): String {
+        val c = URI(url).toURL().openConnection() as HttpURLConnection
+        c.connectTimeout = 15_000; c.readTimeout = 20_000
+        c.requestMethod = "POST"; c.doOutput = true
+        c.setRequestProperty("User-Agent", AGENT)
+        headers.forEach { (k, v) -> c.setRequestProperty(k, v) }
+        c.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+        val code = c.responseCode
+        if (code == 202) throw IllegalStateException("search is busy, try again in a minute") // DuckDuckGo's polite "slow down"
         if (code !in 200..299) throw IllegalStateException("HTTP $code")
         return c.inputStream.use { s -> String(readUpTo(s, maxBytes), Charsets.UTF_8) }
     }
@@ -103,38 +119,89 @@ class TimeTool(private val zone: () -> ZoneId = { ZoneId.systemDefault() }) : Br
 // ==================================================================== web (only when the user turns web lookups on)
 
 /** Brave Search: reliable general web search; needs the user's own key. */
-class WebSearchTool(private val key: String) : BrainTool {
+/** Where general web searches go. FREE needs no key (DuckDuckGo's plain HTML page); the others use the user's own key. */
+enum class SearchEngine(val label: String, val signup: String?) {
+    FREE("Free (DuckDuckGo, no key)", null),
+    TAVILY("Tavily (free key, 1,000 searches a month)", "https://app.tavily.com/sign-in"),
+    BRAVE("Brave Search (your key)", "https://api-dashboard.search.brave.com/register"),
+}
+
+class WebSearchTool(private val engine: SearchEngine, private val key: String = "") : BrainTool {
     override val name = "web_search"
     override val label = "Web search"
     override val description = "Search the web for recent or specific information: news, scores, opening hours, prices, events, products."
     override val inputSchema = schema("query" to "What to search for")
     override fun run(args: JsonObject): ToolResult {
         val q = args.str("query")
-        val body = Http.get(
-            "https://api.search.brave.com/res/v1/web/search?q=${Http.enc(q)}&count=5&extra_snippets=true",
-            mapOf("X-Subscription-Token" to key, "Accept" to "application/json"),
-        )
-        return braveResults(q, body)
+        return when (engine) {
+            SearchEngine.BRAVE -> braveResults(q, Http.get(
+                "https://api.search.brave.com/res/v1/web/search?q=${Http.enc(q)}&count=5&extra_snippets=true",
+                mapOf("X-Subscription-Token" to key, "Accept" to "application/json"),
+            ))
+            SearchEngine.TAVILY -> tavilyResults(q, Http.post(
+                "https://api.tavily.com/search",
+                JsonObject().apply { addProperty("query", q); addProperty("max_results", 5); addProperty("include_answer", "basic") }.toString(),
+                mapOf("Authorization" to "Bearer $key", "Content-Type" to "application/json"),
+            ))
+            SearchEngine.FREE -> duckResults(q, Http.post(
+                "https://html.duckduckgo.com/html/", "q=${Http.enc(q)}",
+                mapOf("Content-Type" to "application/x-www-form-urlencoded", "User-Agent" to Http.BROWSER, "Referer" to "https://html.duckduckgo.com/"),
+            ))
+        }
     }
 
     companion object {
+        private fun host(url: String) = runCatching { URI(url).host.removePrefix("www.") }.getOrDefault(url)
+
+        private fun numbered(query: String, items: List<Triple<String, String, String>>, lead: String = ""): ToolResult {
+            if (items.isEmpty()) return ToolResult(lead.ifBlank { "No web results for \"$query\"." })
+            val lines = items.take(5).mapIndexed { i, (title, url, text) -> "${i + 1}. $title (${host(url)}): $text".trim() }
+            return ToolResult(
+                (if (lead.isNotBlank()) "$lead\n" else "") + "Web results for \"$query\":\n" + lines.joinToString("\n"),
+                items.take(5).map { (title, url, _) -> WebSource(title.ifBlank { host(url) }, url) },
+            )
+        }
+
         /** Brave's JSON → numbered plain-text results the model reads well. */
         fun braveResults(query: String, body: String): ToolResult {
             val results = JsonParser.parseString(body).asJsonObject.getAsJsonObject("web")?.getAsJsonArray("results") ?: JsonArray()
-            val sources = ArrayList<WebSource>()
-            val lines = ArrayList<String>()
-            for ((i, r) in results.take(5).withIndex()) {
+            return numbered(query, results.map { r ->
                 val o = r.asJsonObject
-                val title = stripTags(o.str("title"))
-                val url = o.str("url")
-                val host = runCatching { URI(url).host.removePrefix("www.") }.getOrDefault(url)
-                val age = o.str("age").takeIf { it.isNotBlank() }?.let { ", $it" } ?: ""
+                val age = o.str("age").takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""
                 val extra = o.getAsJsonArray("extra_snippets")?.take(1)?.joinToString(" ") { stripTags(it.asString) }.orEmpty()
-                lines += "${i + 1}. $title ($host$age): ${stripTags(o.str("description"))} $extra".trim()
-                sources += WebSource(title.ifBlank { host }, url)
+                Triple(stripTags(o.str("title")), o.str("url"), "${stripTags(o.str("description"))}$age $extra".trim())
+            })
+        }
+
+        /** Tavily's JSON (a short answer plus results) → the same shape. */
+        fun tavilyResults(query: String, body: String): ToolResult {
+            val o = JsonParser.parseString(body).asJsonObject
+            val answer = o.str("answer").trim().let { if (it.isNotBlank()) "Quick answer: $it" else "" }
+            val results = o.getAsJsonArray("results") ?: JsonArray()
+            return numbered(query, results.map { r ->
+                val x = r.asJsonObject
+                Triple(stripTags(x.str("title")), x.str("url"), stripTags(x.str("content")).take(400))
+            }, answer)
+        }
+
+        /** DuckDuckGo's no-JavaScript results page → the same shape. Ads are skipped. */
+        fun duckResults(query: String, html: String): ToolResult {
+            if ("anomaly-modal" in html || "challenge-form" in html) throw IllegalStateException("DuckDuckGo asked for a robot check; try again in a minute")
+            val links = Regex("""(?is)<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>""").findAll(html).toList()
+            val snippets = Regex("""(?is)class="result__snippet"[^>]*>(.*?)</(?:a|div|td)>""").findAll(html).map { stripTags(it.groupValues[1]).trim() }.toList()
+            val items = links.mapIndexedNotNull { i, m ->
+                val url = duckUrl(m.groupValues[1]) ?: return@mapIndexedNotNull null
+                Triple(stripTags(m.groupValues[2]).trim(), url, snippets.getOrElse(i) { "" })
             }
-            return if (lines.isEmpty()) ToolResult("No web results for \"$query\".")
-            else ToolResult("Web results for \"$query\":\n" + lines.joinToString("\n"), sources)
+            return numbered(query, items)
+        }
+
+        /** "//duckduckgo.com/l/?uddg=https%3A%2F%2F…&rut=…" → the real link; ad links → null. */
+        fun duckUrl(href: String): String? {
+            val h = href.replace("&amp;", "&")
+            if ("duckduckgo.com/y.js" in h || "ad_domain" in h) return null
+            val real = Regex("[?&]uddg=([^&]+)").find(h)?.groupValues?.get(1)?.let { java.net.URLDecoder.decode(it, "UTF-8") } ?: h
+            return real.takeIf { it.startsWith("http") }
         }
     }
 }

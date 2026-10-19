@@ -99,4 +99,19 @@ class BrainTest {
     @Test fun cleansReplies() {
         assertEquals("Hey, can we talk later?", BrainPrompts.clean("<think>\nok\n</think>\n\"Hey, can we talk later?\""))
     }
+
+    @Test fun parsesReplySuggestions() {
+        val raw = "1. Sure, what time?\n- \"can't this weekend\"\nYou: Sure, what time\nhow far is it?\nfourth one"
+        assertEquals(listOf("Sure, what time?", "can't this weekend", "how far is it?"), BrainPrompts.parseReplies(raw, emptyList()))
+    }
+
+    @Test fun repliesFollowTheUsersHabits() {
+        val casual = listOf("lol ok", "on my way", "yeah sounds good", "see u there")
+        assertEquals("sure, what time?", BrainPrompts.styleLike("Sure, what time?", casual))
+        assertEquals("ok I'll be there", BrainPrompts.styleLike("Ok I'll be there.", casual))
+        val formal = listOf("Hello, is this still available?", "Thank you.", "See you at 3.")
+        assertEquals("Yes, that works.", BrainPrompts.styleLike("yes, that works.", formal))
+        assertEquals("I'm in", BrainPrompts.styleLike("I'm in", casual)) // never lowercase a lone "I"
+        assertEquals("yes", BrainPrompts.styleLike("yes", listOf("Hi"))) // too few texts to judge
+    }
 }

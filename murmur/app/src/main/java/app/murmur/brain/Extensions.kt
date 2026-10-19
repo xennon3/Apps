@@ -7,6 +7,7 @@ import app.murmur.brain.tools.CurrencyTool
 import app.murmur.brain.tools.McpServer
 import app.murmur.brain.tools.McpTool
 import app.murmur.brain.tools.ReadPageTool
+import app.murmur.brain.tools.SearchEngine
 import app.murmur.brain.tools.TimeTool
 import app.murmur.brain.tools.WeatherTool
 import app.murmur.brain.tools.WebSearchTool
@@ -23,10 +24,24 @@ object BrainWeb {
     fun on(c: Context) = prefs(c).getBoolean("on", false)
     fun setOn(c: Context, v: Boolean) = prefs(c).edit().putBoolean("on", v).apply()
 
-    fun braveKey(c: Context): String = prefs(c).getString("brave", "")!!.trim()
-    fun setBraveKey(c: Context, v: String) = prefs(c).edit().putString("brave", v.trim()).apply()
+    /** Which search engine; someone who already saved a Brave key keeps Brave. */
+    fun engine(c: Context): SearchEngine = prefs(c).getString("engine", null)?.let { n -> SearchEngine.entries.firstOrNull { it.name == n } }
+        ?: if (key(c, SearchEngine.BRAVE).isNotBlank()) SearchEngine.BRAVE else SearchEngine.FREE
+    fun setEngine(c: Context, e: SearchEngine) = prefs(c).edit().putString("engine", e.name).apply()
 
-    const val BRAVE_SIGNUP = "https://api-dashboard.search.brave.com/register"
+    fun key(c: Context, e: SearchEngine): String = when (e) {
+        SearchEngine.FREE -> ""
+        SearchEngine.BRAVE -> prefs(c).getString("brave", "")!!.trim()
+        SearchEngine.TAVILY -> prefs(c).getString("tavily", "")!!.trim()
+    }
+    fun setKey(c: Context, e: SearchEngine, v: String) { if (e != SearchEngine.FREE) prefs(c).edit().putString(e.name.lowercase(), v.trim()).apply() }
+
+    /** The search tool to offer, or null when the chosen engine still needs a key. */
+    fun searchTool(c: Context): WebSearchTool? {
+        val e = engine(c)
+        val k = key(c, e)
+        return if (e != SearchEngine.FREE && k.isBlank()) null else WebSearchTool(e, k)
+    }
 }
 
 /** Built-in skills the user switched off, and the skills they wrote. */
@@ -102,7 +117,7 @@ object BrainTools {
         list += CalculateTool()
         list += TimeTool()
         if (BrainWeb.on(c)) {
-            if (BrainWeb.braveKey(c).isNotBlank()) list += WebSearchTool(BrainWeb.braveKey(c))
+            BrainWeb.searchTool(c)?.let { list += it }
             list += WikipediaTool()
             list += ReadPageTool()
             list += WeatherTool(fahrenheit = Locale.getDefault().country in setOf("US", "LR", "MM", "BS", "BZ", "KY", "PW"))

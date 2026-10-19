@@ -14,10 +14,37 @@ class ToolsTest {
             {"title":"<strong>Target</strong> Store Hours","url":"https://www.target.com/store-locator","description":"Most stores open 8 a.m. to 10 p.m.","age":"2 days ago","extra_snippets":["Holiday hours may vary."]},
             {"title":"Target near me","url":"https://maps.example.com/target","description":"Find a store &amp; hours."}]}}"""
         val r = WebSearchTool.braveResults("target hours", body)
-        assertTrue(r.text, r.text.startsWith("Web results for \"target hours\":\n1. Target Store Hours (target.com, 2 days ago): Most stores open 8 a.m. to 10 p.m. Holiday hours may vary."))
+        assertTrue(r.text, r.text.startsWith("Web results for \"target hours\":\n1. Target Store Hours (target.com): Most stores open 8 a.m. to 10 p.m. (2 days ago) Holiday hours may vary."))
         assertTrue(r.text.contains("2. Target near me (maps.example.com): Find a store & hours."))
         assertEquals(listOf("https://www.target.com/store-locator", "https://maps.example.com/target"), r.sources.map { it.url })
         assertEquals("No web results for \"x\".", WebSearchTool.braveResults("x", """{"web":{"results":[]}}""").text)
+    }
+
+    // Shape of DuckDuckGo's no-JavaScript page: an ad, then results with redirect links.
+    @Test fun readsDuckDuckGoResults() {
+        val html = """
+            <div class="result results_links result--ad"><h2 class="result__title"><a rel="nofollow" class="result__a" href="https://duckduckgo.com/y.js?ad_domain=shop.com&amp;u3=x">Buy now</a></h2>
+            <a class="result__snippet" href="x">Ad text</a></div>
+            <div class="result results_links results_links_deep web-result "><h2 class="result__title">
+            <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.target.com%2Fstore%2Dlocator&amp;rut=abc"><b>Target</b> Store Locator</a></h2>
+            <a class="result__snippet" href="//duckduckgo.com/l/?uddg=x">Find <b>Target</b> store hours &amp; directions.</a></div>
+            <div class="result results_links web-result "><h2 class="result__title">
+            <a rel="nofollow" class="result__a" href="https://maps.example.com/target">Target near me</a></h2>
+            <a class="result__snippet" href="https://maps.example.com/target">Open until 10 p.m.</a></div>"""
+        val r = WebSearchTool.duckResults("target hours", html)
+        assertEquals(listOf("https://www.target.com/store-locator", "https://maps.example.com/target"), r.sources.map { it.url })
+        assertTrue(r.text, r.text.contains("1. Target Store Locator (target.com): Find Target store hours & directions."))
+        assertTrue(r.text, r.text.contains("2. Target near me (maps.example.com): Open until 10 p.m."))
+        assertEquals("No web results for \"zz\".", WebSearchTool.duckResults("zz", "<html>No results.</html>").text)
+    }
+
+    // Shape documented by Tavily's search API.
+    @Test fun readsTavilyResults() {
+        val body = """{"query":"bears score","answer":"The Bears won 24-17.","results":[
+            {"title":"Bears beat Lions","url":"https://www.espn.com/nfl/game","content":"Chicago won 24-17 on Sunday.","score":0.9}]}"""
+        val r = WebSearchTool.tavilyResults("bears score", body)
+        assertTrue(r.text, r.text.startsWith("Quick answer: The Bears won 24-17.\nWeb results for \"bears score\":\n1. Bears beat Lions (espn.com): Chicago won 24-17 on Sunday."))
+        assertEquals(1, r.sources.size)
     }
 
     // A real Open-Meteo response (trimmed).

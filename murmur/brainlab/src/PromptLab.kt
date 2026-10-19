@@ -39,6 +39,19 @@ fun main(args: Array<String>) {
         println("send: $m -> ${ask(BrainPrompts.SEND, m, BrainPrompts.SEND_EXAMPLES, max = 60)}")
     for (m in listOf("can you pick up milk on the way home", "Your order has shipped"))
         println("triage: $m -> ${ask(BrainPrompts.TRIAGE, m, BrainPrompts.TRIAGE_EXAMPLES, max = 4)}")
+    println("=== Reply suggestions")
+    val chats = listOf(
+        listOf(false to "hey are we still on for dinner tonight?"),
+        listOf(true to "lol ok", true to "on my way", false to "can you grab ice on the way? we're out"),
+        listOf(true to "Hello, I'm interested in the apartment listing.", false to "Great! Would you like to schedule a viewing this week?"),
+        listOf(false to "did you finish the report? boss is asking"),
+        listOf(true to "omg that's hilarious", false to "wanna come to the game sunday? I have an extra ticket"),
+        listOf(false to "I'm so sorry about your grandma. Let me know if you need anything."),
+    )
+    for (c in chats) {
+        val raw = ask(BrainPrompts.REPLIES, BrainPrompts.replyTranscript(c), BrainPrompts.REPLIES_EXAMPLES, max = 60)
+        println("${c.last().second} -> ${BrainPrompts.parseReplies(raw, c.filter { it.first }.map { it.second })}")
+    }
     println("skills for 'split the bill': ${Skills.match("split the bill", Skills.BUILT_IN).map { it.name }}")
     e.close()
 }

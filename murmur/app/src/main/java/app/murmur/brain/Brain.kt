@@ -82,6 +82,13 @@ object Brain {
 
     fun enabled(context: Context) = prefs(context).getBoolean("on", false)
 
+    /** Reply chips in chats (on by default once the Brain is on). */
+    fun suggestOn(context: Context) = prefs(context).getBoolean("suggest", true)
+    fun setSuggestOn(context: Context, v: Boolean) = prefs(context).edit().putBoolean("suggest", v).apply()
+
+    /** Suggestions already made, by message key, so reopening a chat doesn't wake the model again. */
+    val replyCache = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
+
     fun ready(context: Context) = enabled(context) && modelFile(context).let { it.exists() && it.length() == MODEL.bytes }
 
     /** Call when the app starts or Settings opens: works out where things stand. */
@@ -403,6 +410,15 @@ object Brain {
     suspend fun triage(context: Context, text: String): BrainPrompts.Triage? =
         ask(context, BrainPrompts.TRIAGE, text.replace('\n', ' '), maxTokens = 4, temperature = 0.0, examples = BrainPrompts.TRIAGE_EXAMPLES)
             ?.let(BrainPrompts::parseTriage)
+
+    /** Up to three replies the user could send next, worded like their own texts. */
+    suspend fun suggestReplies(context: Context, lines: List<Pair<Boolean, String>>, mySent: List<String>): List<String>? {
+        val answer = ask(
+            context, BrainPrompts.REPLIES, BrainPrompts.replyTranscript(lines), maxTokens = 60, temperature = 0.4,
+            examples = BrainPrompts.REPLIES_EXAMPLES,
+        ) ?: return null
+        return BrainPrompts.parseReplies(answer, mySent).takeIf { it.isNotEmpty() }
+    }
 
     /** Three bullet points about a conversation, streamed as they're written. */
     suspend fun summarize(context: Context, transcript: String, onPartial: (String) -> Unit): String? =

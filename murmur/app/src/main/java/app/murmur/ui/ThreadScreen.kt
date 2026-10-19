@@ -10,6 +10,7 @@ import androidx.compose.material.icons.outlined.GppMaybe
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Repeat
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.text.AnnotatedString
@@ -214,6 +215,7 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
     var catchingUp by remember { mutableStateOf(false) }
     var brainSheet by remember { mutableStateOf(false) }
     var brainStatus by remember { mutableStateOf<String?>(null) }
+    var replies by remember { mutableStateOf<List<String>>(emptyList()) }
     var planChecked by remember { mutableIntStateOf(0) }
     var askText by remember { mutableStateOf("") }
     var askAnswer by remember { mutableStateOf<String?>(null) }
@@ -378,6 +380,27 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
             throw e
         } catch (e: Exception) {
             Log.w("Murmur", "scam check failed", e)
+        }
+    }
+
+    // Murmur Brain: three replies to the newest text, if it's from them and looks like it wants one.
+    LaunchedEffect(messages.lastOrNull()?.key, brainReady) {
+        replies = emptyList()
+        val last = messages.lastOrNull() ?: return@LaunchedEffect
+        if (!brainReady || !Brain.suggestOn(context) || last.box != MsgBox.IN || last.body.isBlank()) return@LaunchedEffect
+        if (Vibes.code(last.body) != null || ScamShield.analyze(last.body, last.address, convo?.known == true).flagged) return@LaunchedEffect
+        Brain.replyCache[last.key]?.let { replies = it; return@LaunchedEffect }
+        delay(800)
+        try {
+            val lines = messages.takeLast(8).filter { it.body.isNotBlank() }.map { (it.box != MsgBox.IN) to it.body.removePrefix("🎙 ") }
+            val mine = messages.takeLast(40).filter { it.box != MsgBox.IN && it.body.isNotBlank() }.map { it.body }
+            val got = Brain.suggestReplies(context, lines, mine) ?: return@LaunchedEffect
+            Brain.replyCache[last.key] = got
+            replies = got
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("Murmur", "reply suggestions failed", e)
         }
     }
 
@@ -632,6 +655,7 @@ fun ThreadScreen(threadId: Long, prefill: String, version: Int, isDefault: Boole
                     )
                 }
             }
+            if (replies.isNotEmpty() && text.isBlank() && attachment == null && voiceFile == null && isDefault) ReplyChips(replies) { text = it }
             Composer(
                 text = text,
                 onText = { text = it },
@@ -1371,6 +1395,19 @@ private fun ScamBanner(v: ScamShield.Verdict, onBlock: () -> Unit, onNotScam: ()
                 TextButton(onClick = onBlock) { Text("Block sender", color = if (danger) Flame else Ember) }
                 TextButton(onClick = onNotScam) { Text("It's fine") }
             }
+        }
+    }
+}
+
+/** Suggested replies; tapping one puts it in the box to edit or send. */
+@Composable
+internal fun ReplyChips(replies: List<String>, onPick: (String) -> Unit) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(replies) { r ->
+            SuggestionChip(onClick = { onPick(r) }, label = { Text(r, maxLines = 2) })
         }
     }
 }
