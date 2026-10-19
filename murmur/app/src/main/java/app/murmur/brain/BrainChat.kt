@@ -209,7 +209,7 @@ object BrainChat {
             Brain.chat(c, examples, prompt, system, think = think) { partial -> if (partial.isNotEmpty()) _activity.value = null; replaceLast(start.copy(text = partial)) }
         } finally { _activity.value = null }
         // Gemma's "As an AI, I don't have opinions" reflex: caught by plain code, asked once more with a nudge.
-        if (!useTexts && text != null && BrainPrompts.isRefusal(text)) {
+        if (!useTexts && text != null && BrainPrompts.isRefusal(text, q)) {
             _activity.value = "Giving it another go…"
             text = try {
                 Brain.chat(c, examples, BrainPrompts.pushForOpinion(prompt), system, think = think) { partial -> if (partial.isNotEmpty()) _activity.value = null; replaceLast(start.copy(text = partial)) } ?: text
@@ -244,7 +244,7 @@ object BrainChat {
                 replaceLast(start.copy(text = partial, used = (used + box.labels).distinct()))
             }
             var text = Brain.chatWithTools(c, examples, q, system, box, think = think, onPartial = onPartial)
-            if (text != null && BrainPrompts.isRefusal(text)) {
+            if (text != null && BrainPrompts.isRefusal(text, q)) {
                 // It dodged; whatever it looked up is still in the box, so the second try can use it.
                 _activity.value = "Giving it another go…"
                 val found = box.lastResults().takeIf { it.isNotBlank() }?.let { "\n\nWhat you looked up:\n$it" } ?: ""

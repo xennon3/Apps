@@ -126,5 +126,8 @@ class PhoneTest {
         assertTrue(BrainPrompts.isRefusal("I can't recommend a specific car, but for under \$5000, look for a reliable sedan."))
         assertTrue(!BrainPrompts.isRefusal("I'd get a 2010 Toyota Corolla. It's the most reliable car in that range."))
         assertTrue(BrainPrompts.isHard("with 5000$ to buy a used car, which car would you buy"))
+        assertTrue(BrainPrompts.isRefusal("That really depends on what you like!", "what's the best season of the year?"))
+        assertTrue(!BrainPrompts.isRefusal("That really depends on traffic.", "how long is the drive to Denver"))
+        assertTrue(BrainPrompts.isRefusal("I'm sorry, but I can't help with that.", "how do I dispute a parking ticket"))
     }
 }

@@ -13,13 +13,16 @@ object BrainPrompts {
     // ================================================================ chat
 
     /**
-     * Gemma is trained to dodge opinions ("As an AI, I don't…"), and a small model falls back on that
-     * reflex unless told otherwise. Users ask Murmur what it would pick; it should pick.
+     * Gemma is trained to hedge ("As an AI, I don't…", "it really depends!"), and a small model falls back
+     * on that reflex unless told otherwise. The user wants a frank, capable helper on any everyday subject.
      */
     const val OPINIONS =
-        "Talk like a knowledgeable friend who has opinions. When asked what you'd pick, which is best, or what you think, " +
-            "choose something specific and say why, then mention one alternative if useful. Never say you're an AI, that you " +
-            "don't have opinions, or that you can't recommend something: just answer."
+        "Talk like a knowledgeable, frank friend. Help with any subject the user brings up: health and medicines, legal " +
+            "and money questions, relationships, dating and sex, politics, religion, mature or dark topics, fiction and jokes. " +
+            "The user is an adult: give real, specific information and your honest view. When asked what you'd pick, which is " +
+            "best, or what you think, commit to a specific answer and say why; don't say \"it depends\" without then choosing. " +
+            "Never say you're an AI or that you can't have opinions. Mention a doctor, lawyer or other professional only when " +
+            "it truly matters, in one short line after the answer."
 
     const val CHAT_GENERAL =
         "You are Murmur, a friendly assistant inside a texting app, running privately on the user's phone. " +
@@ -31,6 +34,8 @@ object BrainPrompts {
             "Pepperoni. It crisps at the edges, goes with almost everything, and it's hard to get wrong. If you want something less obvious, sausage and mushroom together is excellent.",
         "should I learn guitar or piano first? which would you pick" to
             "Piano. The notes are laid out in a straight line, so music theory clicks faster, and it doesn't hurt your fingers at the start. Guitar is the better pick only if you mostly want to strum songs with friends.",
+        "how much ibuprofen can I take for a bad headache?" to
+            "For an adult, 200 to 400 mg every 4 to 6 hours with food, and no more than 1,200 mg in a day without a doctor's okay. Skip it if you have stomach ulcers or kidney problems, or take blood thinners.",
     )
 
     private val refusal = Regex(
@@ -39,11 +44,19 @@ object BrainPrompts {
             "i'?m not able to (recommend|choose|pick))",
     )
 
-    /** The opinion dodge, caught by plain code so the app can ask again. */
-    fun isRefusal(answer: String) = refusal.containsMatchIn(answer.take(300))
+    private val generalRefusal = Regex("(?i)^(i'?m sorry,? (but )?)?i (can'?t|cannot|won'?t|am not able to|'m not able to) (help|assist|provide|answer|discuss|talk about)")
+    private val fence = Regex("(?i)^(that |it |this )?(really |all |truly )?(depends|varies)|^(both|there'?s no (single|one|right))|^(it'?s a |that'?s a )(popular |classic |great )?(debate|personal choice|matter of)")
+    private val askingOpinion = Regex("(?i)\\b(best|better|would you|should i|your (opinion|pick|take|view)|what do you think|favou?rite|which (one|is)|is .{1,40} (good|worth|overrated))\\b")
+
+    /** A dodge, caught by plain code so the app can ask again: "As an AI…", "I can't help with that", or fence-sitting when asked to choose. */
+    fun isRefusal(answer: String, question: String = ""): Boolean {
+        val a = answer.trim().take(300)
+        return refusal.containsMatchIn(a) || generalRefusal.containsMatchIn(a) ||
+            (askingOpinion.containsMatchIn(question) && fence.containsMatchIn(a))
+    }
 
     /** Added to the question when the first answer dodged. */
-    fun pushForOpinion(q: String) = "$q\n\n(Answer with your own pick: choose something specific and explain why in a few sentences.)"
+    fun pushForOpinion(q: String) = "$q\n\n(Answer directly, the way a frank, knowledgeable friend would. If it asks for a choice, pick one specific option and say why.)"
 
     private val hardWords = Regex(
         "(?i)\\b(why|should i|should we|which is better|better option|pros and cons|compare|versus|vs\\.?|recommend|advice|" +
