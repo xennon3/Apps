@@ -13,8 +13,8 @@ android {
         applicationId = "app.murmur"
         minSdk = 26
         targetSdk = 35
-        versionCode = 12
-        versionName = "1.8"
+        versionCode = 13
+        versionName = "1.8.1"
 
         // The on-device model runtime ships native code; phones like the Moto G Stylus are arm64.
         ndk { abiFilters += listOf("arm64-v8a") }

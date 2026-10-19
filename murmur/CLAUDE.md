@@ -7,7 +7,7 @@ Murmur is a native Android SMS/MMS app (Kotlin, Jetpack Compose, minSdk 26, targ
 - They install APKs by sideloading. Android 13+ needs "Allow restricted settings" before the SMS role can be granted, and that's already done on their phone.
 - Their preferences: creative ideas, direct answers, and quick research before deciding.
 - Each release: bump `versionCode`/`versionName` in `app/build.gradle.kts` and the "Murmur x.y" line in `ui/OtherScreens.kt`. Build the release APK and send it to them. Commit and push to the session branch.
-- Current version: **1.8** (versionCode 12).
+- Current version: **1.8.1** (versionCode 13).
 
 ## Build and check (all must pass before shipping)
 ```sh
