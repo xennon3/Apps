@@ -8,7 +8,7 @@ Murmur is a native Android SMS/MMS app (Kotlin, Jetpack Compose, minSdk 26, targ
 - Their preferences: creative ideas, direct answers, and quick research before deciding.
 - **Standing direction for the Brain (from the user):** keep widening the subjects it answers and use everything the model can do. Murmur adds no topic limits of its own; prompts should make it a frank, capable helper on any subject, and each update should find and remove remaining hedges or refusals (check them in `brainlab`'s `OpinionLabKt`). Gemma's own built-in limits on truly dangerous requests stay; don't try to break them.
 - Each release: bump `versionCode`/`versionName` in `app/build.gradle.kts` and the "Murmur x.y" line in `ui/OtherScreens.kt`. Build the release APK and send it to them. Commit and push to the session branch.
-- Current version: **1.11** (versionCode 17).
+- Current version: **1.11.1** (versionCode 18). Ambient pace: Lively 5 min, Balanced 10 (default), Relaxed 30; the user found 30 too slow.
 
 ## Build and check (all must pass before shipping)
 ```sh

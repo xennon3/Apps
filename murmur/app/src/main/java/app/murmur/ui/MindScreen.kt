@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Sensors
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -75,6 +76,7 @@ fun MindScreen(onBack: () -> Unit) {
     var on by remember { mutableStateOf(Ambient.on(context)) }
     var goalTick by remember { mutableIntStateOf(0) }
     var newGoal by remember { mutableStateOf("") }
+    var pace by remember { mutableStateOf(Ambient.pace(context)) }
 
     // Location, steps and notifications are asked for when it's switched on; it works with whatever is allowed.
     val perms = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -106,7 +108,7 @@ fun MindScreen(onBack: () -> Unit) {
                             Column(Modifier.weight(1f)) {
                                 Text("Ambient mode", style = MaterialTheme.typography.titleMedium)
                                 Text(
-                                    if (on) (if (running) "Aware. Thoughts today: ${Ambient.thoughtsToday(context)} of ${Ambient.DAILY_THOUGHTS}" else "Starting…")
+                                    if (on) (if (running) "Aware. Thoughts today: ${Ambient.thoughtsToday(context)} of ${pace.daily}" else "Starting…")
                                     else "Off",
                                     style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
                                 )
@@ -119,6 +121,21 @@ fun MindScreen(onBack: () -> Unit) {
                                 "other people always wait for your tap. Everything stays on the phone, and Android shows a notification " +
                                 "the whole time it's on.",
                             Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text("How often it thinks", Modifier.padding(top = 10.dp), style = MaterialTheme.typography.labelLarge)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Ambient.Pace.entries.forEach { p ->
+                                FilterChip(pace == p, { pace = p; Ambient.setPace(context, p) }, label = { Text(p.label) })
+                            }
+                        }
+                        Text(
+                            "Checks in every ${pace.checkMinutes} minutes, and within ${pace.gapMinutes} minutes of a change (urgent ones at once). " +
+                                when (pace) {
+                                    Ambient.Pace.LIVELY -> "Most aware, most battery."
+                                    Ambient.Pace.BALANCED -> "A good middle."
+                                    Ambient.Pace.RELAXED -> "Lightest on the battery."
+                                },
+                            style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
                         )
                         if (!Brain.ready(context)) Text("Turn on Murmur Brain in Settings first.", Modifier.padding(top = 6.dp), color = scheme.error)
                     }
@@ -145,7 +162,7 @@ fun MindScreen(onBack: () -> Unit) {
             item { Header("Thinking") }
             item {
                 Text(
-                    thinking?.ifEmpty { "Waking up…" } ?: if (running) "Asleep. It wakes when something changes, and checks in every 30 minutes." else "—",
+                    thinking?.ifEmpty { "Waking up…" } ?: if (running) "Asleep. It wakes when something changes, and checks in every ${pace.checkMinutes} minutes." else "—",
                     style = MaterialTheme.typography.bodyLarge,
                     fontStyle = if (thinking == null) FontStyle.Italic else FontStyle.Normal,
                     color = if (thinking == null) scheme.onSurfaceVariant else scheme.onSurface,

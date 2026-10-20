@@ -193,8 +193,8 @@ class AmbientService : Service() {
             while (isActive) {
                 runCatching { Ambient.tick(this@AmbientService) }
                 if (minute % 5 == 0) runCatching { movement() }
-                // A regular check-in every 30 minutes, so plans and goals get looked at.
-                if (minute > 0 && minute % 30 == 0) Ambient.event(this@AmbientService, "Regular check-in")
+                // A regular check-in at the chosen pace, so plans and goals get looked at.
+                if (minute > 0 && minute % Ambient.pace(this@AmbientService).checkMinutes == 0) Ambient.event(this@AmbientService, "Regular check-in")
                 minute++
                 delay(60_000L)
             }

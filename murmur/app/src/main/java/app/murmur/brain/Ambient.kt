@@ -153,8 +153,16 @@ object Ambient {
         prefs(c).edit().putString("count_day", day).putInt("count", thoughtsToday(c) + 1).apply()
     }
 
-    /** A cap on thoughts per day keeps the battery cost predictable. */
-    const val DAILY_THOUGHTS = 60
+    /**
+     * How often it thinks. Check-ins happen even when nothing changed; the gap is how long a burst of
+     * changes is gathered into one thought; the daily cap keeps the battery cost predictable.
+     */
+    enum class Pace(val label: String, val checkMinutes: Int, val gapMinutes: Int, val daily: Int) {
+        LIVELY("Lively", 5, 2, 250), BALANCED("Balanced", 10, 5, 140), RELAXED("Relaxed", 30, 10, 60),
+    }
+
+    fun pace(c: Context) = runCatching { Pace.valueOf(prefs(c).getString("pace", "BALANCED")!!) }.getOrDefault(Pace.BALANCED)
+    fun setPace(c: Context, p: Pace) = prefs(c).edit().putString("pace", p.name).apply()
 
     fun stamp(t: Long): String = SimpleDateFormat("h:mm a", Locale.US).format(Date(t))
 
@@ -177,7 +185,8 @@ object Ambient {
         synchronized(pending) { pending += "${stamp(System.currentTimeMillis())} $what" }
         log(c, Kind.SENSE, what)
         val gap = System.currentTimeMillis() - lastThought
-        val wait = if (urgent || gap > 10 * 60_000L) 20_000L else 10 * 60_000L - gap
+        val gapMs = pace(c).gapMinutes * 60_000L
+        val wait = if (urgent || gap > gapMs) 20_000L else gapMs - gap
         if (wake?.isActive == true && !urgent) return
         wake?.cancel()
         wake = MurmurApp.scope.launch { delay(wait); think(c) }
@@ -186,7 +195,7 @@ object Ambient {
     /** Thinks once about everything sensed since the last thought. */
     suspend fun think(c: Context) = mind.withLock {
         if (!on(c) || !Brain.ready(c)) return@withLock
-        if (thoughtsToday(c) >= DAILY_THOUGHTS) { log(c, Kind.THOUGHT, "Resting: reached today's limit of $DAILY_THOUGHTS thoughts."); return@withLock }
+        if (thoughtsToday(c) >= pace(c).daily) { log(c, Kind.THOUGHT, "Resting: reached today's limit of ${pace(c).daily} thoughts."); return@withLock }
         val events = synchronized(pending) { pending.toList().also { pending.clear() } }
         val now = System.currentTimeMillis()
         val situation = AmbientMind.Situation(
