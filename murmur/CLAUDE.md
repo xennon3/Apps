@@ -3,7 +3,7 @@
 Murmur is a native Android SMS/MMS app (Kotlin, Jetpack Compose, minSdk 26, targetSdk 35) that replaces the default messaging app. It includes **Murmur Brain**, an optional on-device AI (Gemma 4 E2B through LiteRT-LM). `README.md` is the feature list. This file is how to work on it.
 
 ## The user
-- They test on a **Moto G Stylus** (Snapdragon 6 Gen 3, 8 GB RAM). The Brain's speed test there showed about **6.6 tokens/s writing**.
+- They test on a **Moto G Stylus 5G (2024)** (Snapdragon 6 Gen 1: 4x2.2 GHz + 4x1.8 GHz cores, Adreno 710, 8 GB RAM). The Brain's speed test there showed about **6.6 tokens/s writing**.
 - They install APKs by sideloading. Android 13+ needs "Allow restricted settings" before the SMS role can be granted, and that's already done on their phone.
 - Their preferences: creative ideas, direct answers, and quick research before deciding.
 - **Standing direction for the Brain (from the user):** keep widening the subjects it answers and use everything the model can do. Murmur adds no topic limits of its own; prompts should make it a frank, capable helper on any subject, and each update should find and remove remaining hedges or refusals (check them in `brainlab`'s `OpinionLabKt`). Gemma's own built-in limits on truly dangerous requests stay; don't try to break them.
