@@ -18,7 +18,7 @@ class AmbientTest {
         assertEquals(listOf("5:30 PM" to "check again"), t.plans)
         assertEquals(Act.Notify("Charge before you leave"), t.acts[0])
         assertEquals(Act.Journal("Battery low at work"), t.acts[1])
-        assertEquals(Act.Notify("plug in now"), t.acts[2]) // a "reminder" due in a minute is a notification now
+        assertEquals(Act.Remind("1", "plug in now"), t.acts[2])
         assertEquals(3, t.acts.size) // capped; the text to Mom would need a later thought
         val ask = AmbientMind.parse("DO: ask_send | Mom | running late, sorry")
         assertEquals(listOf(Act.AskSend("Mom", "running late, sorry")), ask.acts)
@@ -32,6 +32,27 @@ class AmbientTest {
         assertEquals(21 to 0, AmbientMind.goalTime("Remind me to take my pills at 9 PM every day"))
         assertEquals(7 to 30, AmbientMind.goalTime("wake me at 7:30"))
         assertNull(AmbientMind.goalTime("Keep my nights quiet"))
+        // The 1:06 AM bug: the model's own "wake up" reminder repeats a goal the clock keeps, so code drops it.
+        val goals = listOf("Wake me up at 8:00 AM")
+        val dup = AmbientMind.parse("DO: notify | Time to wake up!; remind | 8:00 AM | Wake up, it's 8; journal | quiet night")
+        assertEquals(listOf(Act.Journal("quiet night")), AmbientMind.allowed(dup, "", goals).acts)
+        assertTrue(AmbientMind.isAlarmGoal("wake me up at 8:00 AM"))
+        assertTrue(AmbientMind.isAlarmGoal("set an alarm for 6:45 every weekday"))
+        assertTrue(!AmbientMind.isAlarmGoal("Remind me to take my pills at 9 PM"))
+        assertTrue(AmbientMind.situation(AmbientMind.Situation("Tue 1:06 AM", emptyList(), emptyList(), goals, emptyList(), emptyList()))
+            .contains("Murmur's clock handles this at 8:00 AM"))
+    }
+
+    @Test fun codeWorksOutReminderTimes() {
+        val now = Calendar.getInstance().apply { set(2026, Calendar.OCTOBER, 20, 1, 6, 0) }
+        fun at(s: String) = AmbientMind.remindAt(s, now)?.let { Calendar.getInstance().apply { timeInMillis = it } }
+        assertEquals(8, at("8:00 AM")!!.get(Calendar.HOUR_OF_DAY))
+        assertEquals(20, at("8:00 AM")!!.get(Calendar.DAY_OF_MONTH)) // later today, not tomorrow
+        assertEquals(19, at("7:30 PM")!!.get(Calendar.HOUR_OF_DAY))
+        assertEquals(21, at("1:00 AM")!!.get(Calendar.DAY_OF_MONTH)) // already past today: tomorrow
+        assertEquals(now.timeInMillis + 20 * 60_000L, AmbientMind.remindAt("in 20 minutes", now))
+        assertEquals(now.timeInMillis + 2 * 3_600_000L, AmbientMind.remindAt("in 2 hours", now))
+        assertNull(AmbientMind.remindAt("later", now))
     }
 
     @Test fun learnsPlacesFromStays() {

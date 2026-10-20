@@ -353,7 +353,7 @@ object BrainPrompts {
     // ================================================================ the phone itself
 
     private val phoneWords = Regex(
-        "(?i)\\b(battery|charg(e|ing|ed)|flash ?light|torch|timer|alarm|vibrate|silent mode|ringer|volume|storage|wi-?fi|signal|" +
+        "(?i)\\b(battery|charg(e|ing|ed)|flash ?light|torch|timer|alarm|wake me|vibrate|silent mode|ringer|volume|storage|wi-?fi|signal|" +
             "steps|screen ?time|how fast|my speed|altitude|elevation|compass|which way|where am i|my location|airplane mode|" +
             "(turn|switch) (on|off) the|open (the )?\\w+( app)?\\b|phone('s)? (temp|status|memory))",
     )

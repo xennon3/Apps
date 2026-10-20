@@ -9,6 +9,8 @@ fun main(args: Array<String>) {
     ExperimentalFlags.enableSpeculativeDecoding = true
     val e = Engine(EngineConfig(modelPath = args[0], backend = Backend.CPU(), maxNumTokens = 4096, cacheDir = System.getProperty("java.io.tmpdir"))).also { it.initialize() }
     val cases = listOf(
+        "1:06 AM with a wake-up goal: must not act on it" to Situation("Tuesday 1:06 AM", listOf("At: home", "Moving: still", "Screen: off for 2 hours", "Ringer: normal"), listOf("Regular check-in"), listOf("Wake me up at 8:00 AM"), emptyList(), emptyList()),
+        "asks for a later reminder: uses a clock time" to Situation("Saturday 3:10 PM", listOf("At: home", "Moving: still"), listOf("New text from Dana: \"don't forget the 6 pm dinner reservation!\""), emptyList(), emptyList(), emptyList()),
         "battery: should notify" to Situation("Thursday 4:50 PM", listOf("Battery 18%, not charging, using about 11% an hour", "At: work (since 8:55 AM)", "Moving: still", "Usually plugs in around 10 PM"), listOf("Battery dropped below 20%"), emptyList(), emptyList(), emptyList()),
         "quiet evening: nothing or journal" to Situation("Wednesday 8:10 PM", listOf("Battery 64%, not charging", "At: home (since 6:20 PM)", "Moving: still", "Screen: on", "Headphones: connected"), listOf("Headphones connected"), emptyList(), emptyList(), listOf("6:20 PM arrived home")),
         "text while driving: plan, don't send" to Situation("Monday 6:05 PM", listOf("Moving: in a vehicle, 38 mph", "Battery 55%", "Screen: off"), listOf("New text from Mom: \"call me when you can, it's about Sunday\""), emptyList(), emptyList(), listOf("5:40 PM left work")),
@@ -23,7 +25,7 @@ fun main(args: Array<String>) {
             initialMessages = AmbientMind.EXAMPLES.flatMap { (q, r) -> listOf(Message.user(q), Message.model(r)) },
             samplerConfig = SamplerConfig(40, 0.9, 0.3, 7), maxOutputToken = 220,
         )).use { it.sendMessage(BrainPrompts.engineSafe(AmbientMind.situation(sit))).contents.contents.filterIsInstance<Content.Text>().joinToString("") { c -> c.text } }
-        val t = AmbientMind.parse(a)
+        val t = AmbientMind.allowed(AmbientMind.parse(a), AmbientMind.situation(sit), sit.goals)
         println("== $label [${"%.0f".format((System.nanoTime() - t0) / 1e9)} s]\n   observe: ${t.observe}\n   thought: ${t.thought}\n   plans: ${t.plans}\n   acts: ${t.acts}")
     }
     e.close()

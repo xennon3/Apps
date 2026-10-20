@@ -66,7 +66,7 @@ fun MindScreen(onBack: () -> Unit) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
     val scheme = MaterialTheme.colorScheme
-    LaunchedEffect(Unit) { Ambient.load(context) }
+    LaunchedEffect(Unit) { Ambient.load(context); Ambient.ensureAlarms(context) }
     val running by Ambient.running.collectAsState()
     val senses by Ambient.senses.collectAsState()
     val thinking by Ambient.thinking.collectAsState()

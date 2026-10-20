@@ -128,6 +128,36 @@ object Ambient {
         if (goal.isBlank()) return
         prefs(c).edit().putString("goals", JSONArray(goals(c) + goal.trim()).toString()).apply()
         log(c, Kind.JOURNAL, "New goal: ${goal.trim()}")
+        // "Wake me up at 8 AM" deserves a real alarm, set now while the app is on screen (Android blocks it from the background).
+        if (AmbientMind.isAlarmGoal(goal)) setAlarm(c, goal)
+    }
+
+    /** Alarm goals added before alarms existed get theirs when the Mind window opens (the app is on screen then). */
+    fun ensureAlarms(c: Context) {
+        for (g in goals(c).filter { AmbientMind.isAlarmGoal(it) }) {
+            val key = "alarm_" + g.hashCode()
+            if (prefs(c).getBoolean(key, false)) continue
+            setAlarm(c, g)
+        }
+    }
+
+    private fun setAlarm(c: Context, goal: String) {
+        val (h, m) = AmbientMind.goalTime(goal) ?: return
+        val days = when {
+            Regex("(?i)every ?day|daily|each day").containsMatchIn(goal) -> (1..7).toList()
+            Regex("(?i)weekday").containsMatchIn(goal) -> listOf(2, 3, 4, 5, 6)
+            else -> null
+        }
+        val i = Intent(android.provider.AlarmClock.ACTION_SET_ALARM)
+            .putExtra(android.provider.AlarmClock.EXTRA_HOUR, h).putExtra(android.provider.AlarmClock.EXTRA_MINUTES, m)
+            .putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, "Murmur: " + goal.take(40))
+            .putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, true)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        days?.let { i.putExtra(android.provider.AlarmClock.EXTRA_DAYS, ArrayList(it)) }
+        val ok = runCatching { c.startActivity(i) }.isSuccess
+        if (ok) prefs(c).edit().putBoolean("alarm_" + goal.hashCode(), true).apply()
+        log(c, Kind.ACT, if (ok) "Set a real alarm in your Clock app for ${AmbientMind.clock(h to m)}" + (if (days != null) " (repeating)" else "") + "."
+            else "Couldn't open the Clock app to set the alarm; set it there yourself for ${AmbientMind.clock(h to m)}.")
     }
 
     fun removeGoal(c: Context, goal: String) = prefs(c).edit().putString("goals", JSONArray(goals(c) - goal).toString()).apply()
@@ -215,7 +245,7 @@ object Ambient {
             Brain.ask(c, AmbientMind.SYSTEM, prompt, maxTokens = 220, temperature = 0.3, examples = AmbientMind.EXAMPLES, onPartial = { _thinking.value = it })
         } finally { _thinking.value = null }
         if (answer == null) { log(c, Kind.THOUGHT, "Couldn't think just now (the model was busy or not loaded)."); return@withLock }
-        val t = AmbientMind.allowed(AmbientMind.parse(answer), prompt)
+        val t = AmbientMind.allowed(AmbientMind.parse(answer), prompt, goals(c))
         if (t.observe.isNotBlank() || t.thought.isNotBlank()) log(c, Kind.THOUGHT, listOf(t.observe, t.thought).filter { it.isNotBlank() }.joinToString(" "))
         if (t.plans.isNotEmpty()) {
             _plans.value = t.plans.map { (w, x) -> Plan(now, w, x) }
@@ -234,9 +264,12 @@ object Ambient {
             is AmbientMind.Act.Notify -> { alert(c, a.text); log(c, Kind.ACT, "Told you: ${a.text}") }
             is AmbientMind.Act.Journal -> log(c, Kind.JOURNAL, a.text)
             is AmbientMind.Act.Remind -> {
-                val at = System.currentTimeMillis() + a.minutes * 60_000L
-                saveReminders(c, reminders(c) + Reminder(at, a.text))
-                log(c, Kind.ACT, "Will remind you at ${stamp(at)}: ${a.text}")
+                val at = AmbientMind.remindAt(a.whenText, java.util.Calendar.getInstance())
+                when {
+                    at == null -> log(c, Kind.ACT, "Couldn't tell when \"${a.whenText}\" is, so no reminder was set.")
+                    at - System.currentTimeMillis() < 2 * 60_000L -> { alert(c, a.text); log(c, Kind.ACT, "Told you: ${a.text}") }
+                    else -> { saveReminders(c, reminders(c) + Reminder(at, a.text)); log(c, Kind.ACT, "Will remind you at ${stamp(at)}: ${a.text}") }
+                }
             }
             is AmbientMind.Act.Flashlight -> runCatching {
                 val cam = c.getSystemService(CameraManager::class.java)
@@ -290,7 +323,8 @@ object Ambient {
         val hm = cal.get(java.util.Calendar.HOUR_OF_DAY) to cal.get(java.util.Calendar.MINUTE)
         val day = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
         for (g in goals(c)) {
-            if (AmbientMind.goalTime(g) != hm) continue
+            // Alarm goals ring in the Clock app; everything else with a time gets a notification right on the minute.
+            if (AmbientMind.goalTime(g) != hm || AmbientMind.isAlarmGoal(g)) continue
             val key = "goal_${g.hashCode()}"
             if (prefs(c).getString(key, "") == day) continue
             prefs(c).edit().putString(key, day).apply()

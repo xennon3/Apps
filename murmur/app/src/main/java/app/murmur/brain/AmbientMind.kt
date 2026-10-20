@@ -23,7 +23,8 @@ object AmbientMind {
     sealed interface Act {
         data class Notify(val text: String) : Act
         data class Journal(val text: String) : Act
-        data class Remind(val minutes: Int, val text: String) : Act
+        /** [whenText] is a clock time ("7:30 PM") or "in 20 minutes"; code works out the moment. */
+        data class Remind(val whenText: String, val text: String) : Act
         data class Flashlight(val on: Boolean) : Act
         data class Ringer(val mode: String) : Act
         /** Needs the user's tap before it happens. */
@@ -47,7 +48,7 @@ object AmbientMind {
             "OBSERVE: what is going on, in one sentence\n" +
             "THOUGHT: what it means for the user, in one or two sentences\n" +
             "PLAN: <when> | <what you'll do then>   (zero to two lines)\n" +
-            "DO: one or more of: notify | <message to the user>; journal | <note>; remind | <minutes from now> | <message>; " +
+            "DO: one or more of: notify | <message to the user>; journal | <note>; remind | <clock time like 7:30 PM> | <message>; " +
             "flashlight | on or off; ringer | vibrate, normal or silent; ask_send | <who> | <text to send them>; nothing\n" +
             "Texts to other people are only ever ask_send, which waits for the user's OK."
 
@@ -55,7 +56,15 @@ object AmbientMind {
         append("Time: ").append(s.time).append('\n')
         append("Senses:\n"); s.senses.forEach { append("- ").append(it).append('\n') }
         append("What just changed:\n"); (s.events.ifEmpty { listOf("Nothing new; a regular check-in.") }).forEach { append("- ").append(it).append('\n') }
-        if (s.goals.isNotEmpty()) { append("The user's goals for you:\n"); s.goals.forEach { append("- ").append(it).append('\n') } }
+        if (s.goals.isNotEmpty()) {
+            append("The user's goals for you:\n")
+            s.goals.forEach { g ->
+                append("- ").append(g)
+                // Exact times are kept by code (and alarms set in the Clock app); the model must not redo them.
+                goalTime(g)?.let { append(" (Murmur's clock handles this at ").append(clock(it)).append("; do nothing about it)") }
+                append('\n')
+            }
+        }
         if (s.plans.isNotEmpty()) { append("Your open plans:\n"); s.plans.forEach { append("- ").append(it).append('\n') } }
         if (s.memory.isNotEmpty()) { append("What you know about the user:\n"); s.memory.takeLast(10).forEach { append("- ").append(it).append('\n') } }
         if (s.journal.isNotEmpty()) { append("Your recent journal:\n"); s.journal.takeLast(6).forEach { append("- ").append(it).append('\n') } }
@@ -117,10 +126,7 @@ object AmbientMind {
             when {
                 kind.startsWith("notify") && p.getOrNull(1)?.isNotBlank() == true -> acts += Act.Notify(p[1].take(240))
                 kind.startsWith("journal") && p.getOrNull(1)?.isNotBlank() == true -> acts += Act.Journal(p[1].take(240))
-                // A "reminder" due in a minute or two is really a notification now.
-                kind.startsWith("remind") && p.size >= 3 -> Regex("\\d+").find(p[1])?.value?.toIntOrNull()?.takeIf { it in 0..24 * 60 }?.let {
-                    acts += if (it <= 2) Act.Notify(p[2].take(240)) else Act.Remind(it, p[2].take(240))
-                }
+                kind.startsWith("remind") && p.size >= 3 && p[2].isNotBlank() && Regex("\\d").containsMatchIn(p[1]) -> acts += Act.Remind(p[1], p[2].take(240))
                 kind.startsWith("flashlight") -> acts += Act.Flashlight(p.getOrNull(1)?.contains("on", true) == true)
                 kind.startsWith("ringer") -> p.getOrNull(1)?.lowercase()?.let { m -> listOf("vibrate", "normal", "silent").firstOrNull { m.contains(it) } }?.let { acts += Act.Ringer(it) }
                 kind.startsWith("ask_send") && p.size >= 3 && p[2].isNotBlank() -> acts += Act.AskSend(p[1], p[2].take(300))
@@ -129,15 +135,52 @@ object AmbientMind {
         return Thought(field(text, "OBSERVE"), field(text, "THOUGHT"), plans, acts.take(3))
     }
 
-    /** Plain code's veto: no flashlight unless light or the flashlight is actually part of what's going on. */
-    fun allowed(t: Thought, situation: String): Thought {
+    /**
+     * Plain code's veto: no flashlight unless light is actually part of what's going on, and no
+     * notification or reminder that repeats a goal the clock already keeps (the model once fired a
+     * "wake up at 8 AM" reminder at 1:06 AM).
+     */
+    fun allowed(t: Thought, situation: String, goals: List<String> = emptyList()): Thought {
         val lightMatters = Regex("(?i)flashlight|torch|dark|light").containsMatchIn(situation)
-        return t.copy(acts = t.acts.filter { it !is Act.Flashlight || lightMatters })
+        val timed = goals.filter { goalTime(it) != null }.map { words(it) }
+        fun repeatsGoal(text: String) = words(text).let { w -> timed.any { g -> (g intersect w).size >= 2 || (g intersect w).any { it in setOf("wake", "alarm", "pills", "medicine", "medication") } } }
+        return t.copy(acts = t.acts.filter { a ->
+            when (a) {
+                is Act.Flashlight -> lightMatters
+                is Act.Notify -> !repeatsGoal(a.text)
+                is Act.Remind -> !repeatsGoal(a.text)
+                else -> true
+            }
+        })
     }
+
+    private val stop = setOf("remind", "me", "to", "my", "the", "at", "every", "day", "daily", "time", "your", "you", "and", "for", "a", "am", "pm", "up")
+    private fun words(s: String) = s.lowercase().split(Regex("[^a-z]+")).filter { it.length >= 3 && it !in stop }.toSet()
+
+    fun clock(hm: Pair<Int, Int>) = "%d:%02d %s".format(if (hm.first % 12 == 0) 12 else hm.first % 12, hm.second, if (hm.first < 12) "AM" else "PM")
+
+    /**
+     * When a reminder is due: "7:30 PM" is the next 7:30 PM, "in 20 minutes" or "45 min" is from now.
+     * Small models are bad at clock arithmetic, so this is code. Null if it can't tell.
+     */
+    fun remindAt(whenText: String, now: java.util.Calendar): Long? {
+        val w = whenText.lowercase()
+        Regex("(\\d+)\\s*(h|hour|hr|m|min)").find(w)?.takeIf { "in " in w || !Regex("[ap]\\.?m|:").containsMatchIn(w) }?.let { m ->
+            val n = m.groupValues[1].toLong()
+            return now.timeInMillis + n * (if (m.groupValues[2].startsWith("h")) 60 else 1) * 60_000L
+        }
+        val hm = app.murmur.brain.tools.PhoneMath.parseClock(w) ?: return null
+        val c = (now.clone() as java.util.Calendar).apply { set(java.util.Calendar.HOUR_OF_DAY, hm.first); set(java.util.Calendar.MINUTE, hm.second); set(java.util.Calendar.SECOND, 0) }
+        if (c.timeInMillis <= now.timeInMillis - 60_000L) c.add(java.util.Calendar.DAY_OF_YEAR, 1)
+        return c.timeInMillis
+    }
+
+    /** "wake me up at 8:00 AM", "set an alarm for 6:45 every weekday": goals that deserve a real Clock alarm. */
+    fun isAlarmGoal(goal: String) = Regex("(?i)\\b(wake|alarm|get up)\\b").containsMatchIn(goal) && goalTime(goal) != null
 
     /** "Remind me to take my pills at 9 PM every day" → 21:00. Exact clock goals are kept by code, not the model. */
     fun goalTime(goal: String): Pair<Int, Int>? {
-        val m = Regex("(?i)\\bat (\\d{1,2}(?::\\d{2})? ?(?:a\\.?m\\.?|p\\.?m\\.?)|\\d{1,2}:\\d{2})").find(goal) ?: return null
+        val m = Regex("(?i)\\b(?:at|for) (\\d{1,2}(?::\\d{2})? ?(?:a\\.?m\\.?|p\\.?m\\.?)|\\d{1,2}:\\d{2})").find(goal) ?: return null
         return app.murmur.brain.tools.PhoneMath.parseClock(m.groupValues[1])
     }
 }
