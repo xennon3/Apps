@@ -229,7 +229,7 @@ class AmbientService : Service() {
         if (level >= 0) {
             val drain = PhoneMath.drainPerHour(BatteryLog.samples(this), System.currentTimeMillis())
             list += "Battery $level%, " + (if (charging == true) "charging" else "not charging") +
-                (if (charging != true && drain != null) ", using about ${drain.roundToInt()}% an hour" else "") + (if (hot) ", hot" else "")
+                (if (charging != true && drain != null && drain >= 1) ", using about ${drain.roundToInt()}% an hour" else "") + (if (hot) ", hot" else "")
         }
         PhoneMath.usualChargeHour(BatteryLog.samples(this), System.currentTimeMillis()) { Calendar.getInstance().apply { timeInMillis = it }.get(Calendar.HOUR_OF_DAY) }
             ?.let { list += "Usually plugs in around ${if (it == 0) "midnight" else if (it < 12) "$it AM" else if (it == 12) "noon" else "${it - 12} PM"}" }

@@ -73,4 +73,27 @@ class AmbientTest {
         t += 3 * min; assertTrue(p.fix(home.first + 0.0056, home.second, t, cal) is Places.Change.Left)
         assertEquals(111.0, Places.meters(0.0, 0.0, 0.001, 0.0), 1.0)
     }
+
+    @Test fun plansPersistAndDontRepeat() {
+        val now = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 2); set(Calendar.MINUTE, 7) }
+        val existing = listOf("7:55 AM" to "set the alarm for 8:00 AM")
+        // The same plan written again (as on the phone, every check-in) isn't added twice.
+        val (kept, added) = AmbientMind.mergePlans(existing, listOf("now" to "set alarm for 8:00 AM", "8:30 AM" to "check the bank eNotice"), now)
+        assertEquals(listOf("8:30 AM" to "check the bank eNotice"), added)
+        assertEquals(2, kept.size)
+        // Plans whose time has passed drop off.
+        val later = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 8); set(Calendar.MINUTE, 16) }
+        assertEquals(listOf("8:30 AM" to "check the bank eNotice"), AmbientMind.mergePlans(kept, emptyList(), later).first)
+    }
+
+    @Test fun codeRemembersWhatWasAlreadyDone() {
+        val acts = listOf(Act.Remind("8:00 AM", "Time to wake up, King!"), Act.Notify("Battery low, charge soon"), Act.Journal("quiet"))
+        val kept = AmbientMind.notRepeated(acts, pendingReminders = listOf("Time to wake up, King!"), recentlySaid = listOf("Battery is low, charge it soon"))
+        assertEquals(listOf(Act.Journal("quiet")), kept)
+        // Echoing a received text back to its sender becomes a reminder to reply; a second proposal is dropped.
+        val echo = AmbientMind.notRepeated(listOf(Act.AskSend("Jake", "are we still on for tonight?")), emptyList(), emptyList(), receivedTexts = listOf("are we still on for tonight?"))
+        assertEquals(listOf(Act.Notify("Reply to Jake: \"are we still on for tonight?\"")), echo)
+        val again = AmbientMind.notRepeated(listOf(Act.AskSend("Mom", "running 10 min late")), emptyList(), emptyList(), pendingAsks = listOf("Running 10 min late"))
+        assertTrue(again.isEmpty())
+    }
 }

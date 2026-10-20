@@ -18,6 +18,10 @@ object AmbientMind {
         val plans: List<String>,
         val journal: List<String>,
         val memory: List<String> = emptyList(),
+        /** Reminders it already set and what it already told the user: its short-term memory. */
+        val done: List<String> = emptyList(),
+        /** Texts that arrived in the last two hours, so a text seen while driving isn't forgotten. */
+        val texts: List<String> = emptyList(),
     )
 
     sealed interface Act {
@@ -50,12 +54,15 @@ object AmbientMind {
             "PLAN: <when> | <what you'll do then>   (zero to two lines)\n" +
             "DO: one or more of: notify | <message to the user>; journal | <note>; remind | <clock time like 7:30 PM> | <message>; " +
             "flashlight | on or off; ringer | vibrate, normal or silent; ask_send | <who> | <text to send them>; nothing\n" +
-            "Texts to other people are only ever ask_send, which waits for the user's OK."
+            "Texts to other people are only ever ask_send, which waits for the user's OK. " +
+            "You remember through the lists you're shown: never repeat a plan, reminder or message that is already there. " +
+            "Write PLAN lines only for new plans; your open plans are kept for you."
 
     fun situation(s: Situation): String = buildString {
         append("Time: ").append(s.time).append('\n')
         append("Senses:\n"); s.senses.forEach { append("- ").append(it).append('\n') }
         append("What just changed:\n"); (s.events.ifEmpty { listOf("Nothing new; a regular check-in.") }).forEach { append("- ").append(it).append('\n') }
+        if (s.texts.isNotEmpty()) { append("Texts in the last two hours:\n"); s.texts.forEach { append("- ").append(it).append('\n') } }
         if (s.goals.isNotEmpty()) {
             append("The user's goals for you:\n")
             s.goals.forEach { g ->
@@ -65,7 +72,8 @@ object AmbientMind {
                 append('\n')
             }
         }
-        if (s.plans.isNotEmpty()) { append("Your open plans:\n"); s.plans.forEach { append("- ").append(it).append('\n') } }
+        if (s.plans.isNotEmpty()) { append("Your open plans (already kept for you):\n"); s.plans.forEach { append("- ").append(it).append('\n') } }
+        if (s.done.isNotEmpty()) { append("Already done or scheduled by you (don't repeat):\n"); s.done.forEach { append("- ").append(it).append('\n') } }
         if (s.memory.isNotEmpty()) { append("What you know about the user:\n"); s.memory.takeLast(10).forEach { append("- ").append(it).append('\n') } }
         if (s.journal.isNotEmpty()) { append("Your recent journal:\n"); s.journal.takeLast(6).forEach { append("- ").append(it).append('\n') } }
     }.trim()
@@ -89,6 +97,15 @@ object AmbientMind {
             "THOUGHT: Nothing needs attention.\n" +
             "DO: nothing",
         situation(Situation(
+            "Thursday 6:40 PM",
+            listOf("Battery 52%, not charging", "At: home (since 6:05 PM)", "Moving: still"),
+            listOf("Regular check-in"),
+            emptyList(), listOf("when they get home: remind them to answer Quinn about the movie"), emptyList(),
+            done = listOf("6:06 PM told you: Quinn asked if the movie is still on. Reply when you can."),
+        )) to "OBSERVE: Home since 6:05, nothing new since the last check.\n" +
+            "THOUGHT: I already reminded them about Quinn; nothing more to do.\n" +
+            "DO: nothing",
+        situation(Situation(
             "Monday 8:58 AM",
             listOf("At: work (just arrived)", "Moving: still", "Ringer: normal", "Battery 88%"),
             listOf("Arrived at work"),
@@ -99,11 +116,11 @@ object AmbientMind {
         situation(Situation(
             "Wednesday 12:20 PM",
             listOf("Moving: in a vehicle, 42 mph", "Battery 70%", "Screen: off"),
-            listOf("New text from Jake: \"are we still on for tonight?\""),
+            listOf("New text from Quinn: \"is the movie still on?\""),
             emptyList(), emptyList(), emptyList(),
-        )) to "OBSERVE: Driving when Jake asked if tonight's plan is still on.\n" +
+        )) to "OBSERVE: Driving when Quinn asked if the movie is still on.\n" +
             "THOUGHT: They shouldn't text while driving; it can wait until they stop.\n" +
-            "PLAN: when they stop driving | remind them to answer Jake about tonight\n" +
+            "PLAN: when they stop driving | remind them to answer Quinn about the movie\n" +
             "DO: nothing",
     )
 
@@ -153,6 +170,50 @@ object AmbientMind {
             }
         })
     }
+
+    private fun similar(a: String, b: String): Boolean {
+        val x = words(a); val y = words(b)
+        if (x.isEmpty() || y.isEmpty()) return a.trim().equals(b.trim(), true)
+        return (x intersect y).size.toDouble() / (x union y).size >= 0.5 || x.containsAll(y) || y.containsAll(x)
+    }
+
+    /**
+     * Plans persist across thoughts: existing ones are kept, a new one is added only if it isn't
+     * already there, and plans whose clock time passed more than 10 minutes ago are dropped.
+     */
+    fun mergePlans(existing: List<Pair<String, String>>, new: List<Pair<String, String>>, now: java.util.Calendar): Pair<List<Pair<String, String>>, List<Pair<String, String>>> {
+        fun passed(whenText: String): Boolean {
+            if (!Regex("(?i)\\d{1,2}(:\\d{2})? ?[ap]\\.?m|\\d{1,2}:\\d{2}").containsMatchIn(whenText)) return false
+            val hm = app.murmur.brain.tools.PhoneMath.parseClock(whenText) ?: return false
+            val nowMin = now.get(java.util.Calendar.HOUR_OF_DAY) * 60 + now.get(java.util.Calendar.MINUTE)
+            val d = nowMin - (hm.first * 60 + hm.second)
+            return d in 11..(12 * 60)
+        }
+        val kept = existing.filter { !passed(it.first) }.toMutableList()
+        val added = new.filter { n -> !passed(n.first) && kept.none { similar(it.second, n.second) } }
+        kept += added
+        return kept.takeLast(5) to added
+    }
+
+    /**
+     * Code's memory, in case the model forgets: drops actions that repeat what's pending or was said
+     * recently. A proposed text that just echoes a text the user received ("are we still on?" back to
+     * the person who asked it) becomes a reminder to reply instead.
+     */
+    fun notRepeated(
+        acts: List<Act>, pendingReminders: List<String>, recentlySaid: List<String>,
+        pendingAsks: List<String> = emptyList(), receivedTexts: List<String> = emptyList(),
+    ): List<Act> = acts.map { a ->
+        if (a is Act.AskSend && receivedTexts.any { similar(it, a.message) }) Act.Notify("Reply to ${a.who}: \"${a.message}\"") else a
+    }.filter { a ->
+        val earlier = pendingReminders + recentlySaid
+        when (a) {
+            is Act.Remind -> earlier.none { similar(it, a.text) }
+            is Act.Notify -> earlier.none { similar(it, a.text) }
+            is Act.AskSend -> pendingAsks.none { similar(it, a.message) } && recentlySaid.none { similar(it, a.message) }
+            else -> true
+        }
+    }.distinct()
 
     private val stop = setOf("remind", "me", "to", "my", "the", "at", "every", "day", "daily", "time", "your", "you", "and", "for", "a", "am", "pm", "up")
     private fun words(s: String) = s.lowercase().split(Regex("[^a-z]+")).filter { it.length >= 3 && it !in stop }.toSet()

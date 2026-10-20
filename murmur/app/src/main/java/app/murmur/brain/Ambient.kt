@@ -235,6 +235,12 @@ object Ambient {
             goals = goals(c),
             plans = _plans.value.map { "${it.whenText}: ${it.what} (planned ${stamp(it.made)})" },
             journal = journal(c),
+            texts = _timeline.value.filter { it.kind == Kind.SENSE && it.text.startsWith("New text from") && now - it.at < 2 * 3_600_000L }
+                .takeLast(5).map { "${stamp(it.at)} ${it.text.removePrefix("New text from ").let { t -> "from $t" }}" },
+            done = reminders(c).map { "reminder set for ${stamp(it.at)}: ${it.text}" } +
+                _asks.value.map { "waiting for the user's OK to text ${it.who}: ${it.message}" } +
+                _timeline.value.filter { it.kind == Kind.ACT && now - it.at < 4 * 3_600_000L && !it.text.startsWith("Did nothing") }
+                    .takeLast(6).map { "${stamp(it.at)} ${it.text.replaceFirstChar { ch -> ch.lowercase() }}" },
             memory = BrainMemory.facts(c),
         )
         val prompt = AmbientMind.situation(situation)
@@ -247,12 +253,20 @@ object Ambient {
         if (answer == null) { log(c, Kind.THOUGHT, "Couldn't think just now (the model was busy or not loaded)."); return@withLock }
         val t = AmbientMind.allowed(AmbientMind.parse(answer), prompt, goals(c))
         if (t.observe.isNotBlank() || t.thought.isNotBlank()) log(c, Kind.THOUGHT, listOf(t.observe, t.thought).filter { it.isNotBlank() }.joinToString(" "))
-        if (t.plans.isNotEmpty()) {
-            _plans.value = t.plans.map { (w, x) -> Plan(now, w, x) }
-            t.plans.forEach { (w, x) -> log(c, Kind.PLAN, "$w: $x") }
-        } else _plans.value = _plans.value.filter { now - it.made < 12 * 3_600_000L }
-        t.acts.forEach { act(c, it) }
-        if (t.acts.isEmpty()) log(c, Kind.ACT, "Did nothing; all is well.")
+        // Plans persist; only genuinely new ones are added (and shown in the timeline).
+        val (kept, added) = AmbientMind.mergePlans(
+            _plans.value.filter { now - it.made < 12 * 3_600_000L }.map { it.whenText to it.what }, t.plans, java.util.Calendar.getInstance(),
+        )
+        _plans.value = kept.map { (w, x) -> _plans.value.firstOrNull { it.whenText == w && it.what == x } ?: Plan(now, w, x) }
+        added.forEach { (w, x) -> log(c, Kind.PLAN, "$w: $x") }
+        // Code's memory: no reminder or message that repeats one pending or said in the last 2 hours.
+        val said = _timeline.value.filter { it.kind == Kind.ACT && now - it.at < 2 * 3_600_000L }.map { it.text.substringAfter(": ") }
+        val received = _timeline.value.filter { it.kind == Kind.SENSE && it.text.startsWith("New text from") && now - it.at < 6 * 3_600_000L }
+            .map { it.text.substringAfter(": ").trim('"') }
+        val asked = _asks.value.map { it.message } + _timeline.value.filter { it.kind == Kind.ASK && now - it.at < 6 * 3_600_000L }.map { it.text.substringAfter(": ").substringBefore(" (waiting").trim('"') }
+        val acts = AmbientMind.notRepeated(t.acts, reminders(c).map { it.text }, said, asked, received)
+        acts.forEach { act(c, it) }
+        if (acts.isEmpty()) log(c, Kind.ACT, if (t.acts.isEmpty()) "Did nothing; all is well." else "Nothing new to do (already handled).")
         saveAll(c)
         AmbientService.refreshNotification(c, t.thought.ifBlank { t.observe })
     }

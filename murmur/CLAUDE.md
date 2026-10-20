@@ -8,7 +8,7 @@ Murmur is a native Android SMS/MMS app (Kotlin, Jetpack Compose, minSdk 26, targ
 - Their preferences: creative ideas, direct answers, and quick research before deciding.
 - **Standing direction for the Brain (from the user):** keep widening the subjects it answers and use everything the model can do. Murmur adds no topic limits of its own; prompts should make it a frank, capable helper on any subject, and each update should find and remove remaining hedges or refusals (check them in `brainlab`'s `OpinionLabKt`). Gemma's own built-in limits on truly dangerous requests stay; don't try to break them.
 - Each release: bump `versionCode`/`versionName` in `app/build.gradle.kts` and the "Murmur x.y" line in `ui/OtherScreens.kt`. Build the release APK and send it to them. Commit and push to the session branch.
-- Current version: **1.11.2** (versionCode 19). Ambient pace: Lively 5 min, Balanced 10 (default), Relaxed 30; the user found 30 too slow.
+- Current version: **1.11.3** (versionCode 20). Ambient pace: Lively 5 min, Balanced 10 (default), Relaxed 30; the user found 30 too slow.
 
 ## Build and check (all must pass before shipping)
 ```sh
@@ -57,6 +57,7 @@ export ANDROID_HOME=/opt/android-sdk   # install cmdline-tools + platforms;andro
 - **Don't wait on a process with `pgrep -f <name>` inside the same shell command:** it matches its own command line and waits forever.
 - **Model bake-off (Oct 2026, `BakeOffKt`):** Gemma 4 E2B 6/6 reasoning, 8/8 scams, 8/8 tools, sees+hears; Qwen3.5 4B/2B 2-3/6 reasoning and 1/8 tools; LFM2.5 2.6B blank answers; Ministral 3 3B crashed. Keep Gemma.
 - **Ambient: code owns the clock.** A "wake me up at 8 AM" goal once got a model-made reminder at 1:06 AM and no alarm. Now alarm goals set a real Clock alarm when added (foreground only; Android blocks it from the background), timed goals are marked "handled by code" in the model's view, `AmbientMind.allowed` drops model notifications/reminders that repeat a timed goal, and reminders are clock times worked out by `AmbientMind.remindAt`.
+- **Ambient memory.** The model forgot what it had done and re-planned/re-reminded every check-in (user's screenshots, 1.11.1). Each thought now sees pending reminders, recent actions, pending texts-to-approve and texts from the last 2 hours; plans persist via `mergePlans`; `notRepeated` drops repeats and turns an echoed incoming text into "Reply to X". `AmbientLoopLabKt` replays a night and a drive home: 1 action each. Don't reuse real-sounding names in examples ("Jake" leaked into a real situation).
 - **Qwen models were rejected.** Qwen3 0.6B and Qwen2.5 1.5B were too weak, and Qwen's bundled chat template breaks in LiteRT-LM. Gemma 4 E2B scored 8/8 on scam checks and 13/13 on tool choice.
 
 ## Untested on a real phone (ask the user)
