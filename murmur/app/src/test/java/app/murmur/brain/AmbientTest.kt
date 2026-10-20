@@ -96,4 +96,42 @@ class AmbientTest {
         val again = AmbientMind.notRepeated(listOf(Act.AskSend("Mom", "running 10 min late")), emptyList(), emptyList(), pendingAsks = listOf("Running 10 min late"))
         assertTrue(again.isEmpty())
     }
+
+    @Test fun diaryBecomesATimelineWithRealTimes() {
+        val start = Calendar.getInstance().apply { set(2026, Calendar.OCTOBER, 21, 9, 40, 0) }.timeInMillis
+        val rows = ArrayList<SenseLog.Sample>()
+        var lat = 41.88
+        for (i in 0 until 12 * 60) { // an hour of readings every 5 seconds
+            val t = start + i * 5_000L
+            val minute = i / 12
+            val motion = when {
+                minute in 4 until 12 -> "vehicle"
+                minute == 30 && i % 12 < 4 -> "walking" // 20 seconds of fidgeting: folded away
+                else -> "still"
+            }
+            if (motion == "vehicle") lat += 0.00009 // about 10 m every 5 s
+            rows += SenseLog.Sample(t, motion, if (motion == "vehicle") 10f else 0f, lat, -87.63, screen = minute in 20..21, charging = minute < 2, level = 84)
+        }
+        val now = start + 60 * 60_000L
+        val lines = SenseLog.condense(rows, now)
+        assertEquals("9:40 AM-9:44 AM still, 4 min", lines[0])
+        assertTrue(lines[1], lines[1].startsWith("9:44 AM-9:52 AM driving or riding, 8 min, about 0.6 miles"))
+        assertTrue(lines[2], lines[2].startsWith("9:52 AM-now still, 48 min"))
+        assertTrue(lines.any { it == "9:42 AM unplugged at 84%" })
+        assertTrue(lines.any { it == "Screen turned on 1 time" })
+        // Nothing new in the last quiet stretch: no reason to wake the model.
+        assertTrue(!SenseLog.changed(rows.filter { it.at > start + 40 * 60_000L }))
+        assertTrue(SenseLog.changed(rows))
+    }
+
+    @Test fun namingAPlaceWorksAtOnce() {
+        val p = Places()
+        val placed = p.nameHere(41.88, -87.63, 0L, "work")
+        assertEquals("work", p.label(placed))
+        assertEquals(placed, p.current)
+        // Naming somewhere else "work" moves the name.
+        val other = p.nameHere(41.95, -87.70, 1L, "work")
+        assertEquals("work", other.name)
+        assertNull(placed.name)
+    }
 }

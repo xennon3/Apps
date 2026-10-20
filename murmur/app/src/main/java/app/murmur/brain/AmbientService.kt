@@ -51,7 +51,7 @@ import kotlin.math.roundToInt
 class AmbientService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private var loop: Job? = null
-    private val places = Places()
+    private val places get() = AmbientService.places
 
     // Last known state, so only changes become events.
     private var level = -1
@@ -62,9 +62,15 @@ class AmbientService : Service() {
     private var wifi: Boolean? = null
     private var headphones: Boolean? = null
     private var motion = "still"
-    private var lastSteps: Long? = null
+    private var motionSince = System.currentTimeMillis()
     private var lastSpeed = 0f
     private var lastSpeedAt = 0L
+    private var lastLat: Double? = null
+    private var lastLon: Double? = null
+    private var sampler: Job? = null
+    private var gpsOn = false
+    /** Accelerometer readings over the current few seconds (how much the phone is being moved). */
+    private val jiggle = java.util.concurrent.ConcurrentLinkedQueue<Float>()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -93,6 +99,9 @@ class AmbientService : Service() {
 
     override fun onDestroy() {
         loop?.cancel()
+        sampler?.cancel()
+        runCatching { getSystemService(android.hardware.SensorManager::class.java).unregisterListener(accel) }
+        Ambient.saveSamples(this)
         runCatching { unregisterReceiver(battery) }
         runCatching { unregisterReceiver(screen) }
         runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(network) }
@@ -163,9 +172,19 @@ class AmbientService : Service() {
         senses()
     }
 
+    private val accel = object : android.hardware.SensorEventListener {
+        override fun onSensorChanged(e: android.hardware.SensorEvent) {
+            jiggle += kotlin.math.sqrt(e.values[0] * e.values[0] + e.values[1] * e.values[1] + e.values[2] * e.values[2])
+            while (jiggle.size > 200) jiggle.poll()
+        }
+        override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) {}
+    }
+
     private val location = LocationListener { loc ->
         if (loc.hasSpeed()) { lastSpeed = loc.speed; lastSpeedAt = System.currentTimeMillis() }
         if (loc.hasAccuracy() && loc.accuracy > 250f) return@LocationListener // too fuzzy to place
+        lastLat = loc.latitude; lastLon = loc.longitude
+        lastFix = loc.latitude to loc.longitude
         when (val ch = places.fix(loc.latitude, loc.longitude, loc.time.takeIf { it > 0 } ?: System.currentTimeMillis())) {
             is Places.Change.Arrived -> Ambient.event(this, "Arrived at ${ch.label}")
             is Places.Change.Left -> Ambient.event(this, "Left ${ch.label} after ${PhoneMath.duration(ch.stayedMinutes / 60.0)}")
@@ -188,39 +207,96 @@ class AmbientService : Service() {
             if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 3 * 60_000L, 50f, location, Looper.getMainLooper())
             lm.requestLocationUpdates(LocationManager.PASSIVE_PROVIDER, 60_000L, 30f, location, Looper.getMainLooper())
         }
+        // The accelerometer batches readings in hardware, so watching it costs little.
+        runCatching {
+            val sm = getSystemService(android.hardware.SensorManager::class.java)
+            sm.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER)?.let { sm.registerListener(accel, it, android.hardware.SensorManager.SENSOR_DELAY_NORMAL, 5_000_000) }
+        }
+        Ambient.loadSamples(this)
+        // The sensor diary: a timestamped reading every 5 seconds.
+        sampler = MurmurApp.scope.launch {
+            while (isActive) {
+                runCatching { sample() }
+                delay(5_000L)
+            }
+        }
         loop = MurmurApp.scope.launch {
             var minute = 0
             while (isActive) {
                 runCatching { Ambient.tick(this@AmbientService) }
-                if (minute % 5 == 0) runCatching { movement() }
-                // A regular check-in at the chosen pace, so plans and goals get looked at.
-                if (minute > 0 && minute % Ambient.pace(this@AmbientService).checkMinutes == 0) Ambient.event(this@AmbientService, "Regular check-in")
+                // A regular check-in at the chosen pace; it only wakes the model if something changed.
+                if (minute > 0 && minute % Ambient.pace(this@AmbientService).checkMinutes == 0) Ambient.checkIn(this@AmbientService)
+                if (minute % 5 == 0) runCatching { Ambient.saveSamples(this@AmbientService) }
                 minute++
                 delay(60_000L)
             }
         }
     }
 
-    /** Still, walking or in a vehicle, from steps and speed; a change is an event. */
-    private fun movement() {
-        val steps = if (BrainAccess.on(this, BrainAccess.Source.MOTION)) BatteryLog.stepCounter(this) else null
-        val walked = if (steps != null && lastSteps != null) steps - lastSteps!! else 0L
-        lastSteps = steps
-        val fresh = System.currentTimeMillis() - lastSpeedAt < 6 * 60_000L
-        val now = when {
-            fresh && lastSpeed > 7f -> "in a vehicle"
-            walked > 250 || (fresh && lastSpeed in 1f..3f) -> "walking"
+    /** One diary row: motion from the accelerometer (and GPS speed while moving), place, screen, battery. */
+    private fun sample() {
+        val now = System.currentTimeMillis()
+        val readings = jiggle.toList(); jiggle.clear()
+        val moved = if (readings.size >= 5) {
+            val mean = readings.average()
+            kotlin.math.sqrt(readings.sumOf { (it - mean) * (it - mean) } / readings.size) > 0.35
+        } else false
+        val fresh = now - lastSpeedAt < 20_000L
+        val instant = when {
+            fresh && lastSpeed > 6f -> "vehicle"
+            fresh && lastSpeed > 0.8f -> "walking"
+            moved && motion == "vehicle" -> "vehicle" // bumps on the road while GPS catches up
+            moved -> "walking"
             else -> "still"
         }
-        if (now != motion) {
-            Ambient.event(this, when (now) {
-                "in a vehicle" -> "Started driving or riding (about ${PhoneMath.describeSpeed(lastSpeed, false)})"
-                "walking" -> "Started walking"
-                else -> if (motion == "in a vehicle") "Stopped driving" else "Stopped walking"
-            })
-            motion = now
+        Ambient.addSample(SenseLog.Sample(now, instant, if (fresh) lastSpeed else 0f, lastLat, lastLon, screenOn, charging == true, level, placeLabel()))
+        gps(instant != "still" || (motion != "still" && now - motionSince < 3 * 60_000L))
+        movementFromDiary(now)
+    }
+
+    /** Motion changes only count once they've held for a minute; the event says when and for how long. */
+    private fun movementFromDiary(now: Long) {
+        val recent = Ambient.samplesSince(now - 60_000L)
+        if (recent.size < 8) return
+        val state = recent.groupingBy { it.motion }.eachCount().maxBy { it.value }.key
+        if (state == motion) { senses(); return }
+        val miles = SenseLog.segments(Ambient.samplesSince(motionSince)).filter { it.motion != "still" }.sumOf { it.miles }
+        val lasted = PhoneMath.duration((now - motionSince) / 3_600_000.0)
+        val at = Ambient.stamp(now - 60_000L)
+        val event = when {
+            state == "vehicle" -> "Started driving or riding at $at"
+            state == "walking" && motion == "still" -> "Started walking at $at"
+            motion == "vehicle" -> "Stopped driving at $at after $lasted" + (if (miles >= 0.1) ", about ${"%.1f".format(java.util.Locale.US, miles)} miles" else "")
+            motion == "walking" -> "Stopped walking at $at after $lasted"
+            else -> null
         }
+        motion = state; motionSince = now - 60_000L
+        event?.let { Ambient.event(this, it) }
         senses()
+    }
+
+    /** GPS only while moving: speed and distance need it, and it's the costly sensor. */
+    @SuppressLint("MissingPermission")
+    private fun gps(on: Boolean) {
+        if (on == gpsOn || ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
+        val lm = getSystemService(LocationManager::class.java)
+        runCatching {
+            if (on) {
+                lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5_000L, 0f, location, Looper.getMainLooper())
+            } else {
+                lm.removeUpdates(location)
+                if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 3 * 60_000L, 50f, location, Looper.getMainLooper())
+                lm.requestLocationUpdates(LocationManager.PASSIVE_PROVIDER, 60_000L, 30f, location, Looper.getMainLooper())
+            }
+            gpsOn = on
+        }
+    }
+
+    /** Plain words for where the phone is; "unfamiliar" means not a place it knows, never a guess. */
+    private fun placeLabel(): String? = when {
+        !hasLocation() || lastLat == null -> null
+        places.current != null -> places.label(places.current!!)
+        else -> "an unfamiliar place (not home or work)"
     }
 
     /** The "Now" list in the Mind window, and what the Brain is told it senses. */
@@ -233,8 +309,11 @@ class AmbientService : Service() {
         }
         PhoneMath.usualChargeHour(BatteryLog.samples(this), System.currentTimeMillis()) { Calendar.getInstance().apply { timeInMillis = it }.get(Calendar.HOUR_OF_DAY) }
             ?.let { list += "Usually plugs in around ${if (it == 0) "midnight" else if (it < 12) "$it AM" else if (it == 12) "noon" else "${it - 12} PM"}" }
-        places.current?.let { list += "At: ${places.label(it)} (since ${Ambient.stamp(places.arrivedAt)})" } ?: run { if (hasLocation()) list += "At: not at a known place" }
-        list += "Moving: $motion"
+        val now = System.currentTimeMillis()
+        places.current?.let { list += "At: ${places.label(it)} (since ${Ambient.stamp(places.arrivedAt)})" }
+            ?: placeLabel()?.let { list += "At: $it" }
+        list += "Moving: " + (if (motion == "vehicle") "driving or riding" else motion) +
+            " since ${Ambient.stamp(motionSince)} (${PhoneMath.duration((now - motionSince) / 3_600_000.0)})"
         list += "Screen: " + if (screenOn) "on" else "off" + (if (screenOffSince > 0) " for ${PhoneMath.duration((System.currentTimeMillis() - screenOffSince) / 3_600_000.0)}" else "")
         headphones?.let { list += "Headphones: " + if (it) "connected" else "none" }
         wifi?.let { list += "Wi-Fi: " + if (it) "connected" else "not connected" }
@@ -251,11 +330,18 @@ class AmbientService : Service() {
         }
     }
 
-    private fun savePlaces() = getSharedPreferences("ambient", MODE_PRIVATE).edit().putString("places", JSONArray(places.places.map {
-        JSONObject().put("id", it.id).put("lat", it.lat).put("lon", it.lon).put("v", it.visits).put("n", it.nightMinutes).put("w", it.workMinutes).put("name", it.name ?: "")
-    }).toString()).apply()
+    private fun savePlaces() = savePlaces(this)
 
     companion object {
+        /** Learned places, shared with the Mind window (to name the current one). */
+        val places = Places()
+        /** The latest location fix, for naming the place the phone is at. */
+        @Volatile var lastFix: Pair<Double, Double>? = null
+
+        fun savePlaces(c: Context) = c.getSharedPreferences("ambient", MODE_PRIVATE).edit().putString("places", JSONArray(places.places.map {
+            JSONObject().put("id", it.id).put("lat", it.lat).put("lon", it.lon).put("v", it.visits).put("n", it.nightMinutes).put("w", it.workMinutes).put("name", it.name ?: "")
+        }).toString()).apply()
+
         const val CHANNEL = "ambient"
         const val NOTE_ID = 7500
         const val STOP = "app.murmur.AMBIENT_STOP"

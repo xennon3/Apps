@@ -22,6 +22,9 @@ object AmbientMind {
         val done: List<String> = emptyList(),
         /** Texts that arrived in the last two hours, so a text seen while driving isn't forgotten. */
         val texts: List<String> = emptyList(),
+        /** The sensor diary since the last thought, condensed by code with real times ("9:44-9:52 AM driving, 8 min"). */
+        val timeline: List<String> = emptyList(),
+        val lastThought: String? = null,
     )
 
     sealed interface Act {
@@ -56,11 +59,17 @@ object AmbientMind {
             "flashlight | on or off; ringer | vibrate, normal or silent; ask_send | <who> | <text to send them>; nothing\n" +
             "Texts to other people are only ever ask_send, which waits for the user's OK. " +
             "You remember through the lists you're shown: never repeat a plan, reminder or message that is already there. " +
-            "Write PLAN lines only for new plans; your open plans are kept for you."
+            "Write PLAN lines only for new plans; your open plans are kept for you. " +
+            "Never guess: times and durations come only from the timeline, places only from 'At'. An unfamiliar place is " +
+            "not home or work. Act on a goal only when the senses clearly show its condition (a work goal needs 'At: work')."
 
     fun situation(s: Situation): String = buildString {
         append("Time: ").append(s.time).append('\n')
         append("Senses:\n"); s.senses.forEach { append("- ").append(it).append('\n') }
+        if (s.timeline.isNotEmpty()) {
+            append(if (s.lastThought != null) "Timeline since your last thought (at ${s.lastThought}):\n" else "Timeline (last 30 minutes):\n")
+            s.timeline.forEach { append("- ").append(it).append('\n') }
+        }
         append("What just changed:\n"); (s.events.ifEmpty { listOf("Nothing new; a regular check-in.") }).forEach { append("- ").append(it).append('\n') }
         if (s.texts.isNotEmpty()) { append("Texts in the last two hours:\n"); s.texts.forEach { append("- ").append(it).append('\n') } }
         if (s.goals.isNotEmpty()) {
@@ -104,6 +113,16 @@ object AmbientMind {
             done = listOf("6:06 PM told you: Quinn asked if the movie is still on. Reply when you can."),
         )) to "OBSERVE: Home since 6:05, nothing new since the last check.\n" +
             "THOUGHT: I already reminded them about Quinn; nothing more to do.\n" +
+            "DO: nothing",
+        situation(Situation(
+            "Friday 10:04 AM",
+            listOf("Battery 80%, not charging", "At: an unfamiliar place (not home or work)", "Moving: still since 9:56 AM (8 min)", "Ringer: silent"),
+            listOf("Stopped driving at 9:56 AM after 8 min, about 3.0 miles"),
+            listOf("Keep my phone on vibrate while I'm at work"), emptyList(), emptyList(),
+            timeline = listOf("9:40-9:48 AM still, 8 min", "9:48-9:56 AM driving or riding, 8 min, about 3.0 miles", "9:56 AM-now still, 8 min at an unfamiliar place (not home or work)"),
+            lastThought = "9:40 AM",
+        )) to "OBSERVE: Drove 8 minutes, about 3 miles, and has been still at an unfamiliar place for 8 minutes.\n" +
+            "THOUGHT: This isn't work, so the vibrate-at-work goal doesn't apply; nothing needs doing.\n" +
             "DO: nothing",
         situation(Situation(
             "Monday 8:58 AM",

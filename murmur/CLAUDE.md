@@ -8,7 +8,7 @@ Murmur is a native Android SMS/MMS app (Kotlin, Jetpack Compose, minSdk 26, targ
 - Their preferences: creative ideas, direct answers, and quick research before deciding.
 - **Standing direction for the Brain (from the user):** keep widening the subjects it answers and use everything the model can do. Murmur adds no topic limits of its own; prompts should make it a frank, capable helper on any subject, and each update should find and remove remaining hedges or refusals (check them in `brainlab`'s `OpinionLabKt`). Gemma's own built-in limits on truly dangerous requests stay; don't try to break them.
 - Each release: bump `versionCode`/`versionName` in `app/build.gradle.kts` and the "Murmur x.y" line in `ui/OtherScreens.kt`. Build the release APK and send it to them. Commit and push to the session branch.
-- Current version: **1.11.3** (versionCode 20). Ambient pace: Lively 5 min, Balanced 10 (default), Relaxed 30; the user found 30 too slow.
+- Current version: **1.12** (versionCode 21). Ambient pace: Lively 5 min, Balanced 10 (default), Relaxed 30; the user found 30 too slow.
 
 ## Build and check (all must pass before shipping)
 ```sh
@@ -58,9 +58,11 @@ export ANDROID_HOME=/opt/android-sdk   # install cmdline-tools + platforms;andro
 - **Model bake-off (Oct 2026, `BakeOffKt`):** Gemma 4 E2B 6/6 reasoning, 8/8 scams, 8/8 tools, sees+hears; Qwen3.5 4B/2B 2-3/6 reasoning and 1/8 tools; LFM2.5 2.6B blank answers; Ministral 3 3B crashed. Keep Gemma.
 - **Ambient: code owns the clock.** A "wake me up at 8 AM" goal once got a model-made reminder at 1:06 AM and no alarm. Now alarm goals set a real Clock alarm when added (foreground only; Android blocks it from the background), timed goals are marked "handled by code" in the model's view, `AmbientMind.allowed` drops model notifications/reminders that repeat a timed goal, and reminders are clock times worked out by `AmbientMind.remindAt`.
 - **Ambient memory.** The model forgot what it had done and re-planned/re-reminded every check-in (user's screenshots, 1.11.1). Each thought now sees pending reminders, recent actions, pending texts-to-approve and texts from the last 2 hours; plans persist via `mergePlans`; `notRepeated` drops repeats and turns an echoed incoming text into "Reply to X". `AmbientLoopLabKt` replays a night and a drive home: 1 action each. Don't reuse real-sounding names in examples ("Jake" leaked into a real situation).
+- **Ambient sensor diary (the user's idea).** A reading every 5 s (accelerometer jiggle, GPS only while moving, place, screen, charging, battery) kept 6 h in `sense_log.csv`; `SenseLog.condense` turns it into a timeline with real times ("9:44-9:52 AM driving, 8 min, 3.1 miles") so the model stops inventing durations; `SenseLog.changed` lets a check-in skip the model when nothing changed. Places say "an unfamiliar place (not home or work)" and goals act only when their condition shows; users can name a place. Check-ins and no-op thoughts aren't logged; the Mind window has Clear.
 - **Qwen models were rejected.** Qwen3 0.6B and Qwen2.5 1.5B were too weak, and Qwen's bundled chat template breaks in LiteRT-LM. Gemma 4 E2B scored 8/8 on scam checks and 13/13 on tool choice.
 
 ## Untested on a real phone (ask the user)
+- **1.12 features:** the sensor diary on a real phone (accelerometer motion threshold 0.35 m/s² std, GPS-while-moving battery cost), skipped check-ins, place naming.
 - **1.11 features:** Ambient mode on a real phone (service survival, battery cost, place learning, thought quality, notification noise).
 - **1.10 features:** pictures and spoken questions in the Brain tab, the 8K workspace (memory on the real phone).
 - **1.8 features:** everything (fast writing on the phone, Big Brain download/switch, pictures, Brain voice transcription, phone tools on a real phone, battery coach over days, meaning-search indexing time, reply learning, fact chips).

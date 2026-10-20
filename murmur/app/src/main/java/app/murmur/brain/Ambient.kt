@@ -205,6 +205,83 @@ object Ambient {
 
     fun updateSenses(list: List<String>) { _senses.value = list }
 
+    // ------------------------------------------------------------ the sensor diary
+
+    /** Readings every 5 seconds, newest last; six hours are kept (about 4,300 rows). */
+    private val diary = ArrayDeque<SenseLog.Sample>()
+    private const val KEEP = 6 * 3_600_000L
+
+    fun addSample(s: SenseLog.Sample) = synchronized(diary) {
+        diary.addLast(s)
+        while (diary.isNotEmpty() && s.at - diary.first().at > KEEP) diary.removeFirst()
+    }
+
+    fun samplesSince(t: Long): List<SenseLog.Sample> = synchronized(diary) { diary.filter { it.at >= t } }
+
+    private fun diaryFile(c: Context) = java.io.File(c.filesDir, "sense_log.csv")
+
+    /** Saved every few minutes so a restart doesn't lose the morning; it's Murmur's own private storage. */
+    fun saveSamples(c: Context) = runCatching {
+        val rows = synchronized(diary) { diary.toList() }
+        diaryFile(c).writeText(rows.joinToString("\n") { s ->
+            listOf(s.at, s.motion, s.speed, s.lat ?: "", s.lon ?: "", if (s.screen) 1 else 0, if (s.charging) 1 else 0, s.level, (s.place ?: "").replace(',', ' ')).joinToString(",")
+        })
+    }
+
+    fun loadSamples(c: Context) = runCatching {
+        val f = diaryFile(c)
+        if (!f.exists() || synchronized(diary) { diary.isNotEmpty() }) return@runCatching
+        val now = System.currentTimeMillis()
+        f.readLines().mapNotNull { line ->
+            val p = line.split(',')
+            if (p.size < 9) null else SenseLog.Sample(p[0].toLong(), p[1], p[2].toFloat(), p[3].toDoubleOrNull(), p[4].toDoubleOrNull(), p[5] == "1", p[6] == "1", p[7].toInt(), p[8].ifBlank { null })
+        }.filter { now - it.at < KEEP }.forEach { addSample(it) }
+    }
+
+    fun diarySize() = synchronized(diary) { diary.size }
+
+    /** Wipes the timeline, plans and the sensor diary (goals and learned places stay). */
+    fun clear(context: Context) {
+        val c = context.applicationContext
+        _timeline.value = emptyList()
+        _plans.value = emptyList()
+        synchronized(diary) { diary.clear() }
+        diaryFile(c).delete()
+        saveAll(c)
+    }
+
+    /** "This is Work": names the place the phone is at now, so it stops guessing. */
+    fun nameCurrentPlace(context: Context, name: String): Boolean {
+        val c = context.applicationContext
+        val n = name.trim().lowercase().ifBlank { return false }
+        val (lat, lon) = AmbientService.lastFix ?: return false
+        AmbientService.places.nameHere(lat, lon, System.currentTimeMillis(), n)
+        AmbientService.savePlaces(c)
+        log(c, Kind.JOURNAL, "You named this place \"$n\".")
+        event(c, "The user named the current place \"$n\"")
+        return true
+    }
+
+    fun currentPlace(): String? = AmbientService.places.current?.let { AmbientService.places.label(it) }
+
+    /**
+     * A regular check-in. If the diary shows nothing changed since the last thought (same motion,
+     * same place, no charging change, no new texts) and no plan or reminder is coming due, the
+     * model isn't woken at all.
+     */
+    fun checkIn(context: Context) {
+        val c = context.applicationContext
+        if (!on(c)) return
+        val now = System.currentTimeMillis()
+        val since = samplesSince(lastThought)
+        val waiting = synchronized(pending) { pending.isNotEmpty() }
+        val dueSoon = reminders(c).any { it.at - now < 15 * 60_000L } || _plans.value.isNotEmpty() && now - lastThought > 30 * 60_000L
+        if (!waiting && !dueSoon && lastThought > 0 && !SenseLog.changed(since)) return
+        synchronized(pending) { pending += "${stamp(now)} Regular check-in" }
+        wake?.cancel()
+        wake = MurmurApp.scope.launch { think(c) }
+    }
+
     /**
      * Something changed. Urgent events wake the Brain at once; others gather for up to 10 minutes
      * so a burst of changes becomes one thought.
@@ -213,7 +290,7 @@ object Ambient {
         val c = context.applicationContext
         if (!on(c)) return
         synchronized(pending) { pending += "${stamp(System.currentTimeMillis())} $what" }
-        log(c, Kind.SENSE, what)
+        if (what != "Regular check-in") log(c, Kind.SENSE, what)
         val gap = System.currentTimeMillis() - lastThought
         val gapMs = pace(c).gapMinutes * 60_000L
         val wait = if (urgent || gap > gapMs) 20_000L else gapMs - gap
@@ -228,10 +305,14 @@ object Ambient {
         if (thoughtsToday(c) >= pace(c).daily) { log(c, Kind.THOUGHT, "Resting: reached today's limit of ${pace(c).daily} thoughts."); return@withLock }
         val events = synchronized(pending) { pending.toList().also { pending.clear() } }
         val now = System.currentTimeMillis()
+        // What the diary shows since the last thought (at least the last 30 minutes), with real times.
+        val from = minOf(if (lastThought > 0) lastThought else now - 30 * 60_000L, now - 30 * 60_000L)
         val situation = AmbientMind.Situation(
             time = SimpleDateFormat("EEEE h:mm a", Locale.US).format(Date(now)),
             senses = _senses.value,
             events = events,
+            timeline = SenseLog.condense(samplesSince(from), now),
+            lastThought = if (lastThought > 0) stamp(lastThought) else null,
             goals = goals(c),
             plans = _plans.value.map { "${it.whenText}: ${it.what} (planned ${stamp(it.made)})" },
             journal = journal(c),
@@ -266,7 +347,6 @@ object Ambient {
         val asked = _asks.value.map { it.message } + _timeline.value.filter { it.kind == Kind.ASK && now - it.at < 6 * 3_600_000L }.map { it.text.substringAfter(": ").substringBefore(" (waiting").trim('"') }
         val acts = AmbientMind.notRepeated(t.acts, reminders(c).map { it.text }, said, asked, received)
         acts.forEach { act(c, it) }
-        if (acts.isEmpty()) log(c, Kind.ACT, if (t.acts.isEmpty()) "Did nothing; all is well." else "Nothing new to do (already handled).")
         saveAll(c)
         AmbientService.refreshNotification(c, t.thought.ifBlank { t.observe })
     }

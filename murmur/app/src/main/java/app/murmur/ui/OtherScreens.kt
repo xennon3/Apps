@@ -351,7 +351,7 @@ fun SettingsScreen(isDefault: Boolean, onMakeDefault: () -> Unit, onBack: () -> 
                 },
             )
             Text(
-                "Murmur 1.11.3 · texts, codes and drafts never leave this phone.",
+                "Murmur 1.12 · texts, codes and drafts never leave this phone.",
                 Modifier.padding(16.dp).navigationBarsPadding(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

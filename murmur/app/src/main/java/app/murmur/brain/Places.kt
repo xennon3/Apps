@@ -38,6 +38,18 @@ class Places(var places: MutableList<Place> = ArrayList()) {
 
     fun work(): Place? = places.filter { it.workMinutes >= 120 * 3 && it != home() }.maxByOrNull { it.workMinutes }
 
+    /** The user says what this spot is ("work"): it becomes a named place right away, no 15-minute wait. */
+    fun nameHere(lat: Double, lon: Double, at: Long, name: String): Place {
+        val place = current?.takeIf { meters(lat, lon, it.lat, it.lon) <= 250 }
+            ?: places.minByOrNull { meters(lat, lon, it.lat, it.lon) }?.takeIf { meters(lat, lon, it.lat, it.lon) <= 150 }
+            ?: Place((places.maxOfOrNull { it.id } ?: 0) + 1, lat, lon, visits = 1).also { places += it }
+        // A name is unique: "work" moves here if it was somewhere else.
+        places.filter { it !== place && it.name == name }.forEach { it.name = null }
+        place.name = name
+        if (current !== place) { current = place; arrivedAt = at; hasAnchor = false }
+        return place
+    }
+
     /** Feed a location fix; returns what changed, if anything. */
     fun fix(lat: Double, lon: Double, at: Long, calendar: (Long) -> Calendar = { t -> Calendar.getInstance().apply { timeInMillis = t } }): Change? {
         val minutes = if (lastAt == 0L) 0 else ((at - lastAt) / 60_000L).toInt().coerceIn(0, 60)

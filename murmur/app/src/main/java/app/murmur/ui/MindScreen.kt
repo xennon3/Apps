@@ -27,6 +27,8 @@ import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Sensors
+import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -77,6 +79,8 @@ fun MindScreen(onBack: () -> Unit) {
     var goalTick by remember { mutableIntStateOf(0) }
     var newGoal by remember { mutableStateOf("") }
     var pace by remember { mutableStateOf(Ambient.pace(context)) }
+    var confirmClear by remember { mutableStateOf(false) }
+    var naming by remember { mutableStateOf(false) }
 
     // Location, steps and notifications are asked for when it's switched on; it works with whatever is allowed.
     val perms = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -96,6 +100,9 @@ fun MindScreen(onBack: () -> Unit) {
         TopAppBar(
             title = { Text("Mind") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            actions = {
+                if (timeline.isNotEmpty()) IconButton(onClick = { confirmClear = true }) { Icon(Icons.Outlined.DeleteSweep, "Clear what happened") }
+            },
         )
     }) { pad ->
         LazyColumn(Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -176,6 +183,15 @@ fun MindScreen(onBack: () -> Unit) {
                     Spacer(Modifier.width(8.dp))
                     Text(s, style = MaterialTheme.typography.bodyMedium)
                 } }
+                if (running) item {
+                    TextButton(onClick = { naming = true }) { Text("Name this place (home, work…)") }
+                }
+                item {
+                    Text(
+                        "Sensor diary: ${Ambient.diarySize()} readings (one every 5 seconds, last 6 hours, on this phone only).",
+                        style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
+                    )
+                }
             }
 
             if (plans.isNotEmpty()) {
@@ -225,6 +241,39 @@ fun MindScreen(onBack: () -> Unit) {
             }
             item { Spacer(Modifier.size(32.dp)) }
         }
+    }
+
+    if (confirmClear) AlertDialog(
+        onDismissRequest = { confirmClear = false },
+        title = { Text("Clear what happened?") },
+        text = { Text("This wipes the timeline, its plans and the sensor diary. Your goals and the places it learned stay.") },
+        confirmButton = { TextButton(onClick = { Ambient.clear(context); confirmClear = false }) { Text("Clear") } },
+        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Keep") } },
+    )
+
+    if (naming) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { naming = false },
+            title = { Text("What is this place?") },
+            text = {
+                Column {
+                    Text("It then knows where it is instead of guessing, and goals like \"vibrate at work\" work right away.", style = MaterialTheme.typography.bodyMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                        listOf("home", "work", "gym", "school").forEach { n -> FilterChip(name == n, { name = n }, label = { Text(n) }) }
+                    }
+                    OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth().padding(top = 6.dp), label = { Text("Or type a name") }, singleLine = true)
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = name.isNotBlank(), onClick = {
+                    val ok = Ambient.nameCurrentPlace(context, name)
+                    android.widget.Toast.makeText(context, if (ok) "Got it: this is $name" else "No location yet; try again in a minute", android.widget.Toast.LENGTH_SHORT).show()
+                    naming = false
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { naming = false }) { Text("Cancel") } },
+        )
     }
 }
 

@@ -9,6 +9,15 @@ fun main(args: Array<String>) {
     ExperimentalFlags.enableSpeculativeDecoding = true
     val e = Engine(EngineConfig(modelPath = args[0], backend = Backend.CPU(), maxNumTokens = 4096, cacheDir = System.getProperty("java.io.tmpdir"))).also { it.initialize() }
     val cases = listOf(
+        "user's morning: 8-min drive, unfamiliar place, work goal" to Situation("Monday 10:00 AM",
+            listOf("Battery 84%, not charging", "At: an unfamiliar place (not home or work)", "Moving: still since 9:52 AM (8 min)", "Ringer: silent", "Screen: off"),
+            listOf("Stopped driving at 9:52 AM after 8 min, about 3.1 miles"), listOf("Keep my phone on vibrate while I'm at work"), emptyList(), emptyList(),
+            timeline = listOf("9:40-9:44 AM still, 4 min", "9:42 AM unplugged at 84%", "9:44-9:52 AM driving or riding, 8 min, about 3.1 miles", "9:52 AM-now still, 8 min at an unfamiliar place (not home or work)"),
+            lastThought = "9:39 AM"),
+        "named work, ringer normal: vibrate" to Situation("Monday 10:20 AM",
+            listOf("At: work (since 10:18 AM)", "Moving: still since 9:52 AM (28 min)", "Ringer: normal"),
+            listOf("The user named the current place \"work\""), listOf("Keep my phone on vibrate while I'm at work"), emptyList(), emptyList(),
+            timeline = listOf("10:00 AM-now still, 20 min at work"), lastThought = "10:00 AM"),
         "1:06 AM with a wake-up goal: must not act on it" to Situation("Tuesday 1:06 AM", listOf("At: home", "Moving: still", "Screen: off for 2 hours", "Ringer: normal"), listOf("Regular check-in"), listOf("Wake me up at 8:00 AM"), emptyList(), emptyList()),
         "asks for a later reminder: uses a clock time" to Situation("Saturday 3:10 PM", listOf("At: home", "Moving: still"), listOf("New text from Dana: \"don't forget the 6 pm dinner reservation!\""), emptyList(), emptyList(), emptyList()),
         "battery: should notify" to Situation("Thursday 4:50 PM", listOf("Battery 18%, not charging, using about 11% an hour", "At: work (since 8:55 AM)", "Moving: still", "Usually plugs in around 10 PM"), listOf("Battery dropped below 20%"), emptyList(), emptyList(), emptyList()),
