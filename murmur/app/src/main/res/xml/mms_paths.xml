@@ -2,4 +2,6 @@
 <!-- Raw MMS files handed to Android's MMS service to send or fill in. -->
 <paths>
     <cache-path name="mms" path="mms/" />
+    <!-- A diagnostics file the user chooses to share. -->
+    <cache-path name="diagnostics" path="diagnostics/" />
 </paths>

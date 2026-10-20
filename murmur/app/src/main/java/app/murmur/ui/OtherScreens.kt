@@ -350,8 +350,12 @@ fun SettingsScreen(isDefault: Boolean, onMakeDefault: () -> Unit, onBack: () -> 
                     )
                 },
             )
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            androidx.compose.material3.TextButton(onClick = { shareDiagnostics(ctx) }, modifier = Modifier.padding(horizontal = 8.dp)) {
+                Text("Send diagnostics (logs and settings, to share when something's wrong)")
+            }
             Text(
-                "Murmur 1.12 · texts, codes and drafts never leave this phone.",
+                "Murmur 1.12.1 · texts, codes and drafts never leave this phone.",
                 Modifier.padding(16.dp).navigationBarsPadding(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

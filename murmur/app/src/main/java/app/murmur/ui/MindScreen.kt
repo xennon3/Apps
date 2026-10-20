@@ -27,7 +27,9 @@ import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Sensors
+import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.DeleteSweep
+import kotlinx.coroutines.launch
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -101,6 +103,7 @@ fun MindScreen(onBack: () -> Unit) {
             title = { Text("Mind") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             actions = {
+                IconButton(onClick = { shareDiagnostics(context) }) { Icon(Icons.Outlined.BugReport, "Send diagnostics") }
                 if (timeline.isNotEmpty()) IconButton(onClick = { confirmClear = true }) { Icon(Icons.Outlined.DeleteSweep, "Clear what happened") }
             },
         )
@@ -274,6 +277,18 @@ fun MindScreen(onBack: () -> Unit) {
             },
             dismissButton = { TextButton(onClick = { naming = false }) { Text("Cancel") } },
         )
+    }
+}
+
+/** Builds the diagnostics file off the main thread (reading the log takes a moment), then opens the share sheet. */
+internal fun shareDiagnostics(context: android.content.Context) {
+    android.widget.Toast.makeText(context, "Gathering diagnostics…", android.widget.Toast.LENGTH_SHORT).show()
+    app.murmur.MurmurApp.scope.launch {
+        val ok = runCatching { app.murmur.Diagnostics.build(context) }.isSuccess
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            if (ok) runCatching { app.murmur.Diagnostics.share(context) }
+            else android.widget.Toast.makeText(context, "Couldn't gather diagnostics", android.widget.Toast.LENGTH_LONG).show()
+        }
     }
 }
 
