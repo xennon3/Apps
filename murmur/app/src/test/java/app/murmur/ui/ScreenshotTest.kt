@@ -75,6 +75,8 @@ class ScreenshotTest {
         }
     }
 
+    @Test fun mindWindow() = paparazzi.snapshot { MurmurTheme { WithResultRegistry { MindScreen(onBack = {}) } } }
+
     @Test fun dualSimGroup() = paparazzi.snapshot { MurmurTheme { FakeThread("who's bringing chips?", dualSim = true) } }
 }
 

@@ -30,6 +30,11 @@ class SmsReceiver : BroadcastReceiver() {
                 val uri = repo.insertInbox(address, body, parts[0].timestampMillis, subId)
                 val threadId = uri?.let(repo::threadIdOf) ?: repo.threadIdFor(address)
                 Notifier.incoming(context, threadId)
+                // Ambient mode senses texts arriving: who and a glimpse of what (it never replies on its own).
+                if (app.murmur.brain.Ambient.on(context)) {
+                    val who = repo.contact(address).name ?: app.murmur.data.Phone.pretty(address)
+                    app.murmur.brain.Ambient.event(context, "New text from $who: \"${body.replace('\n', ' ').take(140)}\"")
+                }
             } finally {
                 pending.finish()
             }
@@ -93,6 +98,7 @@ class BootReceiver : BroadcastReceiver() {
         Outbox.rearmAll(context)
         Notifier.rearmReminders(context)
         app.murmur.brain.BatteryLog.schedule(context)
+        if (app.murmur.brain.Ambient.on(context)) runCatching { app.murmur.brain.Ambient.start(context) }
     }
 }
 

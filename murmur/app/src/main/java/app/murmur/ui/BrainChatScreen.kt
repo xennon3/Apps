@@ -1,5 +1,6 @@
 package app.murmur.ui
 
+import androidx.compose.material.icons.outlined.Psychology
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.PickVisualMediaRequest
@@ -103,7 +104,7 @@ private val suggestions = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BrainChatScreen(onOpenThread: (Long) -> Unit, onSettings: () -> Unit) {
+fun BrainChatScreen(onOpenThread: (Long) -> Unit, onSettings: () -> Unit, onMind: () -> Unit = {}) {
     val context = LocalContext.current
     LaunchedEffect(Unit) { Brain.refresh(context); BrainChat.load(context); Brain.warmUp(context) }
     val state by Brain.state.collectAsState()
@@ -150,6 +151,9 @@ fun BrainChatScreen(onOpenThread: (Long) -> Unit, onSettings: () -> Unit) {
                     }
                 },
                 actions = {
+                    if (state == Brain.State.Ready) IconButton(onClick = onMind) {
+                        Icon(Icons.Outlined.Psychology, "Mind window (Ambient mode)", tint = if (app.murmur.brain.Ambient.on(context)) scheme.primary else scheme.onSurfaceVariant)
+                    }
                     if (turns.isNotEmpty()) IconButton(onClick = { BrainChat.clear(context) }) {
                         Icon(Icons.Outlined.DeleteSweep, "Clear chat")
                     }

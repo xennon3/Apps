@@ -67,6 +67,7 @@ sealed interface Screen {
     data class New(val prefill: String = "") : Screen
     data object Settings : Screen
     data object Scheduled : Screen
+    data object Mind : Screen
 }
 
 class MainActivity : ComponentActivity() {
@@ -171,7 +172,7 @@ class MainActivity : ComponentActivity() {
                                 )
                             },
                             brain = {
-                                BrainChatScreen(onOpenThread = { push(Screen.Thread(it)) }, onSettings = { push(Screen.Settings) })
+                                BrainChatScreen(onOpenThread = { push(Screen.Thread(it)) }, onSettings = { push(Screen.Settings) }, onMind = { push(Screen.Mind) })
                             },
                         )
                         is Screen.Thread -> ThreadScreen(
@@ -187,6 +188,7 @@ class MainActivity : ComponentActivity() {
                             onPick = { address -> openAddress(address, screen.prefill, replace = true) },
                         )
                         Screen.Scheduled -> ScheduledScreen(onBack = ::pop, onOpen = { push(Screen.Thread(it)) })
+                        Screen.Mind -> app.murmur.ui.MindScreen(onBack = ::pop)
                         Screen.Settings -> SettingsScreen(
                             isDefault = isDefault,
                             onMakeDefault = ::requestRole,
@@ -223,6 +225,7 @@ class MainActivity : ComponentActivity() {
     private fun handle(intent: Intent?) {
         intent ?: return
         when (intent.action) {
+            OPEN_MIND -> if (canRead()) { tab = Tab.BRAIN; stack = listOf(Screen.List, Screen.Mind) }
             OPEN_THREAD -> {
                 val t = intent.getLongExtra("thread", -1)
                 if (t >= 0 && canRead()) stack = listOf(Screen.List, Screen.Thread(t))
@@ -296,5 +299,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val OPEN_THREAD = "app.murmur.OPEN_THREAD"
+        const val OPEN_MIND = "app.murmur.OPEN_MIND"
     }
 }

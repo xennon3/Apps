@@ -8,7 +8,7 @@ Murmur is a native Android SMS/MMS app (Kotlin, Jetpack Compose, minSdk 26, targ
 - Their preferences: creative ideas, direct answers, and quick research before deciding.
 - **Standing direction for the Brain (from the user):** keep widening the subjects it answers and use everything the model can do. Murmur adds no topic limits of its own; prompts should make it a frank, capable helper on any subject, and each update should find and remove remaining hedges or refusals (check them in `brainlab`'s `OpinionLabKt`). Gemma's own built-in limits on truly dangerous requests stay; don't try to break them.
 - Each release: bump `versionCode`/`versionName` in `app/build.gradle.kts` and the "Murmur x.y" line in `ui/OtherScreens.kt`. Build the release APK and send it to them. Commit and push to the session branch.
-- Current version: **1.10** (versionCode 16).
+- Current version: **1.11** (versionCode 17).
 
 ## Build and check (all must pass before shipping)
 ```sh
@@ -34,6 +34,7 @@ export ANDROID_HOME=/opt/android-sdk   # install cmdline-tools + platforms;andro
   - `PlanTime`, `Calc`, `Skills`, `Extensions` (web/skills/MCP settings and the tool list)
   - `PhoneData` (calendar/calls/contacts/location, `BrainAccess`, `BrainMemory`)
   - `tools/` (tools, MCP client and LiteRT bridge; plain Kotlin). `tools/Phone.kt` holds the phone tools' definitions and `PhoneMath` (battery, speed, timers); tested in the lab with fake readings.
+  - Ambient mode: `AmbientMind` (prompt, situation, parser, code veto; plain Kotlin, lab: `AmbientLabKt`), `Ambient` (state, timeline, goals, plans, acting), `AmbientService` (foreground service reflexes), `Places` (stay detection, home/work), `ui/MindScreen`. Phase 2 (hearing: loudness trigger + audio clips) and Phase 3 (sight: camera when still and face-up) are next.
   - `PhoneSensors` (Android readings + `PhoneControls`), `BatteryLog` (half-hourly readings, steps baseline, battery coach), `Meaning` (EmbeddingGemma index in `meaning.db`), `Lessons` + `ReplyStyle` (what the user taught it), `Eyes` (shrinks pictures to 768 px JPEG)
 - `CrashReport`: records Kotlin crashes, plus `ApplicationExitInfo` for native crashes and memory kills. Shown with **Copy details**; ask the user for these.
 
@@ -54,9 +55,11 @@ export ANDROID_HOME=/opt/android-sdk   # install cmdline-tools + platforms;andro
 - **Gemma hedges unless told not to.** The user wants a frank helper on every subject, no topic limits from Murmur. `BrainPrompts.OPINIONS` + `OPINION_EXAMPLES` + the `isRefusal` retry took dodges from 7/7 ("it depends") to 0/12. Don't reintroduce "keep it short"-style limits in chat prompts.
 - **Workspace** (`Brain.workspace()`): 8,192 tokens on the Standard model with 8 GB+ RAM (+530 MB vs 4,096; 16,384 is +1.6 GB, too much). Big Brain stays 4,096 under 11 GB.
 - **Don't wait on a process with `pgrep -f <name>` inside the same shell command:** it matches its own command line and waits forever.
+- **Model bake-off (Oct 2026, `BakeOffKt`):** Gemma 4 E2B 6/6 reasoning, 8/8 scams, 8/8 tools, sees+hears; Qwen3.5 4B/2B 2-3/6 reasoning and 1/8 tools; LFM2.5 2.6B blank answers; Ministral 3 3B crashed. Keep Gemma.
 - **Qwen models were rejected.** Qwen3 0.6B and Qwen2.5 1.5B were too weak, and Qwen's bundled chat template breaks in LiteRT-LM. Gemma 4 E2B scored 8/8 on scam checks and 13/13 on tool choice.
 
 ## Untested on a real phone (ask the user)
+- **1.11 features:** Ambient mode on a real phone (service survival, battery cost, place learning, thought quality, notification noise).
 - **1.10 features:** pictures and spoken questions in the Brain tab, the 8K workspace (memory on the real phone).
 - **1.8 features:** everything (fast writing on the phone, Big Brain download/switch, pictures, Brain voice transcription, phone tools on a real phone, battery coach over days, meaning-search indexing time, reply learning, fact chips).
 - **1.7 features:** reply chips (speed and quality), free DuckDuckGo search (can't be tested from the cloud: DuckDuckGo blocks data-centre IPs), Tavily.

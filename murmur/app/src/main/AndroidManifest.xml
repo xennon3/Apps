@@ -35,6 +35,10 @@
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <!-- Ambient mode: a visible foreground service while the user has it switched on. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <!-- Lets Murmur see the phone's speech recognizer, for voice note transcripts -->
@@ -141,6 +145,14 @@
         <receiver android:name=".sms.ScheduledSendReceiver" android:exported="false" />
         <receiver android:name=".notify.NotificationActionReceiver" android:exported="false" />
         <receiver android:name=".brain.BatteryLogReceiver" android:exported="false" />
+        <service
+            android:name=".brain.AmbientService"
+            android:exported="false"
+            android:foregroundServiceType="location|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="An on-device assistant that notices changes in the phone's state (battery, motion, place, incoming texts) and helps the user, only while they have switched it on." />
+        </service>
         <receiver android:name=".sms.BootReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

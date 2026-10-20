@@ -8,7 +8,7 @@ sourceSets.main {
     kotlin.include(
         "*.kt",
         "app/murmur/brain/BrainPrompts.kt", "app/murmur/brain/Calc.kt", "app/murmur/brain/Skills.kt",
-        "app/murmur/brain/PlanTime.kt", "app/murmur/brain/tools/*.kt",
+        "app/murmur/brain/PlanTime.kt", "app/murmur/brain/AmbientMind.kt", "app/murmur/brain/tools/*.kt",
     )
 }
 dependencies { implementation("com.google.ai.edge.litertlm:litertlm-jvm:0.18.0") }
