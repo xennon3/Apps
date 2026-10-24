@@ -408,12 +408,18 @@ $('#opts').onclick=()=>setMin(!document.body.classList.contains('min'));
 mq.addEventListener&&mq.addEventListener('change',e=>setMin(e.matches));
 $('#undo').onclick=undo;$('#redo').onclick=redo;$('#clear').onclick=clearAll;
 function exportCanvas(){commitText();const e=document.createElement('canvas');e.width=cv.width;e.height=cv.height;const c=e.getContext('2d');paintBg(c);c.drawImage(ink,0,0);return e}
+const APP=window.SketchbenchApp;
+const toB64=blob=>new Promise(r=>{const f=new FileReader();f.onload=()=>r(String(f.result).split(',')[1]);f.readAsDataURL(blob)});
+const stamp=()=>'sketch-'+new Date().toISOString().replace(/[-:T]/g,'').slice(0,14)+'.png';
+if(APP){btn('#copy','copy','Share');$('#copy').title='Share image';$('#copy').setAttribute('aria-label','Share image');$('#save').title='Save to Photos'}
 $('#save').onclick=()=>{exportCanvas().toBlob(async b=>{
+  if(APP){const n=stamp();toast(APP.savePng(await toB64(b),n)?'Saved to Pictures/Sketchbench':'Could not save');return}
   let dl=null;try{dl=window.claude&&await window.claude.use('downloads')}catch(e){}
   if(dl){try{await dl.save({filename:'sketch.png',data:b});toast('Saved sketch.png')}catch(e){if(e&&e.code!=='declined')toast('Could not save the image')}return}
   const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='sketch.png';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000);toast('Saved sketch.png')},'image/png')};
 $('#copy').onclick=()=>{
   const e=exportCanvas();
+  if(APP){e.toBlob(async b=>{APP.sharePng(await toB64(b),stamp())},'image/png');return}
   try{navigator.clipboard.write([new ClipboardItem({'image/png':new Promise(r=>e.toBlob(r,'image/png'))})]).then(()=>toast('Image copied'),()=>toast('Copy was blocked. Try Save PNG.'))}
   catch(err){toast('Copy is not available here. Try Save PNG.')}};
 

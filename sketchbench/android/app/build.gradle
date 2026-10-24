@@ -1,0 +1,25 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'app.sketchbench'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'app.sketchbench'
+        minSdk 29
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    sourceSets.main.assets.srcDirs = ['src/main/assets', "$buildDir/webassets"]
+}
+
+// The app is the same single-file page as ../index.html.
+tasks.register('copyWeb', Copy) {
+    from '../../index.html'
+    into "$buildDir/webassets"
+}
+preBuild.dependsOn 'copyWeb'
