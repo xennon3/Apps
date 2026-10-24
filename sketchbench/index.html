@@ -49,6 +49,8 @@ button{font:inherit;color:inherit;cursor:pointer}
 #cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
 .ring{position:absolute;pointer-events:none;border-radius:50%;border:1px solid #000;box-shadow:0 0 0 1px #fff;transform:translate(-50%,-50%);display:none}
 .hint{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;color:#7a7f86;font:700 22px var(--display);text-align:center;padding:24px}
+.pop{position:absolute;top:10px;right:10px;z-index:5;width:min(240px,calc(100% - 20px));background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:12px}
+.seg.two button i{display:inline-block;width:12px;height:12px;border-radius:3px;border:1px solid var(--line);margin-right:6px;vertical-align:-1px}
 .selbar{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:4px;padding:4px;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);max-width:calc(100% - 16px)}
 .selbar button{display:inline-flex;align-items:center;gap:6px;height:44px;padding:0 12px;border:0;border-radius:10px;background:transparent;font-size:13px;font-weight:500}
 .selbar button:hover{background:var(--panel2)}
@@ -96,6 +98,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0}
   .insp{max-height:34vh;padding:12px}
   .seg button{padding:10px 4px}.fonts button,.brush{min-height:44px}input[type=range]{height:28px}
 }
+@media (max-width:520px){.bar h1{display:none}}
 @media (prefers-reduced-motion:reduce){.toast{transition:none}}
 </style>
 
@@ -103,6 +106,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0}
   <h1>Sketchbench</h1><span class="sub">Draw the idea, then show it.</span>
   <div class="grow"></div>
   <button class="btn" id="opts" aria-label="Options" aria-pressed="false" hidden></button>
+  <button class="btn" id="canv" title="Canvas: surface and grid" aria-label="Canvas" aria-expanded="false"></button>
   <button class="btn" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo"></button>
   <button class="btn" id="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"></button>
   <button class="btn" id="clear" title="Clear the whole canvas" aria-label="Clear all"></button>
@@ -115,6 +119,10 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0}
     <canvas id="cv" aria-label="Drawing canvas"></canvas>
     <div class="ring" id="ring"></div>
     <div class="hint" id="hint">Pick a tool and start drawing</div>
+    <div class="pop" id="pop" hidden>
+      <div class="lbl">Surface</div><div id="bgSeg"></div>
+      <div class="lbl" style="margin-top:12px">Grid</div><div id="gridSeg"></div>
+    </div>
     <div class="selbar" id="selbar" hidden></div>
     <div class="toast" id="toast" role="status"></div>
   </section>
@@ -129,8 +137,6 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0}
     <div class="sec" data-g="brush eraser"><div class="lbl">Stabilizer<output id="smOut"></output></div><input type="range" id="smooth" min="0" max="90" value="30">
       <p class="keys" style="margin-top:6px">Higher values let the line glide behind your pointer for smooth, relaxed curves.</p></div>
     <div class="sec" data-g="brush eraser"><div class="lbl">Symmetry</div><div id="symSeg"></div></div>
-    <div class="sec" data-g="all"><div class="lbl">Surface</div><div id="bgSeg"></div></div>
-    <div class="sec" data-g="all"><div class="lbl">Grid</div><div id="gridSeg"></div></div>
     <p class="keys"><b>Keys</b> V move, B brush, E eraser, L line, A arrow, R rect, O ellipse, Y triangle, D diamond, S star, U bubble, T text. <b>[ ]</b> size. <b>Shift</b> keeps shapes square and lines at 15°. <b>Delete</b> removes the selected item. Double-click text to edit.</p>
   </aside>
 </main>
@@ -139,7 +145,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0}
 (()=>{
 const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const FONTS={hand:{f:'Caveat',w:700,k:1.1,label:'Hand'},sans:{f:'DM Sans',w:500,k:1,label:'Sans'},serif:{f:'Playfair Display',w:600,k:1,label:'Serif'},mono:{f:'Space Mono',w:400,k:.85,label:'Mono'},marker:{f:'Permanent Marker',w:400,k:.95,label:'Marker'}};
-const BGS={paper:'#fffdf8',blueprint:'#16478f',slate:'#1f242b',black:'#000000'};
+const BGS={paper:'#fffdf8',blueprint:'#16478f',blackboard:'#1c2822',black:'#000000'};
 const COLORS=['#1b1d22','#8a949c','#e5484d','#f08a24','#f2c230','#46a758','#12a594','#3e63dd','#8e4ec6','#e93d82','#4cc9f0','#ffffff'];
 const BRUSHES=[['pen','Pen'],['marker','Marker'],['pencil','Pencil'],['spray','Spray'],['calligraphy','Ink nib'],['highlighter','Highlighter'],['neon','Neon'],['rainbow','Rainbow']];
 const ic=s=>`<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${s}</svg>`;
@@ -153,6 +159,7 @@ const ICONS={
  star:'<path d="M12 3l2.7 5.9 6.3.7-4.7 4.3 1.3 6.3L12 17l-5.6 3.2 1.3-6.3L3 9.6l6.3-.7z"/>',
  bubble:'<path d="M4 5h16v11h-9l-4 4v-4H4z"/>', text:'<path d="M5 6V4h14v2"/><path d="M12 4v16"/><path d="M9 20h6"/>',
  undo:'<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>', redo:'<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',
+ grid:'<rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M4 12h16M12 4v16"/>',
  clearall:'<path d="M6 3h8l4 4v14H6z"/><path d="M10 11l5 5M15 11l-5 5"/>',
  layers:'<path d="M12 4l8 4-8 4-8-4z"/><path d="M4 12l8 4 8-4"/>',
  x:'<path d="M6 6l12 12M18 6L6 18"/>',
@@ -405,12 +412,12 @@ $$('#fonts button').forEach(b=>b.onclick=()=>{state.font=b.dataset.f;syncUI()});
 seg($('#fillSeg'),[['none','None'],['tint','Tint'],['solid','Solid']],()=>state.fill,v=>{state.fill=v;syncUI()});
 seg($('#symSeg'),[['off','Off'],['mirror','Mirror'],['4','4'],['6','6'],['8','8']],()=>state.sym,v=>{state.sym=v;syncUI()});
 const isDark=b=>b!=='paper';
-seg($('#bgSeg'),[['paper','Paper'],['blueprint','Blueprint'],['slate','Slate'],['black','Black']],()=>state.bg,v=>{
+seg($('#bgSeg'),[['paper','Paper'],['blueprint','Blueprint'],['blackboard','Blackboard'],['black','Black']],()=>state.bg,v=>{
   const was=isDark(state.bg);state.bg=v;
   if(isDark(v)&&!was&&state.color==='#1b1d22')state.color='#ffffff';else if(!isDark(v)&&was&&state.color==='#ffffff')state.color='#1b1d22';
   if(v==='blueprint'&&state.grid==='none')state.grid='graph';
-  buildPattern();syncUI();renderPreviews();save();schedule()});
-$('#bgSeg').classList.add('two');
+  buildPattern();inkDirty=true;syncUI();renderPreviews();save();schedule()});
+$('#bgSeg').classList.add('two');$$('#bgSeg button').forEach(b=>b.innerHTML=`<i style="background:${BGS[b.dataset.v]}"></i>`+b.textContent);
 seg($('#gridSeg'),[['none','None'],['dots','Dots'],['lines','Lines'],['graph','Graph']],()=>state.grid,v=>{state.grid=v;buildPattern();syncUI();save();schedule()});
 $('#size').oninput=e=>{state.size=+e.target.value;syncUI();if(sel)restyle('size',state.size,false)};
 $('#size').onchange=()=>{if(sel&&selDirty)commit()};
@@ -442,11 +449,15 @@ function renderPreviews(){
 
 /* ---------- header actions ---------- */
 const btn=(id,icon,label)=>{$(id).innerHTML=ic(ICONS[icon])+`<span>${label}</span>`};
-btn('#undo','undo','Undo');btn('#redo','redo','Redo');btn('#clear','clearall','Clear all');btn('#copy','copy','Copy');btn('#save','save','Save PNG');
+btn('#canv','grid','Canvas');btn('#undo','undo','Undo');btn('#redo','redo','Redo');btn('#clear','clearall','Clear all');btn('#copy','copy','Copy');btn('#save','save','Save PNG');
 btn('#opts','sliders','Options');const mq=matchMedia('(max-width:760px)');
 const setMin=m=>{document.body.classList.toggle('min',m);$('#opts').setAttribute('aria-pressed',String(!m));setTimeout(resize,0)};
 $('#opts').onclick=()=>setMin(!document.body.classList.contains('min'));
 mq.addEventListener&&mq.addEventListener('change',e=>setMin(e.matches));
+const pop=$('#pop');
+const setPop=o=>{pop.hidden=!o;$('#canv').setAttribute('aria-expanded',String(o))};
+$('#canv').onclick=()=>setPop(pop.hidden);
+document.addEventListener('pointerdown',e=>{if(!pop.hidden&&!pop.contains(e.target)&&!$('#canv').contains(e.target))setPop(false)});
 $('#undo').onclick=undo;$('#redo').onclick=redo;$('#clear').onclick=clearAll;
 function exportCanvas(){commitText();const e=document.createElement('canvas');e.width=cv.width;e.height=cv.height;const c=e.getContext('2d');paintBg(c);c.drawImage(ink,0,0);return e}
 const APP=window.SketchbenchApp;
@@ -473,7 +484,7 @@ addEventListener('keydown',e=>{
   if(mod&&k==='y'){e.preventDefault();redo();return}
   if(mod||e.altKey)return;
   if(k==='delete'||k==='backspace'){if(sel&&objs.includes(sel)){e.preventDefault();delSel()}return}
-  if(k==='escape'){sel=null;schedule();return}
+  if(k==='escape'){sel=null;setPop(false);schedule();return}
   if(k==='['||k===']'){state.size=Math.max(1,Math.min(40,state.size+(k===']'?1:-1)));syncUI();if(sel)restyle('size',state.size,true);return}
   if(KEYS[k]){e.preventDefault();setTool(KEYS[k])}});
 
@@ -491,7 +502,7 @@ function starter(){
 
 /* ---------- boot ---------- */
 let loaded=null;
-try{const s=JSON.parse(localStorage.getItem('sketchbench:v1')||'null');if(s&&Array.isArray(s.objs)){loaded=s;if(BGS[s.bg])state.bg=s.bg;else if(s.bg==='dark')state.bg='slate';if(['none','dots','lines','graph'].includes(s.grid))state.grid=s.grid;else if(s.bg==='dots')state.grid='dots';else if(s.bg==='grid')state.grid='lines'}}catch(e){}
+try{const s=JSON.parse(localStorage.getItem('sketchbench:v1')||'null');if(s&&Array.isArray(s.objs)){loaded=s;if(BGS[s.bg])state.bg=s.bg;else if(s.bg==='dark'||s.bg==='slate')state.bg='blackboard';if(['none','dots','lines','graph'].includes(s.grid))state.grid=s.grid;else if(s.bg==='dots')state.grid='dots';else if(s.bg==='grid')state.grid='lines'}}catch(e){}
 new ResizeObserver(resize).observe(sheet);
 setMin(mq.matches);resize();
 objs=loaded?loaded.objs:starter();hist=[objs.slice()];hi=0;
