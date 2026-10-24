@@ -49,7 +49,12 @@ button{font:inherit;color:inherit;cursor:pointer}
 #cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
 .ring{position:absolute;pointer-events:none;border-radius:50%;border:1px solid #000;box-shadow:0 0 0 1px #fff;transform:translate(-50%,-50%);display:none}
 .hint{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;color:#7a7f86;font:700 22px var(--display);text-align:center;padding:24px}
-.toast{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);background:#1c2326;color:#fff;padding:8px 14px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap}
+.selbar{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:4px;padding:4px;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);max-width:calc(100% - 16px)}
+.selbar button{display:inline-flex;align-items:center;gap:6px;height:44px;padding:0 12px;border:0;border-radius:10px;background:transparent;font-size:13px;font-weight:500}
+.selbar button:hover{background:var(--panel2)}
+.selbar button[data-a=del]{background:#d92d3a;color:#fff}
+.selbar button[data-a=del]:hover{background:#b9222e}
+.toast{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:#1c2326;color:#fff;padding:8px 14px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap}
 .toast.on{opacity:.95}
 .ta{position:absolute;margin:-1.5px 0 0 -1.5px;padding:0;border:1.5px dashed var(--accent);background:transparent;outline:none;resize:none;overflow:hidden;white-space:pre;line-height:1.2;-webkit-user-select:text;user-select:text;min-width:60px}
 .insp{background:var(--panel);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:16px;overflow-y:auto;box-shadow:inset 0 0 0 1px var(--line)}
@@ -82,6 +87,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0}
   .btn{height:40px;width:38px;min-width:0;justify-content:center}.btn[aria-pressed=true]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
   body.min .insp{display:none}
   .bar .sub,.btn span{display:none}
+  .selbar button{padding:0 10px}.selbar button[data-a=front] span,.selbar button[data-a=dup] span{display:none}
   .bar{gap:4px;flex-wrap:nowrap}.btn{padding:0;gap:0}.bar h1{font-size:17px;white-space:nowrap}
   .work{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;gap:8px}
   .rail{flex-direction:row;overflow-x:auto;overflow-y:hidden;padding:4px}
@@ -99,7 +105,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0}
   <button class="btn" id="opts" aria-label="Options" aria-pressed="false" hidden></button>
   <button class="btn" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo"></button>
   <button class="btn" id="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"></button>
-  <button class="btn" id="clear" title="Clear the canvas" aria-label="Clear"></button>
+  <button class="btn" id="clear" title="Clear the whole canvas" aria-label="Clear all"></button>
   <button class="btn" id="copy" title="Copy image to clipboard" aria-label="Copy image"></button>
   <button class="btn primary" id="save" title="Download as PNG" aria-label="Save PNG"></button>
 </header>
@@ -109,6 +115,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0}
     <canvas id="cv" aria-label="Drawing canvas"></canvas>
     <div class="ring" id="ring"></div>
     <div class="hint" id="hint">Pick a tool and start drawing</div>
+    <div class="selbar" id="selbar" hidden></div>
     <div class="toast" id="toast" role="status"></div>
   </section>
   <aside class="insp" id="insp" aria-label="Tool options">
@@ -146,6 +153,9 @@ const ICONS={
  star:'<path d="M12 3l2.7 5.9 6.3.7-4.7 4.3 1.3 6.3L12 17l-5.6 3.2 1.3-6.3L3 9.6l6.3-.7z"/>',
  bubble:'<path d="M4 5h16v11h-9l-4 4v-4H4z"/>', text:'<path d="M5 6V4h14v2"/><path d="M12 4v16"/><path d="M9 20h6"/>',
  undo:'<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>', redo:'<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',
+ clearall:'<path d="M6 3h8l4 4v14H6z"/><path d="M10 11l5 5M15 11l-5 5"/>',
+ layers:'<path d="M12 4l8 4-8 4-8-4z"/><path d="M4 12l8 4 8-4"/>',
+ x:'<path d="M6 6l12 12M18 6L6 18"/>',
  trash:'<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>',
  copy:'<rect x="8" y="8" width="12" height="12" rx="1.5"/><path d="M5 16V5a1 1 0 0 1 1-1h11"/>',
  sliders:'<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
@@ -243,12 +253,17 @@ function bounds(o){
   if(o.t==='stroke'){let a=1e9,b=1e9,c=-1e9,d=-1e9;for(const p of o.pts){a=Math.min(a,p[0]);b=Math.min(b,p[1]);c=Math.max(c,p[0]);d=Math.max(d,p[1])}
     const pd=o.size*(o.brush==='spray'?2:BRW[o.brush])/ (o.brush==='spray'?1:2)+3;return{x:a-pd,y:b-pd,w:c-a+2*pd,h:d-b+2*pd}}
   const pd=o.size/2+2,x=Math.min(o.x1,o.x2)-pd,y=Math.min(o.y1,o.y2)-pd;return{x,y,w:Math.abs(o.x2-o.x1)+2*pd,h:Math.abs(o.y2-o.y1)+2*pd}}
-function hit(x,y){
+function hit(x,y,pad=8){
   for(let i=objs.length-1;i>=0;i--){const o=objs[i];
-    if(o.t==='stroke'){const r=o.size*(BRW[o.brush]||1)/2+8,p=o.pts;
+    if(o.t==='stroke'){const r=o.size*(BRW[o.brush]||1)/2+pad,p=o.pts;
       if(p.length===1?Math.hypot(x-p[0][0],y-p[0][1])<r:p.some((q,j)=>j&&dseg(x,y,p[j-1][0],p[j-1][1],q[0],q[1])<r))return o;continue}
-    if(o.t==='shape'&&(o.kind==='line'||o.kind==='arrow')){if(dseg(x,y,o.x1,o.y1,o.x2,o.y2)<o.size/2+8)return o;continue}
-    const b=bounds(o);if(x>=b.x-4&&x<=b.x+b.w+4&&y>=b.y-4&&y<=b.y+b.h+4)return o}
+    if(o.t==='shape'&&(o.kind==='line'||o.kind==='arrow')){if(dseg(x,y,o.x1,o.y1,o.x2,o.y2)<o.size/2+pad)return o;continue}
+    if(o.t==='shape'){const x0=Math.min(o.x1,o.x2),y0=Math.min(o.y1,o.y2),w=Math.abs(o.x2-o.x1),h=Math.abs(o.y2-o.y1),t=pad+o.size/2,filled=o.fill!=='none';
+      if(x<x0-t||x>x0+w+t||y<y0-t||y>y0+h+t)continue;
+      if(filled)return o;
+      if(o.kind==='ellipse'){const rx=Math.max(1,w/2),ry=Math.max(1,h/2),d=Math.hypot((x-x0-rx)/rx,(y-y0-ry)/ry);if(Math.abs(d-1)<=t/Math.min(rx,ry))return o;continue}
+      if(x<x0+t||x>x0+w-t||y<y0+t||y>y0+h-t)return o;continue}
+    const b=bounds(o);if(x>=b.x-pad/2&&x<=b.x+b.w+pad/2&&y>=b.y-pad/2&&y<=b.y+b.h+pad/2)return o}
   return null}
 function shift(o,dx,dy){
   if(o.t==='text')return{...o,x:o.x+dx,y:o.y+dy};
@@ -272,6 +287,7 @@ function draw(){
   if(cur&&cur.brush==='eraser'){tctx.setTransform(1,0,0,1,0,0);tctx.clearRect(0,0,tmp.width,tmp.height);tctx.drawImage(ink,0,0);tctx.setTransform(dpr,0,0,dpr,0,0);drawObj(tctx,cur);ctx.drawImage(tmp,0,0)}
   else{ctx.drawImage(ink,0,0);if(cur){ctx.setTransform(dpr,0,0,dpr,0,0);drawObj(ctx,cur)}}
   ctx.setTransform(dpr,0,0,dpr,0,0);
+  $('#selbar').hidden=!(sel&&objs.includes(sel));
   if(sel&&objs.includes(sel)){const b=bounds(sel);ctx.save();ctx.setLineDash([6,4]);ctx.lineWidth=1.5;ctx.strokeStyle='#2d5be3';ctx.strokeRect(b.x-4,b.y-4,b.w+8,b.h+8);ctx.restore()}}
 const schedule=()=>{if(!raf)raf=requestAnimationFrame(draw)};
 function resize(){
@@ -286,9 +302,9 @@ function commit(){hist.length=hi+1;hist.push(objs.slice());if(hist.length>200)hi
 function undo(){commitText();if(hi>0){hi--;objs=hist[hi].slice();sel=null;inkDirty=true;ui();save();schedule()}}
 function redo(){commitText();if(hi<hist.length-1){hi++;objs=hist[hi].slice();sel=null;inkDirty=true;ui();save();schedule()}}
 let clearT=0;
-function clearAll(){const b=$('#clear');if(!b.classList.contains('warn')){b.classList.add('warn');b.lastChild.textContent='Sure?';clearT=setTimeout(resetClear,2500);return}
+function clearAll(){const b=$('#clear');if(!b.classList.contains('warn')){b.classList.add('warn');b.lastChild.textContent='Sure?';toast('Tap again to clear everything');clearT=setTimeout(resetClear,3000);return}
   resetClear();commitText();objs=[];sel=null;commit()}
-function resetClear(){clearTimeout(clearT);const b=$('#clear');b.classList.remove('warn');b.lastChild.textContent='Clear'}
+function resetClear(){clearTimeout(clearT);const b=$('#clear');b.classList.remove('warn');b.lastChild.textContent='Clear all'}
 
 /* ---------- text editor ---------- */
 function openText(x,y,o){
@@ -315,7 +331,7 @@ cv.addEventListener('pointerdown',e=>{
   commitText();const[x,y]=pos(e),t=state.tool;
   if(t==='text'){textAt=[x,y];return}
   cv.setPointerCapture(e.pointerId);hint.hidden=true;
-  if(t==='move'){const h=hit(x,y);sel=h;drag=h?{i:objs.indexOf(h),orig:h,x,y,moved:false}:null;schedule();return}
+  if(t==='move'){const h=hit(x,y,e.pointerType==='touch'?18:8);sel=h;drag=h?{i:objs.indexOf(h),orig:h,x,y,moved:false}:null;schedule();return}
   sel=null;
   if(t==='brush'||t==='eraser'){
     cur={t:'stroke',brush:t==='eraser'?'eraser':state.brush,color:state.color,size:state.size,alpha:state.alpha,pts:[[x,y,e.pointerType==='pen'?(e.pressure||.5):.7]],seed:(Math.random()*1e9)|0,sym:state.sym,cx:W/2,cy:H/2};lz=[x,y]}
@@ -349,6 +365,16 @@ cv.addEventListener('click',e=>{if(state.tool!=='text'||!textAt)return;const[x,y
 cv.addEventListener('contextmenu',e=>e.preventDefault());
 cv.addEventListener('dblclick',e=>{const[x,y]=pos(e),h=hit(x,y);if(h&&h.t==='text')openText(h.x,h.y,h)});
 
+/* ---------- selection actions ---------- */
+function delSel(){if(sel&&objs.includes(sel)){objs.splice(objs.indexOf(sel),1);sel=null;commit()}}
+$('#selbar').innerHTML=[['dup','copy','Duplicate'],['front','layers','To front'],['del','trash','Delete'],['done','x','Done']].map(([a,i,l])=>`<button type="button" data-a="${a}" aria-label="${l}">${ic(ICONS[i])}<span>${l}</span></button>`).join('');
+$('#selbar').onclick=e=>{const b=e.target.closest('button');if(!b)return;const a=b.dataset.a;
+  if(a==='done'){sel=null;schedule();return}
+  if(!sel||!objs.includes(sel))return;
+  if(a==='del')delSel();
+  else if(a==='dup'){const n=shift(sel,24,24);objs.push(n);sel=n;commit()}
+  else if(a==='front'){objs.splice(objs.indexOf(sel),1);objs.push(sel);commit()}};
+
 /* ---------- restyle selection ---------- */
 let selDirty=false;
 function restyle(prop,val,final){
@@ -360,7 +386,7 @@ function restyle(prop,val,final){
 function toast(m){toastEl.textContent=m;toastEl.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>toastEl.classList.remove('on'),2200)}
 const bgForUi=()=>BGS[state.bg];
 function setTool(t){commitText();textAt=null;state.tool=t;if(t!=='move')sel=null;ring.style.display='none';
-  cv.style.cursor=t==='text'?'text':t==='move'?'default':'crosshair';syncUI();schedule()}
+  cv.style.cursor=t==='text'?'text':t==='move'?'default':'crosshair';if(t==='move'&&!setTool.hinted&&objs.length){setTool.hinted=1;toast('Tap an item to select it, then delete or move it')}syncUI();schedule()}
 function setColor(c){state.color=c;syncUI();renderPreviews();if(sel)restyle('color',c,true)}
 const segs_=[];
 function seg(el,items,get,set){el.className='seg';for(const[v,l]of items){const b=document.createElement('button');b.type='button';b.textContent=l;b.dataset.v=v;b.onclick=()=>set(v);el.appendChild(b)}
@@ -416,7 +442,7 @@ function renderPreviews(){
 
 /* ---------- header actions ---------- */
 const btn=(id,icon,label)=>{$(id).innerHTML=ic(ICONS[icon])+`<span>${label}</span>`};
-btn('#undo','undo','Undo');btn('#redo','redo','Redo');btn('#clear','trash','Clear');btn('#copy','copy','Copy');btn('#save','save','Save PNG');
+btn('#undo','undo','Undo');btn('#redo','redo','Redo');btn('#clear','clearall','Clear all');btn('#copy','copy','Copy');btn('#save','save','Save PNG');
 btn('#opts','sliders','Options');const mq=matchMedia('(max-width:760px)');
 const setMin=m=>{document.body.classList.toggle('min',m);$('#opts').setAttribute('aria-pressed',String(!m));setTimeout(resize,0)};
 $('#opts').onclick=()=>setMin(!document.body.classList.contains('min'));
@@ -446,7 +472,7 @@ addEventListener('keydown',e=>{
   if(mod&&k==='z'){e.preventDefault();e.shiftKey?redo():undo();return}
   if(mod&&k==='y'){e.preventDefault();redo();return}
   if(mod||e.altKey)return;
-  if(k==='delete'||k==='backspace'){if(sel&&objs.includes(sel)){e.preventDefault();objs.splice(objs.indexOf(sel),1);sel=null;commit()}return}
+  if(k==='delete'||k==='backspace'){if(sel&&objs.includes(sel)){e.preventDefault();delSel()}return}
   if(k==='escape'){sel=null;schedule();return}
   if(k==='['||k===']'){state.size=Math.max(1,Math.min(40,state.size+(k===']'?1:-1)));syncUI();if(sel)restyle('size',state.size,true);return}
   if(KEYS[k]){e.preventDefault();setTool(KEYS[k])}});
