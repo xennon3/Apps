@@ -395,7 +395,10 @@ const btn=(id,icon,label)=>{$(id).innerHTML=ic(ICONS[icon])+`<span>${label}</spa
 btn('#undo','undo','Undo');btn('#redo','redo','Redo');btn('#clear','trash','Clear');btn('#copy','copy','Copy');btn('#save','save','Save PNG');
 $('#undo').onclick=undo;$('#redo').onclick=redo;$('#clear').onclick=clearAll;
 function exportCanvas(){commitText();const e=document.createElement('canvas');e.width=cv.width;e.height=cv.height;const c=e.getContext('2d');paintBg(c);c.drawImage(ink,0,0);return e}
-$('#save').onclick=()=>{exportCanvas().toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='sketch.png';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000);toast('Saved sketch.png')},'image/png')};
+$('#save').onclick=()=>{exportCanvas().toBlob(async b=>{
+  let dl=null;try{dl=window.claude&&await window.claude.use('downloads')}catch(e){}
+  if(dl){try{await dl.save({filename:'sketch.png',data:b});toast('Saved sketch.png')}catch(e){if(e&&e.code!=='declined')toast('Could not save the image')}return}
+  const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='sketch.png';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000);toast('Saved sketch.png')},'image/png')};
 $('#copy').onclick=()=>{
   const e=exportCanvas();
   try{navigator.clipboard.write([new ClipboardItem({'image/png':new Promise(r=>e.toBlob(r,'image/png'))})]).then(()=>toast('Image copied'),()=>toast('Copy was blocked. Try Save PNG.'))}
