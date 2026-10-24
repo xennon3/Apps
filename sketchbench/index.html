@@ -69,6 +69,9 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0}
 .seg button{flex:1;border:0;background:transparent;padding:7px 4px;font-size:13px;border-right:1px solid var(--line)}
 .seg button:last-child{border-right:0}
 .seg button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);font-weight:700}
+.seg.two{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line)}
+.seg.two button{border:0;background:var(--panel)}
+.seg.two button[aria-pressed="true"]{background:var(--accent)}
 .fonts{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
 .fonts button{height:40px;border:1px solid var(--line);border-radius:10px;background:var(--panel);font-size:20px;padding:0}
 .fonts button[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
@@ -119,7 +122,8 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0}
     <div class="sec" data-g="brush eraser"><div class="lbl">Stabilizer<output id="smOut"></output></div><input type="range" id="smooth" min="0" max="90" value="30">
       <p class="keys" style="margin-top:6px">Higher values let the line glide behind your pointer for smooth, relaxed curves.</p></div>
     <div class="sec" data-g="brush eraser"><div class="lbl">Symmetry</div><div id="symSeg"></div></div>
-    <div class="sec" data-g="all"><div class="lbl">Canvas</div><div id="bgSeg"></div></div>
+    <div class="sec" data-g="all"><div class="lbl">Surface</div><div id="bgSeg"></div></div>
+    <div class="sec" data-g="all"><div class="lbl">Grid</div><div id="gridSeg"></div></div>
     <p class="keys"><b>Keys</b> V move, B brush, E eraser, L line, A arrow, R rect, O ellipse, Y triangle, D diamond, S star, U bubble, T text. <b>[ ]</b> size. <b>Shift</b> keeps shapes square and lines at 15°. <b>Delete</b> removes the selected item. Double-click text to edit.</p>
   </aside>
 </main>
@@ -128,8 +132,8 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0}
 (()=>{
 const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const FONTS={hand:{f:'Caveat',w:700,k:1.1,label:'Hand'},sans:{f:'DM Sans',w:500,k:1,label:'Sans'},serif:{f:'Playfair Display',w:600,k:1,label:'Serif'},mono:{f:'Space Mono',w:400,k:.85,label:'Mono'},marker:{f:'Permanent Marker',w:400,k:.95,label:'Marker'}};
-const BGS={paper:'#fffdf8',dots:'#fffdf8',grid:'#fffdf8',dark:'#1f242b'};
-const COLORS=['#1b1d22','#8a949c','#e5484d','#f08a24','#f2c230','#46a758','#12a594','#3e63dd','#8e4ec6','#e93d82','#8b6f57','#ffffff'];
+const BGS={paper:'#fffdf8',blueprint:'#16478f',slate:'#1f242b',black:'#000000'};
+const COLORS=['#1b1d22','#8a949c','#e5484d','#f08a24','#f2c230','#46a758','#12a594','#3e63dd','#8e4ec6','#e93d82','#4cc9f0','#ffffff'];
 const BRUSHES=[['pen','Pen'],['marker','Marker'],['pencil','Pencil'],['spray','Spray'],['calligraphy','Ink nib'],['highlighter','Highlighter'],['neon','Neon'],['rainbow','Rainbow']];
 const ic=s=>`<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${s}</svg>`;
 const ICONS={
@@ -149,7 +153,7 @@ const ICONS={
 const TOOLS=[['move','Move','V'],['brush','Brush','B'],['eraser','Eraser','E'],'-',['line','Line','L'],['arrow','Arrow','A'],['rect','Rectangle','R'],['ellipse','Ellipse','O'],['triangle','Triangle','Y'],['diamond','Diamond','D'],['star','Star','S'],['bubble','Speech bubble','U'],'-',['text','Text','T']];
 const group=t=>['move','brush','eraser','text'].includes(t)?t:'shape';
 
-const state={tool:'brush',brush:'pen',color:'#1b1d22',size:5,alpha:1,fill:'none',font:'hand',smooth:.3,sym:'off',bg:'paper'};
+const state={tool:'brush',brush:'pen',color:'#1b1d22',size:5,alpha:1,fill:'none',font:'hand',smooth:.3,sym:'off',bg:'paper',grid:'none'};
 let objs=[],hist=[[]],hi=0,sel=null,cur=null,drag=null,active=null,editing=null,lz=[0,0];
 let textAt=null,W=0,H=0,dpr=1,pat=null,raf=0,inkDirty=true;
 
@@ -225,7 +229,10 @@ function transforms(o){
   if(o.t!=='stroke'||!o.sym||o.sym==='off')return[null];
   if(o.sym==='mirror')return[null,c=>{c.translate(o.cx,0);c.scale(-1,1);c.translate(-o.cx,0)}];
   const n=+o.sym,out=[];for(let k=0;k<n;k++)out.push(c=>{c.translate(o.cx,o.cy);c.rotate(k*6.2832/n);c.translate(-o.cx,-o.cy)});return out}
+const ON_DARK={'#1b1d22':'#ffffff','#3e63dd':'#8fb4ff'};
 function drawObj(c,o){
+  // The default ink and blue swap to light tones on dark surfaces (and white back to ink on paper) so nothing disappears.
+  const m=state.bg==='paper'?(o.color==='#ffffff'?'#1b1d22':null):ON_DARK[o.color];if(m)o={...o,color:m};
   if(o.t==='text')return drawText(c,o);
   for(const f of transforms(o)){c.save();if(f)f(c);
     if(o.t==='shape')paintShape(c,o);
@@ -250,10 +257,12 @@ function shift(o,dx,dy){
 
 /* ---------- rendering ---------- */
 function buildPattern(){
-  pat=null;if(state.bg!=='dots'&&state.bg!=='grid')return;
-  const s=Math.round(24*dpr),t=document.createElement('canvas');t.width=t.height=s;const c=t.getContext('2d');
-  if(state.bg==='dots'){c.fillStyle='rgba(30,40,50,.22)';c.beginPath();c.arc(s/2,s/2,1.1*dpr,0,6.2832);c.fill()}
-  else{c.strokeStyle='rgba(60,90,130,.14)';c.lineWidth=dpr;c.strokeRect(.5,.5,s,s)}
+  pat=null;if(state.grid==='none')return;
+  const dk=state.bg!=='paper',graph=state.grid==='graph',step=graph?20:24,span=graph?5:1,s=Math.round(step*span*dpr);
+  const t=document.createElement('canvas');t.width=t.height=s;const c=t.getContext('2d'),rgb=dk?'225,238,255':'60,90,130',lw=Math.max(1,Math.round(dpr));
+  if(state.grid==='dots'){c.fillStyle=`rgba(${rgb},${dk?.4:.3})`;c.beginPath();c.arc(s/2,s/2,1.2*dpr,0,6.2832);c.fill()}
+  else for(let k=0;k<span;k++){const major=graph&&k===0,w=major?Math.round(lw*1.6):lw,pos=Math.round(k*step*dpr);
+    c.fillStyle=`rgba(${rgb},${major?(dk?.42:.3):(dk?.15:.13)})`;c.fillRect(pos,0,w,s);c.fillRect(0,pos,s,w)}
   pat=ctx.createPattern(t,'repeat')}
 function paintBg(c){const cw=c.canvas.width,ch=c.canvas.height;c.setTransform(1,0,0,1,0,0);c.globalAlpha=1;c.globalCompositeOperation='source-over';c.fillStyle=BGS[state.bg];c.fillRect(0,0,cw,ch);if(pat){c.fillStyle=pat;c.fillRect(0,0,cw,ch)}}
 function redrawInk(){ictx.setTransform(1,0,0,1,0,0);ictx.clearRect(0,0,ink.width,ink.height);ictx.setTransform(dpr,0,0,dpr,0,0);for(const o of objs)if(o!==editing)drawObj(ictx,o);inkDirty=false}
@@ -272,7 +281,7 @@ function resize(){
 
 /* ---------- history & storage ---------- */
 let saveT=0;
-function save(){clearTimeout(saveT);saveT=setTimeout(()=>{try{localStorage.setItem('sketchbench:v1',JSON.stringify({objs,bg:state.bg}))}catch(e){}},400)}
+function save(){clearTimeout(saveT);saveT=setTimeout(()=>{try{localStorage.setItem('sketchbench:v1',JSON.stringify({objs,bg:state.bg,grid:state.grid}))}catch(e){}},400)}
 function commit(){hist.length=hi+1;hist.push(objs.slice());if(hist.length>200)hist.shift();hi=hist.length-1;inkDirty=true;ui();save();schedule()}
 function undo(){commitText();if(hi>0){hi--;objs=hist[hi].slice();sel=null;inkDirty=true;ui();save();schedule()}}
 function redo(){commitText();if(hi<hist.length-1){hi++;objs=hist[hi].slice();sel=null;inkDirty=true;ui();save();schedule()}}
@@ -369,9 +378,14 @@ $('#fonts').innerHTML=Object.entries(FONTS).map(([id,f])=>`<button type="button"
 $$('#fonts button').forEach(b=>b.onclick=()=>{state.font=b.dataset.f;syncUI()});
 seg($('#fillSeg'),[['none','None'],['tint','Tint'],['solid','Solid']],()=>state.fill,v=>{state.fill=v;syncUI()});
 seg($('#symSeg'),[['off','Off'],['mirror','Mirror'],['4','4'],['6','6'],['8','8']],()=>state.sym,v=>{state.sym=v;syncUI()});
-seg($('#bgSeg'),[['paper','Paper'],['dots','Dots'],['grid','Grid'],['dark','Dark']],()=>state.bg,v=>{
-  const wasDark=state.bg==='dark';state.bg=v;if(v==='dark'&&state.color==='#1b1d22')state.color='#ffffff';else if(wasDark&&v!=='dark'&&state.color==='#ffffff')state.color='#1b1d22';
+const isDark=b=>b!=='paper';
+seg($('#bgSeg'),[['paper','Paper'],['blueprint','Blueprint'],['slate','Slate'],['black','Black']],()=>state.bg,v=>{
+  const was=isDark(state.bg);state.bg=v;
+  if(isDark(v)&&!was&&state.color==='#1b1d22')state.color='#ffffff';else if(!isDark(v)&&was&&state.color==='#ffffff')state.color='#1b1d22';
+  if(v==='blueprint'&&state.grid==='none')state.grid='graph';
   buildPattern();syncUI();renderPreviews();save();schedule()});
+$('#bgSeg').classList.add('two');
+seg($('#gridSeg'),[['none','None'],['dots','Dots'],['lines','Lines'],['graph','Graph']],()=>state.grid,v=>{state.grid=v;buildPattern();syncUI();save();schedule()});
 $('#size').oninput=e=>{state.size=+e.target.value;syncUI();if(sel)restyle('size',state.size,false)};
 $('#size').onchange=()=>{if(sel&&selDirty)commit()};
 $('#alpha').oninput=e=>{state.alpha=+e.target.value/100;syncUI();if(sel)restyle('alpha',state.alpha,false)};
@@ -390,6 +404,7 @@ function syncUI(){
   $('#sizeLbl').textContent=g==='text'?'Text size':g==='eraser'?'Eraser size':'Size';
   $('#alpha').value=Math.round(state.alpha*100);$('#alphaOut').textContent=Math.round(state.alpha*100)+'%';
   $('#smooth').value=Math.round(state.smooth*100);$('#smOut').textContent=state.smooth?Math.round(state.smooth*100)+'%':'Off';
+  hint.style.color=state.bg==='paper'?'#7a7f86':'#a9bddb';
   $$('.sec').forEach(s=>{const gs=s.dataset.g.split(' ');s.hidden=!(gs.includes('all')||gs.includes(g))})}
 function ui(){
   $('#undo').disabled=hi<=0;$('#redo').disabled=hi>=hist.length-1;hint.hidden=objs.length>0||!!cur||!!active}
@@ -450,7 +465,7 @@ function starter(){
 
 /* ---------- boot ---------- */
 let loaded=null;
-try{const s=JSON.parse(localStorage.getItem('sketchbench:v1')||'null');if(s&&Array.isArray(s.objs)){loaded=s;if(BGS[s.bg])state.bg=s.bg}}catch(e){}
+try{const s=JSON.parse(localStorage.getItem('sketchbench:v1')||'null');if(s&&Array.isArray(s.objs)){loaded=s;if(BGS[s.bg])state.bg=s.bg;else if(s.bg==='dark')state.bg='slate';if(['none','dots','lines','graph'].includes(s.grid))state.grid=s.grid;else if(s.bg==='dots')state.grid='dots';else if(s.bg==='grid')state.grid='lines'}}catch(e){}
 new ResizeObserver(resize).observe(sheet);
 setMin(mq.matches);resize();
 objs=loaded?loaded.objs:starter();hist=[objs.slice()];hi=0;
