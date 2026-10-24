@@ -22,10 +22,11 @@
   --shadow:0 1px 2px rgba(0,0,0,.5),0 10px 30px rgba(0,0,0,.45); color-scheme:dark}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
-html,body{height:100%}
+html,body{height:100%;overscroll-behavior:none}
+@supports (height:100dvh){html,body{height:100dvh}}
 body{margin:0;background:var(--desk);color:var(--ink);font:14px/1.4 var(--body);display:flex;flex-direction:column;gap:10px;
   padding-block:12px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
-  overflow:hidden;-webkit-user-select:none;user-select:none}
+  overflow:hidden;overscroll-behavior:none;touch-action:manipulation;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
 button{font:inherit;color:inherit;cursor:pointer}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -74,13 +75,17 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0}
 .keys{margin:0;color:var(--mute);font-size:12px;line-height:1.5}
 .keys b{color:var(--ink)}
 @media (max-width:760px){
+  #opts{display:inline-flex!important}#opts[hidden]{display:inline-flex!important}
+  .btn{height:40px;width:38px;min-width:0;justify-content:center}.btn[aria-pressed=true]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+  body.min .insp{display:none}
   .bar .sub,.btn span{display:none}
-  .bar{gap:6px}.btn{padding:0 9px}.bar h1{font-size:18px}
+  .bar{gap:4px;flex-wrap:nowrap}.btn{padding:0;gap:0}.bar h1{font-size:17px;white-space:nowrap}
   .work{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;gap:8px}
   .rail{flex-direction:row;overflow-x:auto;overflow-y:hidden;padding:4px}
   .rail hr{border-top:0;border-left:1px solid var(--line);margin:6px 4px;height:auto}
-  .tool{width:40px;height:40px}
-  .insp{max-height:36vh;padding:12px}
+  .tool{width:44px;height:44px}
+  .insp{max-height:34vh;padding:12px}
+  .seg button{padding:10px 4px}.fonts button,.brush{min-height:44px}input[type=range]{height:28px}
 }
 @media (prefers-reduced-motion:reduce){.toast{transition:none}}
 </style>
@@ -88,6 +93,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0}
 <header class="bar">
   <h1>Sketchbench</h1><span class="sub">Draw the idea, then show it.</span>
   <div class="grow"></div>
+  <button class="btn" id="opts" aria-label="Options" aria-pressed="false" hidden></button>
   <button class="btn" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo"></button>
   <button class="btn" id="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"></button>
   <button class="btn" id="clear" title="Clear the canvas" aria-label="Clear"></button>
@@ -138,13 +144,14 @@ const ICONS={
  undo:'<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>', redo:'<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',
  trash:'<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>',
  copy:'<rect x="8" y="8" width="12" height="12" rx="1.5"/><path d="M5 16V5a1 1 0 0 1 1-1h11"/>',
+ sliders:'<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
  save:'<path d="M12 4v11"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/>'};
 const TOOLS=[['move','Move','V'],['brush','Brush','B'],['eraser','Eraser','E'],'-',['line','Line','L'],['arrow','Arrow','A'],['rect','Rectangle','R'],['ellipse','Ellipse','O'],['triangle','Triangle','Y'],['diamond','Diamond','D'],['star','Star','S'],['bubble','Speech bubble','U'],'-',['text','Text','T']];
 const group=t=>['move','brush','eraser','text'].includes(t)?t:'shape';
 
 const state={tool:'brush',brush:'pen',color:'#1b1d22',size:5,alpha:1,fill:'none',font:'hand',smooth:.3,sym:'off',bg:'paper'};
 let objs=[],hist=[[]],hi=0,sel=null,cur=null,drag=null,active=null,editing=null,lz=[0,0];
-let W=0,H=0,dpr=1,pat=null,raf=0,inkDirty=true;
+let textAt=null,W=0,H=0,dpr=1,pat=null,raf=0,inkDirty=true;
 
 const cv=$('#cv'),ctx=cv.getContext('2d'),ink=document.createElement('canvas'),ictx=ink.getContext('2d'),tmp=document.createElement('canvas'),tctx=tmp.getContext('2d'),mctx=document.createElement('canvas').getContext('2d');
 const sheet=$('#sheet'),ring=$('#ring'),hint=$('#hint'),toastEl=$('#toast');
@@ -284,7 +291,7 @@ function openText(x,y,o){
   ta.addEventListener('blur',()=>{if(active&&active.ta===ta)commitText()});
   ta.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Escape'||(e.key==='Enter'&&(e.ctrlKey||e.metaKey))){e.preventDefault();commitText()}});
   sheet.appendChild(ta);fit();active={ta,x,y,o,font:F,fs,color,alpha};editing=o||null;sel=null;inkDirty=true;hint.hidden=true;schedule();
-  ta.focus();setTimeout(()=>ta.focus(),30)}
+  ta.focus({preventScroll:true});setTimeout(()=>ta.focus({preventScroll:true}),30)}
 function commitText(){
   if(!active)return;const a=active;active=null;const val=a.ta.value.replace(/\s+$/,'');a.ta.remove();editing=null;
   if(val.trim()){const n={t:'text',x:a.x,y:a.y,text:val,font:a.font,fs:a.fs,color:a.color,alpha:a.alpha};
@@ -295,9 +302,9 @@ function commitText(){
 /* ---------- pointer input ---------- */
 const pos=e=>{const r=cv.getBoundingClientRect();return[e.clientX-r.left,e.clientY-r.top]};
 cv.addEventListener('pointerdown',e=>{
-  if(e.pointerType==='mouse'&&e.button!==0)return;
+  if(!e.isPrimary||cur||drag||(e.pointerType==='mouse'&&e.button!==0))return;
   commitText();const[x,y]=pos(e),t=state.tool;
-  if(t==='text'){const h=hit(x,y);openText(h&&h.t==='text'?h.x:x,h&&h.t==='text'?h.y:y,h&&h.t==='text'?h:null);return}
+  if(t==='text'){textAt=[x,y];return}
   cv.setPointerCapture(e.pointerId);hint.hidden=true;
   if(t==='move'){const h=hit(x,y);sel=h;drag=h?{i:objs.indexOf(h),orig:h,x,y,moved:false}:null;schedule();return}
   sel=null;
@@ -329,6 +336,8 @@ function end(){
   if(o.t==='shape'&&Math.abs(o.x2-o.x1)<3&&Math.abs(o.y2-o.y1)<3){schedule();return}
   objs.push(o);commit()}
 cv.addEventListener('pointerup',end);cv.addEventListener('pointercancel',end);
+cv.addEventListener('click',e=>{if(state.tool!=='text'||!textAt)return;const[x,y]=textAt;textAt=null;const h=hit(x,y),t=h&&h.t==='text';openText(t?h.x:x,t?h.y:y,t?h:null)});
+cv.addEventListener('contextmenu',e=>e.preventDefault());
 cv.addEventListener('dblclick',e=>{const[x,y]=pos(e),h=hit(x,y);if(h&&h.t==='text')openText(h.x,h.y,h)});
 
 /* ---------- restyle selection ---------- */
@@ -341,7 +350,7 @@ function restyle(prop,val,final){
 /* ---------- UI ---------- */
 function toast(m){toastEl.textContent=m;toastEl.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>toastEl.classList.remove('on'),2200)}
 const bgForUi=()=>BGS[state.bg];
-function setTool(t){commitText();state.tool=t;if(t!=='move')sel=null;ring.style.display='none';
+function setTool(t){commitText();textAt=null;state.tool=t;if(t!=='move')sel=null;ring.style.display='none';
   cv.style.cursor=t==='text'?'text':t==='move'?'default':'crosshair';syncUI();schedule()}
 function setColor(c){state.color=c;syncUI();renderPreviews();if(sel)restyle('color',c,true)}
 const segs_=[];
@@ -393,6 +402,10 @@ function renderPreviews(){
 /* ---------- header actions ---------- */
 const btn=(id,icon,label)=>{$(id).innerHTML=ic(ICONS[icon])+`<span>${label}</span>`};
 btn('#undo','undo','Undo');btn('#redo','redo','Redo');btn('#clear','trash','Clear');btn('#copy','copy','Copy');btn('#save','save','Save PNG');
+btn('#opts','sliders','Options');const mq=matchMedia('(max-width:760px)');
+const setMin=m=>{document.body.classList.toggle('min',m);$('#opts').setAttribute('aria-pressed',String(!m));setTimeout(resize,0)};
+$('#opts').onclick=()=>setMin(!document.body.classList.contains('min'));
+mq.addEventListener&&mq.addEventListener('change',e=>setMin(e.matches));
 $('#undo').onclick=undo;$('#redo').onclick=redo;$('#clear').onclick=clearAll;
 function exportCanvas(){commitText();const e=document.createElement('canvas');e.width=cv.width;e.height=cv.height;const c=e.getContext('2d');paintBg(c);c.drawImage(ink,0,0);return e}
 $('#save').onclick=()=>{exportCanvas().toBlob(async b=>{
@@ -433,7 +446,7 @@ function starter(){
 let loaded=null;
 try{const s=JSON.parse(localStorage.getItem('sketchbench:v1')||'null');if(s&&Array.isArray(s.objs)){loaded=s;if(BGS[s.bg])state.bg=s.bg}}catch(e){}
 new ResizeObserver(resize).observe(sheet);
-resize();
+setMin(mq.matches);resize();
 objs=loaded?loaded.objs:starter();hist=[objs.slice()];hi=0;
 setTool('brush');ui();renderPreviews();schedule();
 Promise.all(Object.values(FONTS).map(F=>document.fonts.load(`${F.w} 20px "${F.f}"`))).then(()=>{inkDirty=true;renderPreviews();schedule()}).catch(()=>{});
