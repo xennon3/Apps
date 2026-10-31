@@ -106,7 +106,7 @@ class SetupActivity : Activity() {
                 when {
                     size > 0 && tmp.length() != size -> "Copy incomplete (${tmp.length()} of $size bytes). Try again."
                     name.endsWith(".task") && !isZip(tmp) ->
-                        "\"$name\" does not look like a .task (header: ${header(tmp)}, ${tmp.length()} bytes)."
+                        "\"$name\" is incomplete: no zip end record (${tmp.length()} bytes, header ${header(tmp)}). Download it again."
                     else -> null
                 }
             } catch (e: Exception) { "Copy failed: ${e.message}" }
@@ -119,8 +119,18 @@ class SetupActivity : Activity() {
         f.inputStream().use { i -> ByteArray(16).also { i.read(it) }.joinToString(" ") { "%02x".format(it) } }
     }.getOrDefault("?")
 
-    /** .task bundles are zips ("PK"); size was already checked against the server. */
-    private fun isZip(f: File) = header(f).startsWith("50 4b")
+    /**
+     * A zip is valid when its end-of-central-directory record ("PK\u0005\u0006") sits in the last 64 KB.
+     * Model bundles can have data before the first "PK", so the start of the file proves nothing,
+     * while a truncated download has no such record.
+     */
+    private fun isZip(f: File): Boolean = runCatching {
+        java.io.RandomAccessFile(f, "r").use { r ->
+            val n = minOf(r.length(), 70_000L).toInt()
+            val tail = ByteArray(n); r.seek(r.length() - n); r.readFully(tail)
+            (0..n - 4).any { tail[it] == 0x50.toByte() && tail[it + 1] == 0x4b.toByte() && tail[it + 2] == 5.toByte() && tail[it + 3] == 6.toByte() }
+        }
+    }.getOrDefault(false)
 
     private fun startDownload(token: String) {
         downloading = true; cancel = false
@@ -138,7 +148,7 @@ class SetupActivity : Activity() {
                 }
             }
             if (result == "") {
-                result = if (!isZip(part)) { part.delete(); "Downloaded file does not look like a .task (header: ${header(part)}). Try again." }
+                result = if (!isZip(part)) { part.delete(); "Download finished but the file end is missing (${part.length()} bytes, header ${header(part)})." }
                 else { ModelStore.file(this).delete(); part.renameTo(ModelStore.file(this)); null }
             }
             downloading = false
