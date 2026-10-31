@@ -1,8 +1,7 @@
 # LLM Keyboard
 
 An Android keyboard (IME) that predicts words and whole sentences, and can translate, simplify
-or fix your text, using an open-weights LLM that runs **on the phone**. The app has no INTERNET
-permission, so nothing you type can leave the device.
+or fix your text, using an open-weights LLM that runs **on the phone**. The keyboard itself never touches the network; only the setup screen uses INTERNET, to download the model.
 
 ## How it predicts
 | Layer | Latency | Does |
