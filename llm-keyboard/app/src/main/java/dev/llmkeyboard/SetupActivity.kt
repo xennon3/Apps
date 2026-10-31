@@ -79,7 +79,7 @@ class SetupActivity : Activity() {
         val am = getSystemService(ACTIVITY_SERVICE) as ActivityManager
         val exits = if (android.os.Build.VERSION.SDK_INT >= 30)
             am.getHistoricalProcessExitReasons(packageName, 0, 3).joinToString("\n") { "exit: reason=${it.reason} ${it.description}" } else ""
-        diag.text = "--- diagnostics ---\n" +  (if (ModelStore.exists(this)) "model.task = ${ModelStore.file(this).length()} bytes\n" else "") + runCatching { ModelStore.log(this).readText() }.getOrDefault("(no log yet)") + exits
+        diag.text = "--- diagnostics ---\n" +  (if (ModelStore.exists(this)) "model.task = ${ModelStore.file(this).length()} bytes, header ${header(ModelStore.file(this))}\n" else "") + runCatching { ModelStore.log(this).readText() }.getOrDefault("(no log yet)") + exits
     }
 
     private fun refreshStatus() {
@@ -106,7 +106,7 @@ class SetupActivity : Activity() {
                 when {
                     size > 0 && tmp.length() != size -> "Copy incomplete (${tmp.length()} of $size bytes). Try again."
                     name.endsWith(".task") && !isZip(tmp) ->
-                        "\"$name\" is corrupt or its download was cut short (${tmp.length()} bytes). Delete it and download again."
+                        "\"$name\" does not look like a .task (header: ${header(tmp)}, ${tmp.length()} bytes)."
                     else -> null
                 }
             } catch (e: Exception) { "Copy failed: ${e.message}" }
@@ -115,7 +115,12 @@ class SetupActivity : Activity() {
         }
     }
 
-    private fun isZip(f: File) = try { java.util.zip.ZipFile(f).close(); true } catch (e: Exception) { false }
+    private fun header(f: File): String = runCatching {
+        f.inputStream().use { i -> ByteArray(16).also { i.read(it) }.joinToString(" ") { "%02x".format(it) } }
+    }.getOrDefault("?")
+
+    /** .task bundles are zips ("PK"); size was already checked against the server. */
+    private fun isZip(f: File) = header(f).startsWith("50 4b")
 
     private fun startDownload(token: String) {
         downloading = true; cancel = false
@@ -133,7 +138,7 @@ class SetupActivity : Activity() {
                 }
             }
             if (result == "") {
-                result = if (!isZip(part)) { part.delete(); "Downloaded file is not a valid .task. Try again." }
+                result = if (!isZip(part)) { part.delete(); "Downloaded file does not look like a .task (header: ${header(part)}). Try again." }
                 else { ModelStore.file(this).delete(); part.renameTo(ModelStore.file(this)); null }
             }
             downloading = false
