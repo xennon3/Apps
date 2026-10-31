@@ -24,6 +24,7 @@ class LlmKeyboardService : InputMethodService() {
     private val llmTask = Runnable { predictSentence() }
     private var live = false               // live translate: each finished word is replaced by its translation
     private var lastText = ""
+    private var liveInfo = ""             // last live-translate result, shown in the strip
 
     override fun onCreate() {
         super.onCreate()
@@ -109,7 +110,7 @@ class LlmKeyboardService : InputMethodService() {
         val text = before()
         val keep = pendingSentence
         pendingSentence = ""
-        if (live) { kb.status("Live translate → ${languages[langIdx]}  (tap Live to stop)") }
+        if (live) { kb.status(liveInfo.ifEmpty { "Live → ${languages[langIdx]}: type a word + space" }) }
         else if (engine == null) kb.status(engineMsg) else kb.setSentence("")
         if (private_) { kb.setWords(emptyList()); return }
         val prefix = text.takeLastWhile { it.isLetter() || it == '\'' }
@@ -154,7 +155,7 @@ class LlmKeyboardService : InputMethodService() {
         val selected = ic()?.getSelectedText(0)?.toString().orEmpty()
         if (selected.isNotEmpty()) { transform { Prompts.translate(it, languages[langIdx]) }; return }
         if (engine == null) { kb.status(engineMsg); return }
-        if (live) stopLive() else { live = true; kb.setTranslating(true) }
+        if (live) stopLive() else { live = true; liveInfo = ""; kb.setTranslating(true) }
         refresh()
     }
 
@@ -171,10 +172,14 @@ class LlmKeyboardService : InputMethodService() {
         val context = text.takeLastWhile { it !in ".?!\n" }.trim().takeLast(160)
         val lang = languages[langIdx]
         if (trail.any { it in ".?!" }) { live = false; kb.setTranslating(false) }   // sentence finished
+        liveInfo = "Translating “$word”…"; if (live) kb.status(liveInfo)
         worker.execute {
             val out = cleanWord(eng.generate(Prompts.translateWord(context, word, lang), maxWords = 3), word)
-            if (out.isEmpty() || out.equals(word, ignoreCase = true)) return@execute
-            ui.post { replaceWord(word, trail, out) }
+            ui.post {
+                liveInfo = if (out.isEmpty()) "No translation for “$word”" else "$word → $out"
+                if (live) kb.status(liveInfo)
+                if (out.isNotEmpty() && !out.equals(word, ignoreCase = true)) replaceWord(word, trail, out)
+            }
         }
     }
 

@@ -2,13 +2,12 @@ package dev.llmkeyboard
 
 import android.content.Context
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
-import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
 import java.io.File
 
 /** Swap this out (e.g. for a llama.cpp JNI wrapper) without touching the keyboard. */
 interface LlmEngine {
     val ready: Boolean
-    /** Streams text to [onPartial]; stops early at [maxWords] words or as soon as [stale] returns true. */
+    /** Streams text to [onPartial]. [stale] is checked before starting; [maxWords] is a hint for callers. */
     fun generate(prompt: String, maxWords: Int = 0, stale: () -> Boolean = { false }, onPartial: (String) -> Unit = {}): String
 }
 
@@ -31,29 +30,18 @@ class MediaPipeEngine(context: Context, modelFile: File) : LlmEngine {
 
     override val ready get() = llm != null
 
+    /**
+     * Uses the plain LlmInference call. A per-call session with cancel() crashed natively on device
+     * (exit reason 5), so generation is never cancelled; stale requests are skipped before they start.
+     */
     @Synchronized
     override fun generate(prompt: String, maxWords: Int, stale: () -> Boolean, onPartial: (String) -> Unit): String {
         val engine = llm ?: return ""
-        val session = LlmInferenceSession.createFromOptions(
-            engine,
-            LlmInferenceSession.LlmInferenceSessionOptions.builder().setTopK(1).setTemperature(0f).build()
-        )
+        if (stale()) return ""
         val acc = StringBuffer()
         try {
-            session.addQueryChunk(prompt)
-            val future = session.generateResponseAsync { part, _ -> acc.append(part); onPartial(acc.toString()) }
-            var stopped = false
-            while (!future.isDone) {
-                val words = acc.trim().split(Regex("\\s+")).size
-                if (!stopped && (stale() || (maxWords > 0 && words > maxWords))) {
-                    session.cancelGenerateResponseAsync(); stopped = true
-                }
-                Thread.sleep(15)
-            }
-            runCatching { future.get() }
+            engine.generateResponseAsync(prompt) { part, _ -> acc.append(part); onPartial(acc.toString()) }.get()
         } catch (_: Exception) {
-        } finally {
-            runCatching { session.close() }
         }
         return acc.toString().trim()
     }
