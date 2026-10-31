@@ -59,6 +59,9 @@ class KeyboardUi(
     fun setLanguage(name: String) { langChip.text = name.take(2).uppercase() }
     fun status(text: String) { sentence.text = text }
 
+    /** Never rebuild the keys from inside a touch handler: the pressed view is being dispatched to. */
+    private fun rerender() { handler.post { render() } }
+
     private fun render() {
         keys.removeAllViews()
         val rows = if (symbols) listOf("1234567890", "@#$%&-+()/", "*\"':;!?")
@@ -66,16 +69,16 @@ class KeyboardUi(
         else listOf("qwertyuiop", "asdfghjkl", "zxcvbnm")
         rows.forEachIndexed { i, r ->
             val line = row()
-            if (i == 2 && !symbols) line.addView(key(if (shift) "⬆" else "⇧", 1.4f) { shift = !shift; render() })
+            if (i == 2 && !symbols) line.addView(key(if (shift) "⬆" else "⇧", 1.4f) { shift = !shift; rerender() })
             r.forEach { c ->
                 val s = if (shift && c.isLetter()) c.uppercaseChar().toString() else c.toString()
-                line.addView(key(s, 1f) { onText(s); if (shift) { shift = false; render() } })
+                line.addView(key(s, 1f) { onText(s); if (shift) { shift = false; rerender() } })
             }
             if (i == 2) line.addView(key("⌫", 1.4f, repeat = true) { onBackspace() })
             keys.addView(line)
         }
         val bottom = row()
-        bottom.addView(key(if (symbols) "ABC" else "?123", 1.4f) { symbols = !symbols; render() })
+        bottom.addView(key(if (symbols) "ABC" else "?123", 1.4f) { symbols = !symbols; rerender() })
         bottom.addView(key(",", 1f) { onText(",") })
         bottom.addView(key("space", 5f) { onText(" ") })
         bottom.addView(key(".", 1f) { onText(".") })
