@@ -35,7 +35,7 @@ class KeyboardUi(
     private val keys = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
     private var shift = false
     private var symbols = false
-    private val handler = Handler(Looper.getMainLooper())
+    private val uiHandler = Handler(Looper.getMainLooper())
     var azerty = true
         set(v) { if (field != v) { field = v; render() } }
 
@@ -59,8 +59,8 @@ class KeyboardUi(
     fun setLanguage(name: String) { langChip.text = name.take(2).uppercase() }
     fun status(text: String) { sentence.text = text }
 
-    /** Never rebuild the keys from inside a touch handler: the pressed view is being dispatched to. */
-    private fun rerender() { handler.post { render() } }
+    /** Never rebuild the keys from inside a touch uiHandler: the pressed view is being dispatched to. */
+    private fun rerender() { uiHandler.post { render() } }
 
     private fun render() {
         keys.removeAllViews()
@@ -101,14 +101,14 @@ class KeyboardUi(
 
     /** Fires on finger-DOWN (not on release) so fast typing never drops keys. */
     private fun View.onPress(repeat: Boolean = false, tap: () -> Unit) {
-        val again = object : Runnable { override fun run() { tap(); handler.postDelayed(this, 55) } }
+        val again = object : Runnable { override fun run() { tap(); uiHandler.postDelayed(this, 55) } }
         setOnTouchListener { v, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     v.alpha = 0.6f; v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); tap()
-                    if (repeat) handler.postDelayed(again, 380)
+                    if (repeat) uiHandler.postDelayed(again, 380)
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { v.alpha = 1f; handler.removeCallbacks(again) }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { v.alpha = 1f; uiHandler.removeCallbacks(again) }
             }
             true
         }
