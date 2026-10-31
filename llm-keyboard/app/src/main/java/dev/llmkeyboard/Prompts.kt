@@ -6,8 +6,12 @@ object Prompts {
         "<start_of_turn>user\n$instruction<end_of_turn>\n<start_of_turn>model\n"
 
     fun continuation(textBefore: String) = chat(
-        "Continue the text below with the most likely next 3 to 12 words, finishing the sentence. " +
-            "Output ONLY the continuation, no quotes, do not repeat the text.\n\nText: $textBefore"
+        "Continue this text with the next 3 to 10 words. Output ONLY the continuation.\n\n$textBefore"
+    )
+
+    fun translateWord(sentence: String, word: String, language: String) = chat(
+        "Sentence so far: $sentence\nTranslate only the word \"$word\" into $language so it fits the sentence. " +
+            "Reply with just that word."
     )
 
     fun translate(text: String, language: String) = chat(

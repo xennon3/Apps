@@ -32,6 +32,7 @@ class KeyboardUi(
     private val sentence = chip(ACCENT) { onSentence() }
     private val actions = row()
     private val langChip: TextView
+    private val translateBtn: TextView
     private val keys = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
     private var shift = false
     private var symbols = false
@@ -44,7 +45,8 @@ class KeyboardUi(
         strip.addView(sentence, lp(2f))
         root.addView(strip)
 
-        actions.addView(action("Translate") { onTranslate() }, lp(1f))
+        translateBtn = action("Translate") { onTranslate() }
+        actions.addView(translateBtn, lp(1f))
         langChip = action("EN") { onLanguage() }
         actions.addView(langChip, lp(0.5f))
         actions.addView(action("Simplify") { onSimplify() }, lp(1f))
@@ -56,6 +58,10 @@ class KeyboardUi(
 
     fun setWords(list: List<String>) = words.forEachIndexed { i, v -> v.text = list.getOrElse(i) { "" } }
     fun setSentence(text: String) { sentence.text = if (text.isEmpty()) "" else "✨ $text" }
+    fun setTranslating(on: Boolean) {
+        translateBtn.text = if (on) "● Live" else "Translate"
+        translateBtn.background = pill(if (on) LIVE else ACTION)
+    }
     fun setLanguage(name: String) { langChip.text = name.take(2).uppercase() }
     fun status(text: String) { sentence.text = text }
 
@@ -130,7 +136,7 @@ class KeyboardUi(
 
     private companion object {
         val BG = Color.parseColor("#1B1B1F"); val KEY = Color.parseColor("#34343A")
-        val ACTION = Color.parseColor("#2B3A55"); val ACCENT = Color.parseColor("#4A3A8C")
+        val LIVE = Color.parseColor("#1F7A52"); val ACTION = Color.parseColor("#2B3A55"); val ACCENT = Color.parseColor("#4A3A8C")
         val ACCENT_NONE = Color.parseColor("#26262B")
     }
 }
