@@ -1,6 +1,7 @@
 package dev.llmkeyboard
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -13,6 +14,7 @@ import kotlin.concurrent.thread
 
 class SetupActivity : Activity() {
     private lateinit var status: TextView
+    private lateinit var diag: TextView
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
@@ -36,8 +38,20 @@ class SetupActivity : Activity() {
         fun label() { layout.text = "Layout: " + if (prefs.getBoolean("azerty", true)) "AZERTY (tap for QWERTY)" else "QWERTY (tap for AZERTY)" }
         layout.setOnClickListener { prefs.edit().putBoolean("azerty", !prefs.getBoolean("azerty", true)).apply(); label() }
         label(); col.addView(layout)
-        setContentView(col)
+        diag = TextView(this).apply { textSize = 11f; setTextIsSelectable(true) }
+        col.addView(diag)
+        setContentView(android.widget.ScrollView(this).apply { addView(col) })
         refreshStatus()
+    }
+
+    override fun onResume() { super.onResume(); if (::diag.isInitialized) showDiag() }
+
+    /** Everything needed to debug a keyboard problem, selectable so it can be copied. */
+    private fun showDiag() {
+        val am = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+        val exits = if (android.os.Build.VERSION.SDK_INT >= 30)
+            am.getHistoricalProcessExitReasons(packageName, 0, 3).joinToString("\n") { "exit: reason=${it.reason} ${it.description}" } else ""
+        diag.text = "--- diagnostics ---\n" + runCatching { ModelStore.log(this).readText() }.getOrDefault("(no log yet)") + exits
     }
 
     private fun refreshStatus() {

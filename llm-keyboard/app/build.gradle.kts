@@ -22,5 +22,5 @@ android {
 
 dependencies {
     // On-device LLM runtime (no network needed once a model file is loaded).
-    implementation("com.google.mediapipe:tasks-genai:0.10.24")
+    implementation("com.google.mediapipe:tasks-genai:0.10.35")
 }

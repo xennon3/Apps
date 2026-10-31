@@ -25,6 +25,11 @@ class LlmKeyboardService : InputMethodService() {
 
     override fun onCreate() {
         super.onCreate()
+        val old = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { t, e ->
+            runCatching { ModelStore.log(this).appendText("CRASH in ${t.name}:\n${e.stackTraceToString().take(2500)}\n") }
+            old?.uncaughtException(t, e)
+        }
         ngram = NgramModel(File(filesDir, "ngram.tsv"))
         loadEngine()
     }
@@ -42,7 +47,8 @@ class LlmKeyboardService : InputMethodService() {
         worker.execute {
             val e = MediaPipeEngine(this, f)
             engine = e.takeIf { it.ready }
-            engineMsg = e.error ?: "Model ready"
+            engineMsg = e.error?.take(60) ?: "Model ready"
+            runCatching { ModelStore.log(this).writeText("Model load: ${e.error ?: "OK"}\nFile: ${f.length()} bytes\n") }
             loading = false
             ui.post { refresh() }
         }

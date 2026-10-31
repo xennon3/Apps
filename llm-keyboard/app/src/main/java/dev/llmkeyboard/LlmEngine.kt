@@ -24,7 +24,7 @@ class MediaPipeEngine(context: Context, modelFile: File) : LlmEngine {
                 .build()
         )
     } catch (t: Throwable) {
-        error = "${t.javaClass.simpleName}: ${t.message}".take(120); null
+        error = "${t.javaClass.simpleName}: ${t.message}"; null
     }
 
     override val ready get() = llm != null
@@ -36,4 +36,5 @@ class MediaPipeEngine(context: Context, modelFile: File) : LlmEngine {
 object ModelStore {
     fun file(context: Context) = File(context.filesDir, "model.task")
     fun exists(context: Context) = file(context).length() > 0
+    fun log(context: Context) = File(context.filesDir, "diagnostics.txt")
 }
