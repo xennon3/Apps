@@ -59,7 +59,7 @@ class KeyboardUi(
     fun setLanguage(name: String) { langChip.text = name.take(2).uppercase() }
     fun status(text: String) { sentence.text = text }
 
-    /** Never rebuild the keys from inside a touch uiHandler: the pressed view is being dispatched to. */
+    /** Never rebuild the keys from inside a touch handler: the pressed view is being dispatched to. */
     private fun rerender() { uiHandler.post { render() } }
 
     private fun render() {
