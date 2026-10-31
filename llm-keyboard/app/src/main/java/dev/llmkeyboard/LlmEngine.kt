@@ -1,0 +1,34 @@
+package dev.llmkeyboard
+
+import android.content.Context
+import com.google.mediapipe.tasks.genai.llminference.LlmInference
+import java.io.File
+
+/** Swap this out (e.g. for a llama.cpp JNI wrapper) without touching the keyboard. */
+interface LlmEngine {
+    val ready: Boolean
+    fun generate(prompt: String): String
+}
+
+/** Runs any MediaPipe-compatible open-weights model (.task / .litertlm), e.g. Gemma 3 1B or Qwen2.5 0.5B. */
+class MediaPipeEngine(context: Context, modelFile: File) : LlmEngine {
+    private val llm: LlmInference? = runCatching {
+        LlmInference.createFromOptions(
+            context,
+            LlmInference.LlmInferenceOptions.builder()
+                .setModelPath(modelFile.absolutePath)
+                .setMaxTokens(384)
+                .build()
+        )
+    }.getOrNull()
+
+    override val ready get() = llm != null
+
+    @Synchronized
+    override fun generate(prompt: String): String = llm?.generateResponse(prompt)?.trim().orEmpty()
+}
+
+object ModelStore {
+    fun file(context: Context) = File(context.filesDir, "model.task")
+    fun exists(context: Context) = file(context).length() > 0
+}
