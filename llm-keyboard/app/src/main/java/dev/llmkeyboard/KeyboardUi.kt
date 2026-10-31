@@ -5,6 +5,10 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
+import android.os.Handler
+import android.os.Looper
+import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -31,6 +35,9 @@ class KeyboardUi(
     private val keys = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
     private var shift = false
     private var symbols = false
+    private val handler = Handler(Looper.getMainLooper())
+    var azerty = true
+        set(v) { if (field != v) { field = v; render() } }
 
     init {
         words.forEach { strip.addView(it, lp(1f)) }
@@ -55,6 +62,7 @@ class KeyboardUi(
     private fun render() {
         keys.removeAllViews()
         val rows = if (symbols) listOf("1234567890", "@#$%&-+()/", "*\"':;!?")
+        else if (azerty) listOf("azertyuiop", "qsdfghjklm", "wxcvbn")
         else listOf("qwertyuiop", "asdfghjkl", "zxcvbnm")
         rows.forEachIndexed { i, r ->
             val line = row()
@@ -63,7 +71,7 @@ class KeyboardUi(
                 val s = if (shift && c.isLetter()) c.uppercaseChar().toString() else c.toString()
                 line.addView(key(s, 1f) { onText(s); if (shift) { shift = false; render() } })
             }
-            if (i == 2) line.addView(key("⌫", 1.4f) { onBackspace() })
+            if (i == 2) line.addView(key("⌫", 1.4f, repeat = true) { onBackspace() })
             keys.addView(line)
         }
         val bottom = row()
@@ -88,19 +96,34 @@ class KeyboardUi(
         ellipsize = android.text.TextUtils.TruncateAt.END
     }
 
-    private fun key(text: String, weight: Float, tap: () -> Unit): View =
-        label(text, KEY, 18f).apply { minHeight = dp(46); setPadding(0, dp(10), 0, dp(10)); setOnClickListener { tap() } }
+    /** Fires on finger-DOWN (not on release) so fast typing never drops keys. */
+    private fun View.onPress(repeat: Boolean = false, tap: () -> Unit) {
+        val again = object : Runnable { override fun run() { tap(); handler.postDelayed(this, 55) } }
+        setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    v.alpha = 0.6f; v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); tap()
+                    if (repeat) handler.postDelayed(again, 380)
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { v.alpha = 1f; handler.removeCallbacks(again) }
+            }
+            true
+        }
+    }
+
+    private fun key(text: String, weight: Float, repeat: Boolean = false, tap: () -> Unit): View =
+        label(text, KEY, 18f).apply { minHeight = dp(46); setPadding(0, dp(10), 0, dp(10)); onPress(repeat, tap) }
             .also { it.layoutParams = lp(weight) }
 
     private fun chip(color: Int, tap: (String) -> Unit): TextView =
         label("", color, 15f).apply {
             minHeight = dp(40); setPadding(dp(6), dp(8), dp(6), dp(8))
-            setOnClickListener { tap(text.toString().removePrefix("✨ ")) }
+            onPress { tap(text.toString().removePrefix("✨ ")) }
             if (color == ACCENT) setTypeface(typeface, Typeface.ITALIC)
         }
 
     private fun action(text: String, tap: () -> Unit): TextView =
-        label(text, ACTION, 13f).apply { setPadding(0, dp(6), 0, dp(6)); setOnClickListener { tap() } }
+        label(text, ACTION, 13f).apply { setPadding(0, dp(6), 0, dp(6)); onPress { tap() } }
 
     private companion object {
         val BG = Color.parseColor("#1B1B1F"); val KEY = Color.parseColor("#34343A")

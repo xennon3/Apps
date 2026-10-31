@@ -12,7 +12,10 @@ interface LlmEngine {
 
 /** Runs any MediaPipe-compatible open-weights model (.task / .litertlm), e.g. Gemma 3 1B or Qwen2.5 0.5B. */
 class MediaPipeEngine(context: Context, modelFile: File) : LlmEngine {
-    private val llm: LlmInference? = runCatching {
+    var error: String? = null
+        private set
+
+    private val llm: LlmInference? = try {
         LlmInference.createFromOptions(
             context,
             LlmInference.LlmInferenceOptions.builder()
@@ -20,7 +23,9 @@ class MediaPipeEngine(context: Context, modelFile: File) : LlmEngine {
                 .setMaxTokens(384)
                 .build()
         )
-    }.getOrNull()
+    } catch (t: Throwable) {
+        error = "${t.javaClass.simpleName}: ${t.message}".take(120); null
+    }
 
     override val ready get() = llm != null
 

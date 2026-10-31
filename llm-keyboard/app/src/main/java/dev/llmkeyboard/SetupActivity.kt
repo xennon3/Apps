@@ -31,6 +31,11 @@ class SetupActivity : Activity() {
         btn("3. Switch to this keyboard") {
             (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showInputMethodPicker()
         }
+        val prefs = getSharedPreferences("prefs", MODE_PRIVATE)
+        val layout = Button(this)
+        fun label() { layout.text = "Layout: " + if (prefs.getBoolean("azerty", true)) "AZERTY (tap for QWERTY)" else "QWERTY (tap for AZERTY)" }
+        layout.setOnClickListener { prefs.edit().putBoolean("azerty", !prefs.getBoolean("azerty", true)).apply(); label() }
+        label(); col.addView(layout)
         setContentView(col)
         refreshStatus()
     }

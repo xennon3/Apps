@@ -31,9 +31,21 @@ class LlmKeyboardService : InputMethodService() {
 
     override fun onDestroy() { ngram.save(); worker.shutdown(); super.onDestroy() }
 
+    @Volatile private var engineMsg = "No model: load one in the app"
+    @Volatile private var loading = false
+    private var triedStamp = 0L
+
     private fun loadEngine() {
-        if (engine != null || !ModelStore.exists(this)) return
-        worker.execute { engine = MediaPipeEngine(this, ModelStore.file(this)).takeIf { it.ready } }
+        val f = ModelStore.file(this)
+        if (engine != null || loading || !f.exists() || f.lastModified() == triedStamp) return
+        loading = true; triedStamp = f.lastModified(); engineMsg = "Loading model…"
+        worker.execute {
+            val e = MediaPipeEngine(this, f)
+            engine = e.takeIf { it.ready }
+            engineMsg = e.error ?: "Model ready"
+            loading = false
+            ui.post { refresh() }
+        }
     }
 
     override fun onCreateInputView(): View {
@@ -61,6 +73,7 @@ class LlmKeyboardService : InputMethodService() {
             (cls == InputType.TYPE_CLASS_TEXT && variation in PASSWORD_VARIATIONS) ||
             cls == InputType.TYPE_CLASS_NUMBER && variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
         loadEngine()
+        if (::kb.isInitialized) kb.azerty = getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("azerty", true)
         refresh()
     }
 
@@ -85,7 +98,7 @@ class LlmKeyboardService : InputMethodService() {
         ui.removeCallbacks(llmTask)
         pendingSentence = ""
         if (!::kb.isInitialized) return
-        kb.setSentence("")
+        if (engine == null) kb.status(engineMsg) else kb.setSentence("")
         if (private_) { kb.setWords(emptyList()); return }
         val text = before()
         val prefix = text.takeLastWhile { it.isLetter() || it == '\'' }
@@ -127,7 +140,7 @@ class LlmKeyboardService : InputMethodService() {
     private fun transform(prompt: (String) -> String) {
         val conn = ic() ?: return
         val eng = engine
-        if (eng == null) { kb.status("Load a model in the app first"); return }
+        if (eng == null) { kb.status(engineMsg); return }
         val selected = conn.getSelectedText(0)?.toString().orEmpty()
         val source = selected.ifEmpty { before(500) }
         if (source.isBlank()) return
