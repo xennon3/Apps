@@ -24,6 +24,11 @@ class LlmKeyboardService : InputMethodService() {
     private val llmTask = Runnable { predictSentence() }
     private var live = false               // live translate: each finished word is replaced by its translation
     private var lastText = ""
+    private val liveOriginal = StringBuilder()   // what the user actually typed during live translate
+    private var liveAnchor = ""                  // text before the cursor when live translate started
+    private var polishToken = 0                  // bump to cancel a pending sentence polish
+    private var polishing = false
+    private val polishExtra = StringBuilder()    // text typed after the sentence while the polish runs
     private var liveInfo = ""             // last live-translate result, shown in the strip
 
     override fun onCreate() {
@@ -61,8 +66,13 @@ class LlmKeyboardService : InputMethodService() {
         kb = KeyboardUi(
             this,
             onText = { commit(it) },
-            onBackspace = { ic()?.deleteSurroundingText(1, 0); refresh() },
-            onEnter = { if (live) { liveTranslate(force = true); stopLive() }; sendDefaultEditorAction(true) },
+            onBackspace = {
+                ic()?.deleteSurroundingText(1, 0)
+                if (live && liveOriginal.isNotEmpty()) liveOriginal.setLength(liveOriginal.length - 1)
+                if (polishing) { if (polishExtra.isNotEmpty()) polishExtra.setLength(polishExtra.length - 1) else polishToken++ }
+                refresh()
+            },
+            onEnter = { if (live) { liveTranslate(force = true); if (live) finishLive() }; sendDefaultEditorAction(true) },
             onWord = { acceptWord(it) },
             onSentence = { acceptSentence() },
             onTranslate = { toggleLiveTranslate() },
@@ -90,6 +100,8 @@ class LlmKeyboardService : InputMethodService() {
 
     private fun commit(s: String) {
         ic()?.commitText(s, 1)
+        if (live) liveOriginal.append(s)
+        if (polishing) polishExtra.append(s)
         if (!private_ && (s == " " || s == "." || s == ",")) learnRecent()
         if (live && s.length == 1 && s[0] in WORD_END) liveTranslate()
         refresh()
@@ -155,11 +167,52 @@ class LlmKeyboardService : InputMethodService() {
         val selected = ic()?.getSelectedText(0)?.toString().orEmpty()
         if (selected.isNotEmpty()) { transform { Prompts.translate(it, languages[langIdx]) }; return }
         if (engine == null) { kb.status(engineMsg); return }
-        if (live) stopLive() else { live = true; liveInfo = ""; kb.setTranslating(true) }
+        if (live) stopLive() else {
+            live = true; liveInfo = ""; kb.setTranslating(true)
+            liveAnchor = before(1000); liveOriginal.clear()
+        }
         refresh()
     }
 
-    private fun stopLive() { live = false; kb.setTranslating(false); refresh() }
+    private fun stopLive() { finishLive(); refresh() }
+
+    /**
+     * Word-by-word output is only a draft (word order stays as typed). When the sentence ends, translate the
+     * whole original sentence at once, which reorders properly, and swap it in for the draft.
+     */
+    private fun finishLive() {
+        val eng = engine
+        val original = liveOriginal.toString().trim()
+        val anchor = liveAnchor
+        live = false; kb.setTranslating(false)
+        if (eng == null || original.split(' ').size < 2) return
+        val lang = languages[langIdx]
+        val token = ++polishToken
+        polishing = true; polishExtra.setLength(0)
+        liveInfo = "Polishing translation…"; kb.status(liveInfo)
+        worker.execute {                      // queued behind the pending word translations
+            val out = eng.generate(Prompts.translate(original, lang)).lineSequence().firstOrNull().orEmpty().trim().trim('"')
+            ui.post { applyPolish(token, anchor, out) }
+        }
+    }
+
+    private fun applyPolish(token: Int, anchor: String, out: String) {
+        val extra = polishExtra.toString()
+        val ok = token == polishToken
+        polishing = false
+        if (!ok || out.isEmpty()) { liveInfo = ""; refresh(); return }
+        val c = ic() ?: return
+        val text = c.getTextBeforeCursor(1000, 0)?.toString() ?: return
+        val tail = anchor.takeLast(150)
+        val start = if (tail.isEmpty()) 0 else text.lastIndexOf(tail).let { if (it < 0) return else it + tail.length }
+        if (!text.endsWith(extra) || text.length - extra.length < start) return
+        c.beginBatchEdit()
+        c.deleteSurroundingText(text.length - start, 0)
+        c.commitText(out + extra, 1)
+        c.endBatchEdit()
+        liveInfo = ""
+        refresh()
+    }
 
     /** Translate the word just finished and swap it in place; the user keeps typing meanwhile. */
     private fun liveTranslate(force: Boolean = false) {
@@ -171,7 +224,7 @@ class LlmKeyboardService : InputMethodService() {
         if (trail.isEmpty() && !force) return
         val context = text.takeLastWhile { it !in ".?!\n" }.trim().takeLast(160)
         val lang = languages[langIdx]
-        if (trail.any { it in ".?!" }) { live = false; kb.setTranslating(false) }   // sentence finished
+        val sentenceDone = trail.any { it in ".?!" }
         liveInfo = "Translating “$word”…"; if (live) kb.status(liveInfo)
         worker.execute {
             val out = cleanWord(eng.generate(Prompts.translateWord(context, word, lang), maxWords = 3), word)
@@ -181,6 +234,7 @@ class LlmKeyboardService : InputMethodService() {
                 if (out.isNotEmpty() && !out.equals(word, ignoreCase = true)) replaceWord(word, trail, out)
             }
         }
+        if (sentenceDone) finishLive()
     }
 
     private fun cleanWord(raw: String, original: String): String {
@@ -208,6 +262,8 @@ class LlmKeyboardService : InputMethodService() {
         val prefix = text.takeLastWhile { it.isLetter() || it == '\'' }
         ic()?.deleteSurroundingText(prefix.length, 0)
         ic()?.commitText("$word ", 1)
+        if (live) { liveOriginal.setLength(maxOf(0, liveOriginal.length - prefix.length)); liveOriginal.append("$word ") }
+        if (polishing) polishToken++
         if (!private_) learnRecent()
         if (live) liveTranslate()
         refresh()
