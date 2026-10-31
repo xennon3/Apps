@@ -48,7 +48,7 @@ class LlmKeyboardService : InputMethodService() {
             val e = MediaPipeEngine(this, f)
             engine = e.takeIf { it.ready }
             engineMsg = e.error?.take(60) ?: "Model ready"
-            runCatching { ModelStore.log(this).writeText("Model load: ${e.error ?: "OK"}\nFile: ${f.length()} bytes\n") }
+            runCatching { ModelStore.log(this).appendText("Model load: ${e.error ?: "OK"}\nFile: ${f.length()} bytes\n") }
             loading = false
             ui.post { refresh() }
         }

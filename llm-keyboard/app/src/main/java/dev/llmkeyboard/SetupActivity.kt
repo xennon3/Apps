@@ -4,6 +4,8 @@ import android.app.Activity
 import android.app.ActivityManager
 import android.content.Intent
 import android.net.Uri
+import android.provider.OpenableColumns
+import java.io.File
 import android.os.Bundle
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
@@ -51,7 +53,7 @@ class SetupActivity : Activity() {
         val am = getSystemService(ACTIVITY_SERVICE) as ActivityManager
         val exits = if (android.os.Build.VERSION.SDK_INT >= 30)
             am.getHistoricalProcessExitReasons(packageName, 0, 3).joinToString("\n") { "exit: reason=${it.reason} ${it.description}" } else ""
-        diag.text = "--- diagnostics ---\n" + runCatching { ModelStore.log(this).readText() }.getOrDefault("(no log yet)") + exits
+        diag.text = "--- diagnostics ---\n" +  (if (ModelStore.exists(this)) "model.task = ${ModelStore.file(this).length()} bytes\n" else "") + runCatching { ModelStore.log(this).readText() }.getOrDefault("(no log yet)") + exits
     }
 
     private fun refreshStatus() {
@@ -63,12 +65,29 @@ class SetupActivity : Activity() {
     override fun onActivityResult(req: Int, res: Int, data: Intent?) {
         super.onActivityResult(req, res, data)
         val uri: Uri = data?.data ?: return
-        status.text = "Copying model…"
+        status.text = "Copying model… keep this screen open"
         thread {
-            runCatching {
-                contentResolver.openInputStream(uri)!!.use { i -> ModelStore.file(this).outputStream().use { o -> i.copyTo(o) } }
-            }.onFailure { ModelStore.file(this).delete() }
-            runOnUiThread { refreshStatus() }
+            var name = ""; var size = -1L
+            contentResolver.query(uri, null, null, null, null)?.use { c ->
+                if (c.moveToFirst()) {
+                    c.getColumnIndex(OpenableColumns.DISPLAY_NAME).takeIf { it >= 0 }?.let { name = c.getString(it) }
+                    c.getColumnIndex(OpenableColumns.SIZE).takeIf { it >= 0 }?.let { size = c.getLong(it) }
+                }
+            }
+            val tmp = File(filesDir, "model.tmp")
+            val problem: String? = try {
+                contentResolver.openInputStream(uri)!!.use { i -> tmp.outputStream().use { o -> i.copyTo(o) } }
+                when {
+                    size > 0 && tmp.length() != size -> "Copy incomplete (${tmp.length()} of $size bytes). Try again."
+                    name.endsWith(".task") && !isZip(tmp) ->
+                        "\"$name\" is corrupt or its download was cut short (${tmp.length()} bytes). Delete it and download again."
+                    else -> null
+                }
+            } catch (e: Exception) { "Copy failed: ${e.message}" }
+            if (problem == null) { ModelStore.file(this).delete(); tmp.renameTo(ModelStore.file(this)) } else tmp.delete()
+            runOnUiThread { refreshStatus(); if (problem != null) status.text = problem }
         }
     }
+
+    private fun isZip(f: File) = try { java.util.zip.ZipFile(f).close(); true } catch (e: Exception) { false }
 }
